@@ -92,6 +92,35 @@ pnpm hc candidates
 
 Candidates are reviewable artifacts. v0 may mark low-risk verified successes as auto-applicable, but the docs should still treat them as queued candidate state rather than completed learning.
 
+## Capability Packs
+
+Capability packs are the portable unit for future HybrowClaw tools, skills, agents, workflows, and channels. They are intentionally closer to npm-style installation, but the harness must inspect risk before anything becomes runnable.
+
+Create `hybrowclaw.capability.json` in the pack root:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "redis-runbook",
+  "name": "Redis Runbook",
+  "version": "0.1.0",
+  "kind": "skill",
+  "entrypoint": "SKILL.md",
+  "permissions": ["filesystem:read"],
+  "sandbox": "read_only",
+  "evals": ["evals/redis-runbook.jsonl"],
+  "digest": "sha256:<signed-or-recorded-digest>"
+}
+```
+
+Inspect it from the terminal:
+
+```bash
+pnpm hc capability inspect /path/to/pack
+```
+
+The inspector blocks malformed manifests, invalid permissions, unsafe shell/sandbox combinations, and secret access without declared environment variable names. Missing evals or digest are warnings today; they become install blockers before capability activation lands.
+
 ## Migration Dry-Runs
 
 v0 migration only scans. It does not import, delete, rewrite, activate, or authenticate against external state.
@@ -156,6 +185,7 @@ pnpm hc provider list
 pnpm hc migrate openclaw --dry-run
 pnpm hc migrate hermes --dry-run
 pnpm hc migrate pi --dry-run
+pnpm hc capability inspect /path/to/pack
 pnpm hc state show
 pnpm hc state export
 ```

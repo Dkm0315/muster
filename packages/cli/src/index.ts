@@ -10,6 +10,7 @@ import {
   configPath,
   ensureDefaultConfig,
   findEpisode,
+  inspectCapabilityPack,
   inspectPiRuntime,
   listLearningCandidates,
   listEpisodes,
@@ -50,6 +51,9 @@ async function main(): Promise<void> {
     case "candidates":
       await candidates();
       return;
+    case "capability":
+      await capability(args);
+      return;
     case "tui":
       await tui();
       return;
@@ -83,6 +87,7 @@ Usage:
   hybrowclaw episodes
   hybrowclaw feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
   hybrowclaw candidates
+  hybrowclaw capability inspect <path>
   hybrowclaw tui
   hybrowclaw tui ask "your prompt"
   hybrowclaw provider list
@@ -196,6 +201,38 @@ async function candidates(): Promise<void> {
       `${candidate.episodeId}\t${candidate.kind}\t${candidate.risk}\tauto=${candidate.autoApply}\t${candidate.summary}`
     );
   }
+}
+
+async function capability(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  const path = args[1];
+  if (subcommand !== "inspect" || !path) {
+    throw new Error("Usage: hybrowclaw capability inspect <path>");
+  }
+  const report = await inspectCapabilityPack(resolve(process.cwd(), path));
+  console.log(`status=${report.status}`);
+  console.log(`risk=${report.risk}`);
+  console.log(`path=${report.path}`);
+  if (report.manifest) {
+    console.log(`id=${report.manifest.id}`);
+    console.log(`name=${report.manifest.name}`);
+    console.log(`version=${report.manifest.version}`);
+    console.log(`kind=${report.manifest.kind}`);
+    console.log(`sandbox=${report.manifest.sandbox}`);
+    console.log(`permissions=${report.manifest.permissions.join(",") || "none"}`);
+    console.log(`secrets=${report.manifest.secrets?.join(",") || "none"}`);
+    console.log(`evals=${report.manifest.evals?.join(",") || "none"}`);
+    console.log(`digest=${report.manifest.digest ?? "missing"}`);
+  }
+  if (report.blockers.length) {
+    console.log("blockers:");
+    for (const blocker of report.blockers) console.log(`- ${blocker}`);
+  }
+  if (report.warnings.length) {
+    console.log("warnings:");
+    for (const warning of report.warnings) console.log(`- ${warning}`);
+  }
+  if (report.status === "blocked") process.exitCode = 1;
 }
 
 async function tui(): Promise<void> {
