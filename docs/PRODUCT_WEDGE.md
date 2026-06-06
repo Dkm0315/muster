@@ -179,18 +179,18 @@ HybrowClaw can connect to Codex, Claude Code, Cursor SDK, OpenHands, OpenAI-comp
 ```text
 @hybrowclaw/core
   config, route planning, provider calls, store, scoped memory, capability inspection,
-  feedback adjudication, cockpit state
+  eval fixtures, feedback adjudication, cockpit state
 
 @hybrowclaw/cli
-  init, doctor, provider, chat, tui, episodes, feedback, candidates, memory,
+  init, doctor, provider, chat, tui, episodes, feedback, candidates, eval, memory,
   capability, migrate, pi, state
 
 @hybrowclaw/ui
   Terminal Cockpit viewer for exported runs, evidence, candidates, and route state
 
 future
-  eval runner, capability activation, temporal graph adapter, runtime adapters,
-  ChatNext/Frappe adapter
+  live provider eval replay, capability activation, temporal graph adapter,
+  runtime adapters, ChatNext/Frappe adapter
 ```
 
 The current implementation is deliberately small. The architecture must stay sharp enough that every future feature either improves trust, context quality, eval coverage, capability safety, or operator experience.

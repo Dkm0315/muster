@@ -9,6 +9,7 @@ This repository is the first v0 scaffold. It intentionally starts lean:
 - cloud and local OpenAI-compatible provider routing
 - episode recording
 - useful/not useful feedback with adjudication
+- replayable eval fixtures seeded from episodes
 - scoped memory ledger with user/tenant/session isolation
 - capability-pack manifest validation
 - migration/doctor surfaces reserved for OpenClaw, Hermes, and pi.dev
@@ -43,6 +44,13 @@ Run a chat, record feedback against the emitted episode id, and inspect learning
 pnpm hc chat "Draft a two-line migration checklist"
 pnpm hc feedback <episode-id> --useful --correct --reason "Worked for the current repo"
 pnpm hc candidates
+```
+
+Seed and run a deterministic eval from a recorded episode:
+
+```bash
+pnpm hc eval seed <episode-id> --expect "important phrase"
+pnpm hc eval run
 ```
 
 Add and search scoped memory without leaking user/session memories into global recall:

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -17,6 +17,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw runtime use-provider/);
   assert.match(stdout, /hybrowclaw capability inspect/);
   assert.match(stdout, /hybrowclaw memory add/);
+  assert.match(stdout, /hybrowclaw eval seed/);
 });
 
 test("CLI can initialize, add codex provider, switch runtime, and render tui", async () => {
@@ -96,6 +97,34 @@ test("CLI memory add and search preserve scoped isolation", async () => {
   assert.ok(id);
   assert.match(scoped.stdout, /CTO-style/);
   assert.match(global.stdout, /No memory matched/);
+});
+
+test("CLI eval seed and run use recorded episode fixtures", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-eval-"));
+  await mkdir(join(cwd, ".hybrowclaw", "data"), { recursive: true });
+  await writeFile(
+    join(cwd, ".hybrowclaw", "data", "episodes.jsonl"),
+    `${JSON.stringify({
+      id: "episode-cli-eval",
+      createdAt: "2026-06-06T00:00:00.000Z",
+      cwd,
+      prompt: "Summarize Redis risk",
+      taskKind: "architecture",
+      runtimeId: "native",
+      providerId: "local",
+      model: "llama3.1",
+      responseText: "Redis risk is high until the patch is deployed.",
+      evidence: [{ kind: "system_check", label: "fixture", status: "passed" }],
+      outcome: { kind: "completed" }
+    })}\n`,
+    "utf8"
+  );
+
+  const seeded = await runCli(["eval", "seed", "episode-cli-eval", "--expect", "patch is deployed"], cwd);
+  const run = await runCli(["eval", "run"], cwd);
+
+  assert.match(seeded.stdout, /eval=eval_episode-cli-eval/);
+  assert.match(run.stdout, /status=passed/);
 });
 
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {

@@ -10,6 +10,7 @@ import {
   completeChat,
   configPath,
   ensureDefaultConfig,
+  evalPath,
   findEpisode,
   inspectCapabilityPack,
   inspectPiRuntime,
@@ -19,7 +20,9 @@ import {
   parseMemoryScope,
   planRun,
   promoteMemory,
+  runEvalCases,
   scanMigrationSource,
+  seedEvalFromEpisode,
   searchMemory,
   setRuntimeProvider
 } from "@hybrowclaw/core";
@@ -54,6 +57,9 @@ async function main(): Promise<void> {
       return;
     case "candidates":
       await candidates();
+      return;
+    case "eval":
+      await evalCommand(args);
       return;
     case "capability":
       await capability(args);
@@ -94,6 +100,8 @@ Usage:
   hybrowclaw episodes
   hybrowclaw feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
   hybrowclaw candidates
+  hybrowclaw eval seed <episode-id> [--expect "..."] [--forbid "..."]
+  hybrowclaw eval run [path-or-dir]
   hybrowclaw capability inspect <path>
   hybrowclaw memory add --summary "..." --scope user:me --provenance manual
   hybrowclaw memory search --scope user:me [--query "..."] [--include-global]
@@ -211,6 +219,41 @@ async function candidates(): Promise<void> {
       `${candidate.episodeId}\t${candidate.kind}\t${candidate.risk}\tauto=${candidate.autoApply}\t${candidate.summary}`
     );
   }
+}
+
+async function evalCommand(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === "seed") {
+    const episodeId = args[1];
+    if (!episodeId) throw new Error('Usage: hybrowclaw eval seed <episode-id> [--expect "..."] [--forbid "..."]');
+    const fixture = await seedEvalFromEpisode(episodeId, {
+      expectedContains: readFlags(args, "--expect"),
+      forbiddenContains: readFlags(args, "--forbid")
+    });
+    console.log(`eval=${fixture.id}`);
+    console.log(`source_episode=${fixture.sourceEpisodeId}`);
+    console.log(`path=${evalPath(fixture.id)}`);
+    console.log(`expected=${fixture.expectedContains.join(" | ")}`);
+    if (fixture.forbiddenContains?.length) console.log(`forbidden=${fixture.forbiddenContains.join(" | ")}`);
+    return;
+  }
+  if (subcommand === "run") {
+    const target = args[1];
+    const results = await runEvalCases(target);
+    if (!results.length) {
+      console.log("No eval fixtures found.");
+      return;
+    }
+    for (const result of results) {
+      console.log(`eval=${result.id} status=${result.status} source_episode=${result.sourceEpisodeId}`);
+      for (const check of result.checks) {
+        console.log(`check=${check.label} status=${check.status} detail=${check.detail}`);
+      }
+    }
+    if (results.some((result) => result.status === "failed")) process.exitCode = 1;
+    return;
+  }
+  throw new Error("Usage: hybrowclaw eval <seed|run>");
 }
 
 async function capability(args: string[]): Promise<void> {
