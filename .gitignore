@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.hybrowclaw/
+*.log
+.DS_Store
+packages/ui/public/hybrowclaw-state.json

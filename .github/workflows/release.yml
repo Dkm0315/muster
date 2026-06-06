@@ -1,0 +1,43 @@
+name: HybrowClaw Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver version to publish
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Create tag
+        run: |
+          git config user.name "hybrowclaw-release"
+          git config user.email "release@hybrowclaw.local"
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"

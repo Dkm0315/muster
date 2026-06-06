@@ -1,0 +1,43 @@
+name: HybrowClaw CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: CLI smoke
+        run: |
+          pnpm --silent hc init
+          pnpm --silent hc provider add-codex-cli codex o4-mini
+          pnpm --silent hc runtime use-provider native codex o4-mini
+          pnpm --silent hc tui
+          pnpm --silent hc pi inspect
