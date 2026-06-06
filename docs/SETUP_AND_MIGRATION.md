@@ -92,6 +92,24 @@ pnpm hc candidates
 
 Candidates are reviewable artifacts. v0 may mark low-risk verified successes as auto-applicable, but the docs should still treat them as queued candidate state rather than completed learning.
 
+## Eval Fixtures
+
+Feedback should become evidence, not vibes. When an episode is confirmed useful or needs regression coverage, seed a replayable eval fixture:
+
+```bash
+pnpm hc eval seed <episode-id> --expect "important phrase that must remain true"
+pnpm hc eval run
+```
+
+Fixtures are stored in `.hybrowclaw/data/evals/*.json`. The v0 runner is deterministic: it checks recorded episode output against expected and forbidden text. Live provider replay comes later, after route/tool traces are stable enough to make failures meaningful.
+
+Use forbidden checks for safety regressions:
+
+```bash
+pnpm hc eval seed <episode-id> --expect "safe answer" --forbid "private notes"
+pnpm hc eval run .hybrowclaw/data/evals
+```
+
 ## Scoped Memory
 
 HybrowClaw memory is append-only `ContextObject` state stored in `.hybrowclaw/data/memory.jsonl`. Every memory requires scopes and provenance. This is the first hard boundary for enterprise use: user, tenant, session, pairing, role, persona, and global memory cannot collapse into one unsafe bucket.
@@ -219,6 +237,7 @@ pnpm hc migrate hermes --dry-run
 pnpm hc migrate pi --dry-run
 pnpm hc capability inspect /path/to/pack
 pnpm hc memory search --scope global:global
+pnpm hc eval run
 pnpm hc state show
 pnpm hc state export
 ```

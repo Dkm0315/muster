@@ -1,5 +1,6 @@
 export * from "./capability.js";
 export * from "./config.js";
+export * from "./eval.js";
 export * from "./feedback.js";
 export * from "./memory.js";
 export * from "./migration.js";

@@ -27,6 +27,7 @@ Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtim
 | HC-018 | Ready | Release Engineer | GitHub PR and release publication | GitHub remote | HC-016 | Changes are split into PRs, merged, tagged, and release workflow is run |
 | HC-019 | Done | Capability Engineer | Capability pack manifest gate | `packages/core/src/capability.ts`, `packages/cli/src/index.ts`, tests | HC-015 | `hybrowclaw capability inspect <path>` validates manifest shape, permissions, sandbox, secrets, evals, and digest warnings |
 | HC-020 | Done | Memory Engineer | Scoped memory ledger | `packages/core/src/memory.ts`, `packages/cli/src/index.ts`, tests | HC-011, HC-015 | `hybrowclaw memory add/search/promote` persists ContextObjects and proves global search cannot read user/session/private memory |
+| HC-021 | Done | Eval Engineer | Replayable eval fixture runner | `packages/core/src/eval.ts`, `packages/cli/src/index.ts`, tests | HC-007, HC-015 | `hybrowclaw eval seed <episode>` writes a fixture and `hybrowclaw eval run` reports pass/fail checks |
 
 ## Agent Assignments
 
