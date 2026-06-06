@@ -12,6 +12,7 @@ This repository is the first v0 scaffold. It intentionally starts lean:
 - replayable eval fixtures seeded from episodes
 - scoped memory ledger with user/tenant/session isolation
 - capability-pack manifest validation
+- embedded Pi SDK adapter through `@earendil-works/pi-coding-agent`
 - migration/doctor surfaces reserved for OpenClaw, Hermes, and pi.dev
 
 ## Quick Start
@@ -66,6 +67,15 @@ Inspect a capability pack before enabling future tools or skills:
 pnpm hc capability inspect /path/to/pack
 ```
 
+Ask through Pi's real SDK package and record the run as a HybrowClaw episode:
+
+```bash
+pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
+pnpm hc tui ask --runtime pi "Review this repo in one sentence"
+```
+
+The default Pi transport is `sdk`, which creates a real Pi `AgentSession` through `createAgentSession()`. Use `--transport cli` only for diagnostics when comparing against the upstream `pi` command.
+
 Migration is dry-run only in v0. The scanners inspect conventional home-directory state and do not mutate OpenClaw, Hermes, pi, or HybrowClaw data:
 
 ```bash
@@ -84,6 +94,7 @@ pnpm --filter @hybrowclaw/ui dev
 
 See [`docs/SETUP_AND_MIGRATION.md`](docs/SETUP_AND_MIGRATION.md) for the operator runbook.
 See [`docs/PRODUCT_WEDGE.md`](docs/PRODUCT_WEDGE.md) for the research-backed product wedge.
+See [`docs/UPSTREAM_ALIGNMENT.md`](docs/UPSTREAM_ALIGNMENT.md) before adding runtime features so HybrowClaw stays aligned with Pi, OpenClaw, and Hermes without reimplementing them badly.
 
 ## Core Product Rule
 

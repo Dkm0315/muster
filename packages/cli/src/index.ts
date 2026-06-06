@@ -12,6 +12,7 @@ import {
   ensureDefaultConfig,
   evalPath,
   findEpisode,
+  inspectClaudeCode,
   inspectCapabilityPack,
   inspectPiRuntime,
   listLearningCandidates,
@@ -20,6 +21,8 @@ import {
   parseMemoryScope,
   planRun,
   promoteMemory,
+  runClaudeCode,
+  runPiAgent,
   runEvalCases,
   scanMigrationSource,
   seedEvalFromEpisode,
@@ -48,6 +51,9 @@ async function main(): Promise<void> {
       return;
     case "chat":
       await chat(args.join(" ").trim());
+      return;
+    case "claude":
+      await claude(args);
       return;
     case "episodes":
       await episodes();
@@ -97,6 +103,8 @@ Usage:
   hybrowclaw init
   hybrowclaw doctor
   hybrowclaw chat "your prompt"
+  hybrowclaw claude inspect
+  hybrowclaw claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
   hybrowclaw episodes
   hybrowclaw feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
   hybrowclaw candidates
@@ -113,6 +121,7 @@ Usage:
   hybrowclaw provider add-codex-cli <id> <model>
   hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]
   hybrowclaw pi inspect [--home /path/to/home]
+  hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--timeout-ms 30000]
   hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
   hybrowclaw state show
   hybrowclaw migrate openclaw --dry-run
@@ -335,8 +344,28 @@ async function memory(args: string[]): Promise<void> {
 
 async function tui(): Promise<void> {
   if (args[0] === "ask") {
-    const prompt = args.slice(1).join(" ").trim();
+    const runtimeFlag = readFlag(args, "--runtime");
+    const promptArgs = stripFlags(args.slice(1), ["--runtime", "--provider", "--model", "--thinking", "--effort", "--timeout-ms"]);
+    const prompt = promptArgs.join(" ").trim();
     if (!prompt) throw new Error('Usage: hybrowclaw tui ask "your prompt"');
+    if (runtimeFlag === "pi") {
+      await runPiPrompt(prompt, {
+        renderTui: true,
+        provider: readFlag(args, "--provider"),
+        model: readFlag(args, "--model"),
+        timeoutMs: readNumberFlag(args, "--timeout-ms")
+      });
+      return;
+    }
+    if (runtimeFlag === "claude" || runtimeFlag === "claude-code") {
+      await runClaudePrompt(prompt, {
+        renderTui: true,
+        model: readFlag(args, "--model"),
+        effort: readClaudeEffort(readFlag(args, "--effort")),
+        timeoutMs: readNumberFlag(args, "--timeout-ms")
+      });
+      return;
+    }
     await runPrompt(prompt, { renderTui: true });
     return;
   }
@@ -429,12 +458,30 @@ function renderTuiState(state: Awaited<ReturnType<typeof buildCockpitState>>): v
 
 async function pi(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "ask") {
+    const prompt = stripFlags(args.slice(1), ["--provider", "--model", "--thinking", "--transport", "--timeout-ms"]).join(" ").trim();
+    if (!prompt) throw new Error('Usage: hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--timeout-ms 30000]');
+    await runPiPrompt(prompt, {
+      provider: readFlag(args, "--provider"),
+      model: readFlag(args, "--model"),
+      thinking: readPiThinking(readFlag(args, "--thinking")),
+      transport: readPiTransport(readFlag(args, "--transport")),
+      timeoutMs: readNumberFlag(args, "--timeout-ms")
+    });
+    return;
+  }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi inspect [--home /path/to/home]");
+    throw new Error("Usage: hybrowclaw pi <inspect|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);
   console.log(`installed=${report.installed}`);
+  console.log(`integration_mode=${report.integrationMode}`);
+  console.log(`sdk_loadable=${report.sdkLoadable}`);
+  console.log(`missing_sdk_exports=${report.missingSdkExports.length ? report.missingSdkExports.join(",") : "-"}`);
+  console.log(`cli_available=${report.cliAvailable}`);
+  console.log(`npx_available=${report.npxAvailable}`);
+  console.log(`package=${report.packageName}@${report.packageVersion}`);
   console.log(`adapter_state=${report.adapterState}`);
   console.log(`config_files=${report.configFiles.length}`);
   for (const file of report.configFiles.slice(0, 20)) console.log(`config=${file}`);
@@ -442,6 +489,141 @@ async function pi(args: string[]): Promise<void> {
   for (const file of report.workflowFiles.slice(0, 20)) console.log(`workflow=${file}`);
   console.log("next_actions:");
   for (const action of report.nextActions) console.log(`- ${action}`);
+}
+
+async function runPiPrompt(
+  prompt: string,
+  options: {
+    readonly renderTui?: boolean;
+    readonly provider?: string;
+    readonly model?: string;
+    readonly thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    readonly transport?: "sdk" | "cli";
+    readonly timeoutMs?: number;
+  } = {}
+): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const runId = `pi_${Date.now()}`;
+  const result = await runPiAgent({
+    prompt,
+    cwd: process.cwd(),
+    provider: options.provider,
+    model: options.model,
+    thinking: options.thinking,
+    timeoutMs: options.timeoutMs,
+    tools: ["read", "grep", "find", "ls"],
+    transport: options.transport
+  });
+  const failureText = result.errorMessage ?? result.stderr ?? "empty response";
+  await appendEpisode({
+    id: runId,
+    createdAt: startedAt,
+    cwd: process.cwd(),
+    prompt,
+    taskKind: "workflow",
+    runtimeId: "pi",
+    providerId: options.provider ?? "pi-default",
+    model: options.model ?? "pi-default",
+    reasoning: piThinkingToReasoning(options.thinking),
+    responseText: result.stdout || `Pi failed: ${failureText}`,
+    evidence: [
+      {
+        kind: "system_check",
+        label: result.transport === "sdk" ? "pi embedded sdk invocation" : "pi cli diagnostic invocation",
+        status: result.status === "completed" ? "passed" : "failed",
+        detail:
+          result.transport === "sdk"
+            ? `createAgentSession session=${result.sessionId ?? "-"} events=${result.eventTypes?.length ?? 0} (${result.durationMs}ms)`
+            : `${result.command} ${result.args?.slice(0, -1).join(" ")} (${result.durationMs}ms)`
+      }
+    ],
+    outcome: { kind: result.status === "completed" ? "completed" : "failed", detail: result.errorMessage ?? result.stderr }
+  });
+  if (options.renderTui) {
+    renderTuiState(await buildCockpitState());
+    return;
+  }
+  console.log(`runtime=pi transport=${result.transport} package=${result.packageName}@${result.packageVersion}`);
+  if (result.command) console.log(`command=${result.command}`);
+  if (result.sessionId) console.log(`session=${result.sessionId}`);
+  console.log(`status=${result.status} duration_ms=${result.durationMs}`);
+  if (result.stderr) console.log(`stderr=${result.stderr}`);
+  console.log("\n" + (result.stdout || result.errorMessage || "Pi returned no output") + "\n");
+  console.log(`episode=${runId}`);
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function claude(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === "inspect") {
+    const report = await inspectClaudeCode();
+    console.log(`available=${report.available}`);
+    if (report.version) console.log(`version=${report.version}`);
+    return;
+  }
+  if (subcommand === "ask") {
+    const prompt = stripFlags(args.slice(1), ["--model", "--effort", "--timeout-ms"]).join(" ").trim();
+    if (!prompt) throw new Error('Usage: hybrowclaw claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]');
+    await runClaudePrompt(prompt, {
+      model: readFlag(args, "--model"),
+      effort: readClaudeEffort(readFlag(args, "--effort")),
+      timeoutMs: readNumberFlag(args, "--timeout-ms")
+    });
+    return;
+  }
+  throw new Error("Usage: hybrowclaw claude <inspect|ask>");
+}
+
+async function runClaudePrompt(
+  prompt: string,
+  options: {
+    readonly renderTui?: boolean;
+    readonly model?: string;
+    readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
+    readonly timeoutMs?: number;
+  } = {}
+): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const runId = `claude_${Date.now()}`;
+  const result = await runClaudeCode({
+    prompt,
+    cwd: process.cwd(),
+    model: options.model,
+    effort: options.effort,
+    timeoutMs: options.timeoutMs
+  });
+  const failureText = result.errorMessage ?? result.stderr ?? "empty response";
+  await appendEpisode({
+    id: runId,
+    createdAt: startedAt,
+    cwd: process.cwd(),
+    prompt,
+    taskKind: "workflow",
+    runtimeId: "claude-code",
+    providerId: "claude-code",
+    model: options.model ?? "default",
+    reasoning: claudeEffortToReasoning(options.effort),
+    responseText: result.stdout || `Claude Code failed: ${failureText}`,
+    evidence: [
+      {
+        kind: "system_check",
+        label: "claude code invocation",
+        status: result.status === "completed" ? "passed" : "failed",
+        detail: `${result.command} ${result.args.slice(0, -1).join(" ")} (${result.durationMs}ms)`
+      }
+    ],
+    outcome: { kind: result.status === "completed" ? "completed" : "failed", detail: result.errorMessage ?? result.stderr }
+  });
+  if (options.renderTui) {
+    renderTuiState(await buildCockpitState());
+    return;
+  }
+  console.log(`runtime=claude-code command=${result.command}`);
+  console.log(`status=${result.status} duration_ms=${result.durationMs}`);
+  if (result.stderr) console.log(`stderr=${result.stderr}`);
+  console.log("\n" + (result.stdout || result.errorMessage || "Claude Code returned no output") + "\n");
+  console.log(`episode=${runId}`);
+  if (result.status === "failed") process.exitCode = 1;
 }
 
 async function provider(args: string[]): Promise<void> {
@@ -592,10 +774,63 @@ function readFlags(args: string[], flag: string): string[] {
   return values;
 }
 
+function readNumberFlag(args: string[], flag: string): number | undefined {
+  const raw = readFlag(args, flag);
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${flag} must be a positive number.`);
+  return value;
+}
+
+function stripFlags(args: string[], flagsWithValues: string[]): string[] {
+  const result: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (flagsWithValues.includes(arg)) {
+      index += 1;
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
+}
+
 function readRedactionState(value: string | undefined): "none" | "redacted" | "hashed" | "blocked" | undefined {
   if (!value) return undefined;
   if (value === "none" || value === "redacted" || value === "hashed" || value === "blocked") return value;
   throw new Error("Invalid redaction state. Use one of none, redacted, hashed, blocked.");
+}
+
+function readPiThinking(value: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined {
+  if (!value) return undefined;
+  if (value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
+  throw new Error("Invalid Pi thinking level. Use off, minimal, low, medium, high, or xhigh.");
+}
+
+function readPiTransport(value: string | undefined): "sdk" | "cli" | undefined {
+  if (!value) return undefined;
+  if (value === "sdk" || value === "cli") return value;
+  throw new Error("Invalid Pi transport. Use sdk or cli.");
+}
+
+function readClaudeEffort(value: string | undefined): "low" | "medium" | "high" | "xhigh" | "max" | undefined {
+  if (!value) return undefined;
+  if (value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max") return value;
+  throw new Error("Invalid Claude Code effort. Use low, medium, high, xhigh, or max.");
+}
+
+function piThinkingToReasoning(value: ReturnType<typeof readPiThinking>): "none" | "low" | "medium" | "high" | undefined {
+  if (!value) return undefined;
+  if (value === "off") return "none";
+  if (value === "minimal" || value === "low") return "low";
+  if (value === "medium") return "medium";
+  return "high";
+}
+
+function claudeEffortToReasoning(value: ReturnType<typeof readClaudeEffort>): "low" | "medium" | "high" | undefined {
+  if (!value) return undefined;
+  if (value === "low" || value === "medium") return value;
+  return "high";
 }
 
 function printMemoryObject(object: Awaited<ReturnType<typeof addMemory>>): void {

@@ -14,6 +14,8 @@ test("CLI help exposes terminal and pi surfaces", async () => {
 
   assert.match(stdout, /hybrowclaw tui ask/);
   assert.match(stdout, /hybrowclaw pi inspect/);
+  assert.match(stdout, /--transport sdk\|cli/);
+  assert.match(stdout, /hybrowclaw claude inspect/);
   assert.match(stdout, /hybrowclaw runtime use-provider/);
   assert.match(stdout, /hybrowclaw capability inspect/);
   assert.match(stdout, /hybrowclaw memory add/);
@@ -37,7 +39,9 @@ test("CLI pi inspect is safe when pi is absent", async () => {
   const { stdout } = await runCli(["pi", "inspect", "--home", home]);
 
   assert.match(stdout, /installed=false/);
-  assert.match(stdout, /adapter_state=not_connected/);
+  assert.match(stdout, /integration_mode=embedded_sdk/);
+  assert.match(stdout, /sdk_loadable=true/);
+  assert.match(stdout, /adapter_state=sdk_ready/);
 });
 
 test("CLI capability inspect reports safe manifest status", async () => {
@@ -125,6 +129,16 @@ test("CLI eval seed and run use recorded episode fixtures", async () => {
 
   assert.match(seeded.stdout, /eval=eval_episode-cli-eval/);
   assert.match(run.stdout, /status=passed/);
+});
+
+test("CLI pi inspect exposes real Pi package adapter availability", async () => {
+  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-home-"));
+  const { stdout } = await runCli(["pi", "inspect", "--home", home]);
+
+  assert.match(stdout, /package=@earendil-works\/pi-coding-agent@0\.78\.1/);
+  assert.match(stdout, /missing_sdk_exports=-/);
+  assert.match(stdout, /cli_available=/);
+  assert.match(stdout, /npx_available=/);
 });
 
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {

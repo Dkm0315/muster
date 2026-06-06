@@ -20,14 +20,15 @@ Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtim
 | HC-011 | Done | Memory Architect | Scoped memory contract | `packages/core/src/types.ts`, `docs/PRODUCT_WEDGE.md`, `docs/ARCHITECTURE.md` | HC-001, HC-007 | Memory model distinguishes tenant, user, pairing, session, role, persona, and global scopes |
 | HC-012 | Ready | UI Engineer | Runtime bridge for cockpit controls | `packages/ui`, future local bridge/API | HC-008 | Stop/Steer/Modify, composer, and feedback buttons are wired or remain visibly disabled |
 | HC-013 | Done | Terminal Engineer | Terminal/TUI cockpit | `packages/cli/src/index.ts` | HC-008 | `hybrowclaw tui` renders latest run, response, feedback, and candidates without the web UI; `tui ask` records prompt outcomes |
-| HC-014 | Done | Runtime Engineer | pi.dev adapter boundary | `packages/core/src/pi.ts`, `packages/cli/src/index.ts` | HC-001 | `hybrowclaw pi inspect` detects pi root/workflows and states next adapter actions |
+| HC-014 | Done | Runtime Engineer | pi.dev embedded SDK boundary | `packages/core/src/pi.ts`, `packages/cli/src/index.ts` | HC-001 | `hybrowclaw pi inspect` verifies the installed Pi SDK exports and detects pi root/workflows |
 | HC-015 | Done | Trust Kernel Engineer | Trust Kernel execution envelope | `packages/core` | HC-011, HC-014 | Runs persist route, permissions, scoped context, evidence ledger, blockers, and promotion candidates |
 | HC-016 | Done | QA Engineer | CLI smoke tests and CI pipeline | `packages/cli/test`, `.github/workflows` | HC-013, HC-014 | CLI has real tests and GitHub Actions validates typecheck/test/build/smoke |
-| HC-017 | Ready | Runtime Engineer | Real pi.dev execution adapter | `packages/core`, `packages/cli` | HC-014, HC-015 | A pi flow can be invoked through the Trust Kernel and its outputs become scoped ContextObjects |
+| HC-017 | Done | Runtime Engineer | Real Pi embedded SDK adapter | `packages/core/src/pi.ts`, `packages/cli/src/index.ts`, tests | HC-014, HC-015 | `hybrowclaw pi ask` creates a Pi `AgentSession` through the published SDK and records the result as a HybrowClaw episode; CLI transport is diagnostic only |
 | HC-018 | Ready | Release Engineer | GitHub PR and release publication | GitHub remote | HC-016 | Changes are split into PRs, merged, tagged, and release workflow is run |
 | HC-019 | Done | Capability Engineer | Capability pack manifest gate | `packages/core/src/capability.ts`, `packages/cli/src/index.ts`, tests | HC-015 | `hybrowclaw capability inspect <path>` validates manifest shape, permissions, sandbox, secrets, evals, and digest warnings |
 | HC-020 | Done | Memory Engineer | Scoped memory ledger | `packages/core/src/memory.ts`, `packages/cli/src/index.ts`, tests | HC-011, HC-015 | `hybrowclaw memory add/search/promote` persists ContextObjects and proves global search cannot read user/session/private memory |
 | HC-021 | Done | Eval Engineer | Replayable eval fixture runner | `packages/core/src/eval.ts`, `packages/cli/src/index.ts`, tests | HC-007, HC-015 | `hybrowclaw eval seed <episode>` writes a fixture and `hybrowclaw eval run` reports pass/fail checks |
+| HC-022 | Ready | Runtime Engineer | Deeper Pi session and extension bridge | `packages/core/src/pi.ts`, future adapter | HC-017 | HybrowClaw can configure Pi sessions/extensions/tools directly without hiding Pi's native runtime |
 
 ## Agent Assignments
 

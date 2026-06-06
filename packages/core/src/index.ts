@@ -1,4 +1,5 @@
 export * from "./capability.js";
+export * from "./claude.js";
 export * from "./config.js";
 export * from "./eval.js";
 export * from "./feedback.js";

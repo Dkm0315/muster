@@ -53,7 +53,16 @@ Inspect the pi.dev runtime boundary:
 pnpm hc pi inspect
 ```
 
-`pi inspect` does not execute pi flows yet. It tells us whether a local pi root exists and which config/workflow candidates can be mapped into a future HybrowClaw FlowSpec.
+`pi inspect` tells us whether the embedded Pi SDK package is loadable, whether the required `createAgentSession()`/TUI/tool exports exist, and whether a local Pi config root or diagnostic `pi` binary is present.
+
+Ask through Pi's real SDK package:
+
+```bash
+pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
+pnpm hc tui ask --runtime pi "Review this repo in one sentence"
+```
+
+HybrowClaw does not reimplement Pi's agent/TUI/tool/session runtime. The default path embeds Pi through `@earendil-works/pi-coding-agent` and creates a real `AgentSession` with `createAgentSession()`, then records the run, events, output, and status as a HybrowClaw episode. `--transport cli` is reserved for explicit diagnostics against the upstream `pi` command.
 
 Add any OpenAI-compatible provider:
 
