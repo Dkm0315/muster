@@ -1,3 +1,4 @@
+export * from "./capability.js";
 export * from "./config.js";
 export * from "./feedback.js";
 export * from "./migration.js";

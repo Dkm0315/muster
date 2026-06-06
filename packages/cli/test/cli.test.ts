@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -15,6 +15,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw tui ask/);
   assert.match(stdout, /hybrowclaw pi inspect/);
   assert.match(stdout, /hybrowclaw runtime use-provider/);
+  assert.match(stdout, /hybrowclaw capability inspect/);
 });
 
 test("CLI can initialize, add codex provider, switch runtime, and render tui", async () => {
@@ -35,6 +36,35 @@ test("CLI pi inspect is safe when pi is absent", async () => {
 
   assert.match(stdout, /installed=false/);
   assert.match(stdout, /adapter_state=not_connected/);
+});
+
+test("CLI capability inspect reports safe manifest status", async () => {
+  const pack = await mkdtemp(join(tmpdir(), "hybrowclaw-capability-"));
+  await writeFile(
+    join(pack, "hybrowclaw.capability.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "redis-runbook",
+        name: "Redis Runbook",
+        version: "0.1.0",
+        kind: "skill",
+        entrypoint: "SKILL.md",
+        permissions: ["filesystem:read"],
+        sandbox: "read_only",
+        evals: ["evals/redis-runbook.jsonl"],
+        digest: "sha256:test"
+      },
+      null,
+      2
+    )
+  );
+
+  const { stdout } = await runCli(["capability", "inspect", pack]);
+
+  assert.match(stdout, /status=ready/);
+  assert.match(stdout, /risk=low/);
+  assert.match(stdout, /id=redis-runbook/);
 });
 
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {
