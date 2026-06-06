@@ -16,6 +16,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw pi inspect/);
   assert.match(stdout, /hybrowclaw runtime use-provider/);
   assert.match(stdout, /hybrowclaw capability inspect/);
+  assert.match(stdout, /hybrowclaw memory add/);
 });
 
 test("CLI can initialize, add codex provider, switch runtime, and render tui", async () => {
@@ -65,6 +66,36 @@ test("CLI capability inspect reports safe manifest status", async () => {
   assert.match(stdout, /status=ready/);
   assert.match(stdout, /risk=low/);
   assert.match(stdout, /id=redis-runbook/);
+});
+
+test("CLI memory add and search preserve scoped isolation", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-memory-"));
+  const added = await runCli(
+    [
+      "memory",
+      "add",
+      "--summary",
+      "Dhairya wants terse CTO-style product critique.",
+      "--scope",
+      "tenant:hybrow",
+      "--scope",
+      "user:dhairya",
+      "--provenance",
+      "cli-test"
+    ],
+    cwd
+  );
+  const id = added.stdout.match(/id=(mem_[^\n]+)/)?.[1];
+
+  const scoped = await runCli(
+    ["memory", "search", "--scope", "tenant:hybrow", "--scope", "user:dhairya", "--query", "CTO-style"],
+    cwd
+  );
+  const global = await runCli(["memory", "search", "--scope", "global:global", "--query", "Dhairya"], cwd);
+
+  assert.ok(id);
+  assert.match(scoped.stdout, /CTO-style/);
+  assert.match(global.stdout, /No memory matched/);
 });
 
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {

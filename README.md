@@ -9,6 +9,8 @@ This repository is the first v0 scaffold. It intentionally starts lean:
 - cloud and local OpenAI-compatible provider routing
 - episode recording
 - useful/not useful feedback with adjudication
+- scoped memory ledger with user/tenant/session isolation
+- capability-pack manifest validation
 - migration/doctor surfaces reserved for OpenClaw, Hermes, and pi.dev
 
 ## Quick Start
@@ -41,6 +43,19 @@ Run a chat, record feedback against the emitted episode id, and inspect learning
 pnpm hc chat "Draft a two-line migration checklist"
 pnpm hc feedback <episode-id> --useful --correct --reason "Worked for the current repo"
 pnpm hc candidates
+```
+
+Add and search scoped memory without leaking user/session memories into global recall:
+
+```bash
+pnpm hc memory add --summary "Use terse CTO-style critique." --scope user:dhairya --provenance manual
+pnpm hc memory search --scope user:dhairya --query CTO --include-global
+```
+
+Inspect a capability pack before enabling future tools or skills:
+
+```bash
+pnpm hc capability inspect /path/to/pack
 ```
 
 Migration is dry-run only in v0. The scanners inspect conventional home-directory state and do not mutate OpenClaw, Hermes, pi, or HybrowClaw data:

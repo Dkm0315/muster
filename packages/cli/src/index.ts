@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   adjudicateFeedback,
+  addMemory,
   appendEpisode,
   appendFeedback,
   addOpenAICompatibleProvider,
@@ -15,8 +16,11 @@ import {
   listLearningCandidates,
   listEpisodes,
   loadConfig,
+  parseMemoryScope,
   planRun,
+  promoteMemory,
   scanMigrationSource,
+  searchMemory,
   setRuntimeProvider
 } from "@hybrowclaw/core";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -54,6 +58,9 @@ async function main(): Promise<void> {
     case "capability":
       await capability(args);
       return;
+    case "memory":
+      await memory(args);
+      return;
     case "tui":
       await tui();
       return;
@@ -88,6 +95,9 @@ Usage:
   hybrowclaw feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
   hybrowclaw candidates
   hybrowclaw capability inspect <path>
+  hybrowclaw memory add --summary "..." --scope user:me --provenance manual
+  hybrowclaw memory search --scope user:me [--query "..."] [--include-global]
+  hybrowclaw memory promote <memory-id> --to tenant:acme [--allow-global]
   hybrowclaw tui
   hybrowclaw tui ask "your prompt"
   hybrowclaw provider list
@@ -233,6 +243,51 @@ async function capability(args: string[]): Promise<void> {
     for (const warning of report.warnings) console.log(`- ${warning}`);
   }
   if (report.status === "blocked") process.exitCode = 1;
+}
+
+async function memory(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === "add") {
+    const summary = readFlag(args, "--summary");
+    if (!summary) throw new Error('Usage: hybrowclaw memory add --summary "..." --scope user:me --provenance manual');
+    const scopes = readFlags(args, "--scope").map(parseMemoryScope);
+    const provenance = readFlags(args, "--provenance");
+    const confidenceRaw = readFlag(args, "--confidence");
+    const object = await addMemory({
+      kind: readFlag(args, "--kind"),
+      summary,
+      sourceUri: readFlag(args, "--source-uri"),
+      confidence: confidenceRaw ? Number(confidenceRaw) : undefined,
+      provenance,
+      scopes,
+      redactionState: readRedactionState(readFlag(args, "--redaction"))
+    });
+    printMemoryObject(object);
+    return;
+  }
+  if (subcommand === "search") {
+    const scopes = readFlags(args, "--scope").map(parseMemoryScope);
+    const records = await searchMemory({
+      query: readFlag(args, "--query"),
+      scopes,
+      includeGlobal: args.includes("--include-global")
+    });
+    if (!records.length) {
+      console.log("No memory matched the requested scope and query.");
+      return;
+    }
+    for (const record of records.slice(0, 20)) printMemoryObject(record);
+    return;
+  }
+  if (subcommand === "promote") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: hybrowclaw memory promote <memory-id> --to tenant:acme [--allow-global]");
+    const targetScopes = readFlags(args, "--to").map(parseMemoryScope);
+    const object = await promoteMemory({ id, targetScopes, allowGlobal: args.includes("--allow-global") });
+    printMemoryObject(object);
+    return;
+  }
+  throw new Error("Usage: hybrowclaw memory <add|search|promote>");
 }
 
 async function tui(): Promise<void> {
@@ -484,6 +539,32 @@ function readFlag(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   if (index === -1) return undefined;
   return args[index + 1];
+}
+
+function readFlags(args: string[], flag: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === flag && args[index + 1]) values.push(args[index + 1]);
+  }
+  return values;
+}
+
+function readRedactionState(value: string | undefined): "none" | "redacted" | "hashed" | "blocked" | undefined {
+  if (!value) return undefined;
+  if (value === "none" || value === "redacted" || value === "hashed" || value === "blocked") return value;
+  throw new Error("Invalid redaction state. Use one of none, redacted, hashed, blocked.");
+}
+
+function printMemoryObject(object: Awaited<ReturnType<typeof addMemory>>): void {
+  console.log(`id=${object.id}`);
+  console.log(`kind=${object.kind}`);
+  console.log(`summary=${object.summary}`);
+  console.log(`confidence=${object.confidence}`);
+  console.log(`redaction=${object.redactionState}`);
+  console.log(`scopes=${object.scopes.map((scope) => `${scope.kind}:${scope.id}`).join(",")}`);
+  console.log(`provenance=${object.provenance.join(",")}`);
+  if (object.sourceUri) console.log(`source_uri=${object.sourceUri}`);
+  if (object.links?.length) console.log(`links=${object.links.join(",")}`);
 }
 
 function boxLine(position: "top" | "mid" | "bottom", width: number): string {
