@@ -26,6 +26,7 @@ Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtim
 | HC-017 | Ready | Runtime Engineer | Real pi.dev execution adapter | `packages/core`, `packages/cli` | HC-014, HC-015 | A pi flow can be invoked through the Trust Kernel and its outputs become scoped ContextObjects |
 | HC-018 | Ready | Release Engineer | GitHub PR and release publication | GitHub remote | HC-016 | Changes are split into PRs, merged, tagged, and release workflow is run |
 | HC-019 | Done | Capability Engineer | Capability pack manifest gate | `packages/core/src/capability.ts`, `packages/cli/src/index.ts`, tests | HC-015 | `hybrowclaw capability inspect <path>` validates manifest shape, permissions, sandbox, secrets, evals, and digest warnings |
+| HC-020 | Done | Memory Engineer | Scoped memory ledger | `packages/core/src/memory.ts`, `packages/cli/src/index.ts`, tests | HC-011, HC-015 | `hybrowclaw memory add/search/promote` persists ContextObjects and proves global search cannot read user/session/private memory |
 
 ## Agent Assignments
 

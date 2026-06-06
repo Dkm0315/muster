@@ -92,6 +92,38 @@ pnpm hc candidates
 
 Candidates are reviewable artifacts. v0 may mark low-risk verified successes as auto-applicable, but the docs should still treat them as queued candidate state rather than completed learning.
 
+## Scoped Memory
+
+HybrowClaw memory is append-only `ContextObject` state stored in `.hybrowclaw/data/memory.jsonl`. Every memory requires scopes and provenance. This is the first hard boundary for enterprise use: user, tenant, session, pairing, role, persona, and global memory cannot collapse into one unsafe bucket.
+
+Add a scoped memory:
+
+```bash
+pnpm hc memory add \
+  --summary "Dhairya prefers terse CTO-style product critique." \
+  --scope tenant:hybrow \
+  --scope user:dhairya \
+  --provenance manual
+```
+
+Search only inside the exact scopes the operator is allowed to query:
+
+```bash
+pnpm hc memory search --scope tenant:hybrow --scope user:dhairya --query CTO
+pnpm hc memory search --scope session:redis-debug --include-global
+```
+
+A global-only search does not return `user`, `session`, `pairing`, or tenant-private memories. `--include-global` lets a scoped query see global memories in addition to its private lane; it does not make private memories globally visible.
+
+Promote memory deliberately:
+
+```bash
+pnpm hc memory promote mem_xxx --to tenant:hybrow
+pnpm hc memory promote mem_xxx --to global:global --allow-global
+```
+
+Global promotion is intentionally explicit because it is the highest-risk learning path.
+
 ## Capability Packs
 
 Capability packs are the portable unit for future HybrowClaw tools, skills, agents, workflows, and channels. They are intentionally closer to npm-style installation, but the harness must inspect risk before anything becomes runnable.
@@ -186,6 +218,7 @@ pnpm hc migrate openclaw --dry-run
 pnpm hc migrate hermes --dry-run
 pnpm hc migrate pi --dry-run
 pnpm hc capability inspect /path/to/pack
+pnpm hc memory search --scope global:global
 pnpm hc state show
 pnpm hc state export
 ```
