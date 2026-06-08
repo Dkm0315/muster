@@ -117,6 +117,31 @@ export interface PiModelListInput {
   readonly availableOnly?: boolean;
 }
 
+export interface PiToolInfo {
+  readonly name: string;
+  readonly description: string;
+  readonly active: boolean;
+  readonly source: string;
+  readonly scope: string;
+  readonly origin: string;
+  readonly parameterKeys: string[];
+  readonly promptGuidelines: string[];
+}
+
+export interface PiToolRegistryStatus {
+  readonly cwd: string;
+  readonly agentDir: string;
+  readonly sessionId: string;
+  readonly activeTools: string[];
+  readonly tools: PiToolInfo[];
+}
+
+export interface PiToolInspectInput {
+  readonly cwd?: string;
+  readonly agentDir?: string;
+  readonly tools?: readonly string[];
+}
+
 export async function inspectPiRuntime(input: { readonly homeDir?: string } = {}): Promise<PiRuntimeStatus> {
   const home = input.homeDir ?? homedir();
   const rootPath = join(home, ".pi");
@@ -201,6 +226,71 @@ export async function listPiModels(input: PiModelListInput = {}): Promise<PiMode
       const providerOrder = left.provider.localeCompare(right.provider);
       return providerOrder || left.id.localeCompare(right.id);
     });
+}
+
+export async function inspectPiTools(input: PiToolInspectInput = {}): Promise<PiToolRegistryStatus> {
+  const pi = await import("@earendil-works/pi-coding-agent");
+  const cwd = input.cwd ?? process.cwd();
+  const agentDir = input.agentDir ?? join(homedir(), ".pi", "agent");
+  const settingsManager = pi.SettingsManager.create(cwd, agentDir);
+  const sessionManager = pi.SessionManager.inMemory(cwd);
+  const resourceLoader = new pi.DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager
+  });
+  await resourceLoader.reload();
+  const { authStorage, modelRegistry } = createPiModelRegistry(pi, agentDir);
+  const { session } = await pi.createAgentSession({
+    cwd,
+    agentDir,
+    authStorage,
+    modelRegistry,
+    tools: [...(input.tools?.length ? input.tools : ["read", "grep", "find", "ls"])],
+    sessionManager,
+    settingsManager,
+    resourceLoader
+  });
+  const catalogSession =
+    input.tools?.length
+      ? (
+          await pi.createAgentSession({
+            cwd,
+            agentDir,
+            authStorage,
+            modelRegistry,
+            sessionManager: pi.SessionManager.inMemory(cwd),
+            settingsManager,
+            resourceLoader
+          })
+        ).session
+      : session;
+  try {
+    const activeTools = session.getActiveToolNames();
+    const active = new Set(activeTools);
+    return {
+      cwd,
+      agentDir,
+      sessionId: session.sessionId,
+      activeTools,
+      tools: catalogSession
+        .getAllTools()
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          active: active.has(tool.name),
+          source: tool.sourceInfo.source,
+          scope: tool.sourceInfo.scope,
+          origin: tool.sourceInfo.origin,
+          parameterKeys: extractParameterKeys(tool.parameters),
+          promptGuidelines: [...(tool.promptGuidelines ?? [])]
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name))
+    };
+  } finally {
+    if (catalogSession !== session) catalogSession.dispose();
+    session.dispose();
+  }
 }
 
 export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgentRunResult> {
@@ -554,6 +644,13 @@ function summarizePiMessageEvent(event: unknown): string | undefined {
   const content = message.content;
   const contentKind = Array.isArray(content) ? `parts:${content.length}` : typeof content;
   return [role ? `role=${role}` : undefined, `content=${contentKind}`].filter(Boolean).join(" ");
+}
+
+function extractParameterKeys(schema: unknown): string[] {
+  if (!isRecord(schema)) return [];
+  const properties = schema.properties;
+  if (!isRecord(properties)) return [];
+  return Object.keys(properties).sort();
 }
 
 function extractLatestAssistantText(messages: readonly unknown[]): string {

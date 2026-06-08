@@ -17,6 +17,7 @@ import {
   inspectClaudeCode,
   inspectCapabilityPack,
   inspectPiRuntime,
+  inspectPiTools,
   listLearningCandidates,
   listEpisodes,
   listPiModels,
@@ -125,6 +126,7 @@ Usage:
   hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]
   hybrowclaw pi inspect [--home /path/to/home]
   hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
+  hybrowclaw pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
   hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
   hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
   hybrowclaw state show
@@ -508,8 +510,33 @@ async function pi(args: string[]): Promise<void> {
     }
     return;
   }
+  if (subcommand === "tools") {
+    const report = await inspectPiTools({
+      agentDir: readFlag(args, "--agent-dir"),
+      tools: readCsvFlag(args, "--tools")
+    });
+    console.log(`session=${report.sessionId}`);
+    console.log(`cwd=${report.cwd}`);
+    console.log(`agent_dir=${report.agentDir}`);
+    console.log(`active_tools=${report.activeTools.join(",") || "-"}`);
+    console.log("tool\tactive\tscope\torigin\tsource\tparameters\tdescription");
+    for (const tool of report.tools) {
+      console.log(
+        [
+          tool.name,
+          tool.active ? "yes" : "no",
+          tool.scope,
+          tool.origin,
+          tool.source,
+          tool.parameterKeys.join(",") || "-",
+          tool.description.replace(/\s+/g, " ").trim()
+        ].join("\t")
+      );
+    }
+    return;
+  }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi <inspect|models|ask>");
+    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);
@@ -819,6 +846,16 @@ function readFlags(args: string[], flag: string): string[] {
     if (args[index] === flag && args[index + 1]) values.push(args[index + 1]);
   }
   return values;
+}
+
+function readCsvFlag(args: string[], flag: string): string[] | undefined {
+  const value = readFlag(args, flag);
+  if (!value) return undefined;
+  const items = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length ? items : undefined;
 }
 
 function readNumberFlag(args: string[], flag: string): number | undefined {
