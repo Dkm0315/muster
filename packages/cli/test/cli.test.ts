@@ -156,6 +156,49 @@ test("CLI capability inspect reports safe manifest status", async () => {
   assert.match(stdout, /id=redis-runbook/);
 });
 
+test("CLI context graph exports graph JSON from episode and scoped memory ledgers", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-context-"));
+  await mkdir(join(cwd, ".hybrowclaw", "data"), { recursive: true });
+  await writeFile(
+    join(cwd, ".hybrowclaw", "data", "episodes.jsonl"),
+    `${JSON.stringify({
+      id: "episode-context",
+      createdAt: "2026-06-08T12:00:00.000Z",
+      cwd,
+      prompt: "Architect the harness memory layer",
+      taskKind: "architecture",
+      runtimeId: "pi",
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      reasoning: "high",
+      responseText: "Use scoped memory and eval gates.",
+      evidence: [{ kind: "model_response", label: "assistant response", status: "observed" }]
+    })}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(cwd, ".hybrowclaw", "data", "memory.jsonl"),
+    `${JSON.stringify({
+      id: "mem-context",
+      kind: "principle",
+      summary: "Tenant memory must not leak across users.",
+      observedAt: "2026-06-08T11:00:00.000Z",
+      confidence: 0.9,
+      provenance: ["manual:test"],
+      scopes: [{ kind: "tenant", id: "hybrow" }],
+      redactionState: "none"
+    })}\n`,
+    "utf8"
+  );
+
+  const { stdout } = await runCli(["context", "graph", "episode-context", "--scope", "tenant:hybrow"], cwd);
+  const graph = JSON.parse(stdout) as { id: string; nodes: Array<{ id: string }>; edges: Array<{ kind: string }> };
+
+  assert.equal(graph.id, "graph:episode-context");
+  assert.ok(graph.nodes.some((node) => node.id === "memory:mem-context"));
+  assert.ok(graph.edges.some((edge) => edge.kind === "uses_context"));
+});
+
 test("CLI memory add and search preserve scoped isolation", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-memory-"));
   const added = await runCli(
