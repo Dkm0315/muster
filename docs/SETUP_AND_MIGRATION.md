@@ -58,11 +58,17 @@ pnpm hc pi inspect
 Ask through Pi's real SDK package:
 
 ```bash
+pnpm hc pi models --provider anthropic
 pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
+pnpm hc pi ask "Review this repo with Claude" --provider anthropic --model claude-sonnet-4-5
+pnpm hc pi ask "Start a persistent run" --session create --session-dir .hybrowclaw/pi-sessions
+pnpm hc pi ask "Continue that run" --session continue --session-dir .hybrowclaw/pi-sessions
 pnpm hc tui ask --runtime pi "Review this repo in one sentence"
 ```
 
-HybrowClaw does not reimplement Pi's agent/TUI/tool/session runtime. The default path embeds Pi through `@earendil-works/pi-coding-agent` and creates a real `AgentSession` with `createAgentSession()`, then records the run, events, output, and status as a HybrowClaw episode. `--transport cli` is reserved for explicit diagnostics against the upstream `pi` command.
+HybrowClaw does not reimplement Pi's agent/TUI/tool/session runtime. The default path embeds Pi through `@earendil-works/pi-coding-agent` and creates a real `AgentSession` with `createAgentSession()`, then records the run, events, output, session metadata, active tools, and status as a HybrowClaw episode.
+
+Provider and model selection is also Pi-native. HybrowClaw creates Pi's `AuthStorage` and `ModelRegistry`, resolves the requested `--provider`/`--model` pair, and passes that model into `createAgentSession()`. That means Claude is not a sidecar-only path: use Pi's `anthropic` provider for Claude Pro/Max subscription auth or Anthropic API keys, and use `pnpm hc pi models --provider anthropic` to discover exact Claude ids in the installed Pi package. `--session memory` is disposable, while `--session create` and `--session continue` use Pi's persistent `SessionManager`. `--transport cli` is reserved for explicit diagnostics against the upstream `pi` command.
 
 Add any OpenAI-compatible provider:
 

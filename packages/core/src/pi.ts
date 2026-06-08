@@ -1,7 +1,7 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -48,6 +48,9 @@ export interface PiAgentRunInput {
   readonly tools?: readonly string[];
   readonly timeoutMs?: number;
   readonly transport?: "sdk" | "cli";
+  readonly sessionMode?: PiSessionMode;
+  readonly sessionDir?: string;
+  readonly agentDir?: string;
 }
 
 export interface PiCliDiagnosticRunInput extends PiAgentRunInput {
@@ -65,9 +68,38 @@ export interface PiAgentRunResult {
   readonly durationMs: number;
   readonly packageName: string;
   readonly packageVersion: string;
+  readonly sessionMode?: PiSessionMode;
   readonly sessionId?: string;
+  readonly sessionFile?: string;
+  readonly sessionDir?: string;
+  readonly activeTools?: string[];
   readonly eventTypes?: string[];
+  readonly eventCounts?: Record<string, number>;
   readonly errorMessage?: string;
+}
+
+export type PiSessionMode = "memory" | "create" | "continue";
+
+export interface PiModelInfo {
+  readonly provider: string;
+  readonly providerName: string;
+  readonly id: string;
+  readonly name: string;
+  readonly available: boolean;
+  readonly authSource?: string;
+  readonly authLabel?: string;
+  readonly api?: string;
+  readonly reasoning: boolean;
+  readonly input: string[];
+  readonly contextWindow: number;
+  readonly maxTokens: number;
+  readonly usingOAuth: boolean;
+}
+
+export interface PiModelListInput {
+  readonly agentDir?: string;
+  readonly provider?: string;
+  readonly availableOnly?: boolean;
 }
 
 export async function inspectPiRuntime(input: { readonly homeDir?: string } = {}): Promise<PiRuntimeStatus> {
@@ -125,45 +157,103 @@ export async function runPiAgent(input: PiAgentRunInput): Promise<PiAgentRunResu
   return runPiEmbeddedAgent(input);
 }
 
+export async function listPiModels(input: PiModelListInput = {}): Promise<PiModelInfo[]> {
+  const pi = await import("@earendil-works/pi-coding-agent");
+  const agentDir = input.agentDir ?? join(homedir(), ".pi", "agent");
+  const { modelRegistry } = createPiModelRegistry(pi, agentDir);
+  const sourceModels = input.availableOnly ? modelRegistry.getAvailable() : modelRegistry.getAll();
+  return sourceModels
+    .filter((model) => !input.provider || model.provider === input.provider)
+    .map((model) => {
+      const authStatus = modelRegistry.getProviderAuthStatus(model.provider);
+      return {
+        provider: model.provider,
+        providerName: modelRegistry.getProviderDisplayName(model.provider),
+        id: model.id,
+        name: model.name,
+        available: modelRegistry.hasConfiguredAuth(model),
+        authSource: authStatus.source,
+        authLabel: authStatus.label,
+        api: model.api,
+        reasoning: model.reasoning,
+        input: [...model.input],
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+        usingOAuth: modelRegistry.isUsingOAuth(model)
+      };
+    })
+    .sort((left, right) => {
+      const providerOrder = left.provider.localeCompare(right.provider);
+      return providerOrder || left.id.localeCompare(right.id);
+    });
+}
+
 export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgentRunResult> {
   if (!input.prompt.trim()) throw new Error("Pi prompt is required.");
   const started = Date.now();
   const eventTypes: string[] = [];
+  const eventCounts: Record<string, number> = {};
+  const sessionMode = input.sessionMode ?? "memory";
   try {
     const pi = await import("@earendil-works/pi-coding-agent");
     const cwd = input.cwd ?? process.cwd();
-    const settingsManager = pi.SettingsManager.create(cwd);
+    const agentDir = input.agentDir ?? join(homedir(), ".pi", "agent");
+    const settingsManager = pi.SettingsManager.create(cwd, agentDir);
+    const { authStorage, modelRegistry } = createPiModelRegistry(pi, agentDir);
+    const selectedModel = resolvePiModel(modelRegistry, input.provider, input.model);
+    const sessionManager = createPiSessionManager(pi.SessionManager, {
+      cwd,
+      sessionMode,
+      sessionDir: input.sessionDir
+    });
     const resourceLoader = new pi.DefaultResourceLoader({
       cwd,
-      agentDir: join(homedir(), ".pi", "agent"),
+      agentDir,
       settingsManager
     });
     await resourceLoader.reload();
     const { session } = await pi.createAgentSession({
       cwd,
+      agentDir,
+      authStorage,
+      modelRegistry,
+      model: selectedModel,
       thinkingLevel: input.thinking,
       tools: [...(input.tools?.length ? input.tools : ["read", "grep", "find", "ls"])],
-      sessionManager: pi.SessionManager.inMemory(cwd),
+      sessionManager,
       settingsManager,
       resourceLoader
     });
+    await prewarmPiSessionFile(sessionManager);
     const unsubscribe = session.subscribe((event) => {
       eventTypes.push(event.type);
+      eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
     });
     try {
-      await session.prompt(input.prompt);
-      const responseText = extractLatestAssistantText(session.messages);
+      let responseText = "";
+      let promptError: string | undefined;
+      try {
+        await session.prompt(input.prompt);
+        responseText = extractLatestAssistantText(session.messages);
+      } catch (error) {
+        promptError = error instanceof Error ? error.message : String(error);
+      }
       return {
-        status: responseText ? "completed" : "failed",
+        status: responseText && !promptError ? "completed" : "failed",
         transport: "sdk",
         stdout: responseText,
         stderr: "",
         durationMs: Date.now() - started,
         packageName: PI_CODING_AGENT_PACKAGE,
         packageVersion: PI_CODING_AGENT_VERSION,
+        sessionMode,
         sessionId: session.sessionId,
+        sessionFile: session.sessionFile,
+        sessionDir: sessionManager.getSessionDir(),
+        activeTools: session.getActiveToolNames(),
         eventTypes,
-        errorMessage: responseText ? undefined : session.state.errorMessage ?? "Pi SDK completed without assistant text."
+        eventCounts,
+        errorMessage: promptError ?? (responseText ? undefined : session.state.errorMessage ?? "Pi SDK completed without assistant text.")
       };
     } finally {
       unsubscribe();
@@ -178,7 +268,9 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
       durationMs: Date.now() - started,
       packageName: PI_CODING_AGENT_PACKAGE,
       packageVersion: PI_CODING_AGENT_VERSION,
+      sessionMode,
       eventTypes,
+      eventCounts,
       errorMessage: error instanceof Error ? error.message : String(error)
     };
   }
@@ -241,6 +333,73 @@ export function buildPiCliArgs(input: PiCliDiagnosticRunInput): string[] {
 
 export const buildPiAgentArgs = buildPiCliArgs;
 export const runPiCodingAgent = runPiCliDiagnostic;
+
+export function buildPiSessionLabel(result: Pick<PiAgentRunResult, "sessionMode" | "sessionId" | "sessionFile" | "sessionDir" | "activeTools" | "eventCounts">): string {
+  const events = Object.entries(result.eventCounts ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, count]) => `${name}:${count}`)
+    .join(",");
+  return [
+    `mode=${result.sessionMode ?? "unknown"}`,
+    `session=${result.sessionId ?? "-"}`,
+    `file=${result.sessionFile ?? "-"}`,
+    `dir=${result.sessionDir ?? "-"}`,
+    `tools=${result.activeTools?.join(",") ?? "-"}`,
+    `events=${events || "-"}`
+  ].join(" ");
+}
+
+function createPiSessionManager(
+  SessionManager: typeof import("@earendil-works/pi-coding-agent").SessionManager,
+  options: { readonly cwd: string; readonly sessionMode: PiSessionMode; readonly sessionDir?: string }
+) {
+  if (options.sessionMode === "memory") return SessionManager.inMemory(options.cwd);
+  if (options.sessionMode === "create") return SessionManager.create(options.cwd, options.sessionDir);
+  return SessionManager.continueRecent(options.cwd, options.sessionDir);
+}
+
+function createPiModelRegistry(pi: typeof import("@earendil-works/pi-coding-agent"), agentDir: string) {
+  const authStorage = pi.AuthStorage.create(join(agentDir, "auth.json"));
+  const modelRegistry = pi.ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+  return { authStorage, modelRegistry };
+}
+
+function resolvePiModel(
+  modelRegistry: import("@earendil-works/pi-coding-agent").ModelRegistry,
+  provider?: string,
+  modelId?: string
+) {
+  if (!provider && !modelId) return undefined;
+  if (!provider || !modelId) {
+    throw new Error("Pi provider and model must be passed together. Use `hybrowclaw pi models` to discover valid pairs.");
+  }
+  const model = modelRegistry.find(provider, modelId);
+  if (!model) {
+    const known = modelRegistry
+      .getAll()
+      .filter((candidate) => candidate.provider === provider)
+      .slice(0, 8)
+      .map((candidate) => candidate.id)
+      .join(", ");
+    throw new Error(
+      `Pi model not found for provider=${provider} model=${modelId}.` +
+        (known ? ` Known ${provider} models include: ${known}.` : " Run `hybrowclaw pi models` to discover providers and models.")
+    );
+  }
+  return model;
+}
+
+async function prewarmPiSessionFile(sessionManager: Pick<import("@earendil-works/pi-coding-agent").SessionManager, "getHeader" | "getSessionFile">): Promise<void> {
+  const sessionFile = sessionManager.getSessionFile();
+  if (!sessionFile) return;
+  if (await exists(sessionFile)) return;
+  const header = sessionManager.getHeader();
+  if (!header) return;
+  await mkdir(dirname(sessionFile), { recursive: true });
+  await writeFile(sessionFile, `${JSON.stringify(header)}\n`, { encoding: "utf8", flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error;
+  });
+}
 
 async function inspectPiSdkExports(): Promise<{ loadable: boolean; exports: string[]; missingExports: string[] }> {
   try {

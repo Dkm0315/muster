@@ -14,7 +14,9 @@ test("CLI help exposes terminal and pi surfaces", async () => {
 
   assert.match(stdout, /hybrowclaw tui ask/);
   assert.match(stdout, /hybrowclaw pi inspect/);
+  assert.match(stdout, /hybrowclaw pi models/);
   assert.match(stdout, /--transport sdk\|cli/);
+  assert.match(stdout, /--session memory\|create\|continue/);
   assert.match(stdout, /hybrowclaw claude inspect/);
   assert.match(stdout, /hybrowclaw runtime use-provider/);
   assert.match(stdout, /hybrowclaw capability inspect/);
@@ -42,6 +44,16 @@ test("CLI pi inspect is safe when pi is absent", async () => {
   assert.match(stdout, /integration_mode=embedded_sdk/);
   assert.match(stdout, /sdk_loadable=true/);
   assert.match(stdout, /adapter_state=sdk_ready/);
+});
+
+test("CLI pi models exposes Pi provider registry", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-models-"));
+  const agentDir = join(cwd, ".pi-agent");
+  const { stdout } = await runCli(["pi", "models", "--provider", "anthropic", "--agent-dir", agentDir], cwd);
+
+  assert.match(stdout, /provider\tmodel\tavailable/);
+  assert.match(stdout, /anthropic\t/);
+  assert.match(stdout, /claude/i);
 });
 
 test("CLI capability inspect reports safe manifest status", async () => {

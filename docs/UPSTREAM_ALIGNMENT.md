@@ -15,6 +15,8 @@ Use these primitives directly:
 - `@earendil-works/pi-ai` for provider/model abstraction.
 - `@earendil-works/pi-tui` for terminal rendering primitives where we need real interactive TUI behavior.
 
+Pi provider/model resolution is part of the bedrock. HybrowClaw should create Pi's `AuthStorage` and `ModelRegistry`, list models through `getAll()`/`getAvailable()`, and pass the resolved model into `createAgentSession()`. Do not create a second provider switchboard for Claude, Codex, Copilot, or local OpenAI-compatible models when Pi already owns that abstraction.
+
 Do not recreate:
 
 - session trees, prompt expansion, slash-command prompt templates, skills loading, extension loading, tool execution, or built-in coding tools unless HybrowClaw is adding a policy wrapper.

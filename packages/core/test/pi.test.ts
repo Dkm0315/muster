@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildPiCliArgs, inspectPiRuntime, runPiCliDiagnostic } from "../src/index.js";
+import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
@@ -61,6 +61,30 @@ test("buildPiCliArgs creates an explicit diagnostic Pi CLI invocation", () => {
   ]);
 });
 
+test("listPiModels exposes Pi-native provider and model discovery", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-agent-"));
+  const models = await listPiModels({ agentDir });
+
+  assert.ok(models.length > 0);
+  assert.ok(models.some((model) => model.provider === "anthropic"));
+  assert.ok(models.some((model) => model.provider === "openai-codex"));
+  assert.ok(models.some((model) => model.id.toLowerCase().includes("claude")));
+  for (const model of models.slice(0, 5)) {
+    assert.equal(typeof model.available, "boolean");
+    assert.equal(typeof model.contextWindow, "number");
+    assert.equal(typeof model.maxTokens, "number");
+  }
+});
+
+test("listPiModels can filter to Claude-capable Anthropic models", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-agent-anthropic-"));
+  const models = await listPiModels({ agentDir, provider: "anthropic" });
+
+  assert.ok(models.length > 0);
+  assert.ok(models.every((model) => model.provider === "anthropic"));
+  assert.ok(models.some((model) => model.id.toLowerCase().includes("claude")));
+});
+
 test("runPiCliDiagnostic invokes an external Pi-compatible command only when requested", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-command-"));
   const command = join(cwd, "fake-pi.sh");
@@ -80,4 +104,29 @@ test("runPiCliDiagnostic invokes an external Pi-compatible command only when req
   assert.equal(result.command, command);
   assert.match(result.stdout, /pi-output:/);
   assert.match(result.stdout, /Say hello/);
+});
+
+test("runPiEmbeddedAgent returns persistent session metadata even when provider auth fails", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-session-cwd-"));
+  const sessionDir = join(cwd, ".sessions");
+  const agentDir = join(cwd, ".agent");
+
+  const result = await runPiEmbeddedAgent({
+    prompt: "Reply with one word.",
+    cwd,
+    agentDir,
+    sessionDir,
+    sessionMode: "create",
+    tools: ["read", "grep", "find", "ls"],
+    timeoutMs: 10_000
+  });
+
+  assert.equal(result.transport, "sdk");
+  assert.equal(result.sessionMode, "create");
+  assert.equal(result.sessionDir, sessionDir);
+  assert.ok(result.sessionId);
+  assert.ok(result.sessionFile?.startsWith(sessionDir));
+  assert.deepEqual(result.activeTools, ["read", "grep", "find", "ls"]);
+  assert.match(buildPiSessionLabel(result), /mode=create/);
+  assert.match(buildPiSessionLabel(result), /tools=read,grep,find,ls/);
 });
