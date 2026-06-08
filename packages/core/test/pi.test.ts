@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
+import { buildPiCliArgs, buildPiSessionLabel, inspectPiCommands, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
@@ -97,6 +97,31 @@ test("inspectPiTools exposes the real Pi tool registry and active allowlist", as
   assert.ok(report.tools.some((tool) => tool.name === "grep" && tool.active));
   assert.ok(report.tools.some((tool) => tool.name === "ls" && !tool.active));
   assert.ok(report.tools.every((tool) => Array.isArray(tool.parameterKeys)));
+});
+
+test("inspectPiCommands exposes Pi-native prompt and skill command catalog", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-commands-cwd-"));
+  const agentDir = join(cwd, ".agent");
+  await mkdir(join(agentDir, "skills", "redis-triage"), { recursive: true });
+  await mkdir(join(agentDir, "prompts"), { recursive: true });
+  await writeFile(
+    join(agentDir, "skills", "redis-triage", "SKILL.md"),
+    "---\nname: redis-triage\ndescription: Triage Redis production incidents.\n---\nUse safe Redis diagnostics.\n",
+    "utf8"
+  );
+  await writeFile(
+    join(agentDir, "prompts", "incident.md"),
+    "---\ndescription: Draft an incident response.\nargument-hint: service name\n---\nDraft response for $ARGUMENTS.\n",
+    "utf8"
+  );
+
+  const report = await inspectPiCommands({ cwd, agentDir, tools: ["read", "grep"] });
+
+  assert.equal(report.cwd, cwd);
+  assert.equal(report.agentDir, agentDir);
+  assert.ok(report.commands.some((command) => command.invocation === "/skill:redis-triage" && command.source === "skill"));
+  assert.ok(report.commands.some((command) => command.invocation === "/incident" && command.source === "prompt"));
+  assert.ok(report.commands.every((command) => command.invocation.startsWith("/")));
 });
 
 test("runPiCliDiagnostic invokes an external Pi-compatible command only when requested", async () => {

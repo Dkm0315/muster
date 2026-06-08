@@ -16,6 +16,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw pi inspect/);
   assert.match(stdout, /hybrowclaw pi models/);
   assert.match(stdout, /hybrowclaw pi tools/);
+  assert.match(stdout, /hybrowclaw pi commands/);
   assert.match(stdout, /--transport sdk\|cli/);
   assert.match(stdout, /--session memory\|create\|continue/);
   assert.match(stdout, /hybrowclaw claude inspect/);
@@ -67,6 +68,28 @@ test("CLI pi tools exposes Pi tool registry", async () => {
   assert.match(stdout, /read\tyes/);
   assert.match(stdout, /grep\tyes/);
   assert.match(stdout, /ls\tno/);
+});
+
+test("CLI pi commands exposes Pi prompt and skill slash catalog", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-commands-"));
+  const agentDir = join(cwd, ".pi-agent");
+  await mkdir(join(agentDir, "skills", "postgres-dba"), { recursive: true });
+  await mkdir(join(agentDir, "prompts"), { recursive: true });
+  await writeFile(
+    join(agentDir, "skills", "postgres-dba", "SKILL.md"),
+    "---\nname: postgres-dba\ndescription: Investigate PostgreSQL operational issues.\n---\nBe careful with production data.\n",
+    "utf8"
+  );
+  await writeFile(
+    join(agentDir, "prompts", "release-note.md"),
+    "---\ndescription: Draft a release note.\n---\nDraft release note for $ARGUMENTS.\n",
+    "utf8"
+  );
+  const { stdout } = await runCli(["pi", "commands", "--agent-dir", agentDir, "--tools", "read,grep"], cwd);
+
+  assert.match(stdout, /command\tsource\tscope\torigin\tpath\tdescription/);
+  assert.match(stdout, /\/skill:postgres-dba\tskill/);
+  assert.match(stdout, /\/release-note\tprompt/);
 });
 
 test("CLI pi ask prints lifecycle trace when provider auth fails", async () => {

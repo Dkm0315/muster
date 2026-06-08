@@ -16,6 +16,7 @@ import {
   findEpisode,
   inspectClaudeCode,
   inspectCapabilityPack,
+  inspectPiCommands,
   inspectPiRuntime,
   inspectPiTools,
   listLearningCandidates,
@@ -127,6 +128,7 @@ Usage:
   hybrowclaw pi inspect [--home /path/to/home]
   hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
   hybrowclaw pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  hybrowclaw pi commands [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
   hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
   hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
   hybrowclaw state show
@@ -535,8 +537,31 @@ async function pi(args: string[]): Promise<void> {
     }
     return;
   }
+  if (subcommand === "commands") {
+    const report = await inspectPiCommands({
+      agentDir: readFlag(args, "--agent-dir"),
+      tools: readCsvFlag(args, "--tools")
+    });
+    console.log(`session=${report.sessionId}`);
+    console.log(`cwd=${report.cwd}`);
+    console.log(`agent_dir=${report.agentDir}`);
+    console.log("command\tsource\tscope\torigin\tpath\tdescription");
+    for (const command of report.commands) {
+      console.log(
+        [
+          command.invocation,
+          command.source,
+          command.scope,
+          command.origin,
+          command.sourcePath ?? "-",
+          command.description.replace(/\s+/g, " ").trim() || "-"
+        ].join("\t")
+      );
+    }
+    return;
+  }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|ask>");
+    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|commands|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);

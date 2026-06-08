@@ -22,6 +22,8 @@ const REQUIRED_SDK_EXPORTS = [
   "InteractiveMode"
 ] as const;
 
+const DEFAULT_PI_ACTIVE_TOOLS = ["read", "grep", "find", "ls"] as const;
+
 export interface PiRuntimeStatus {
   readonly rootPath: string;
   readonly installed: boolean;
@@ -142,6 +144,29 @@ export interface PiToolInspectInput {
   readonly tools?: readonly string[];
 }
 
+export interface PiCommandInfo {
+  readonly name: string;
+  readonly invocation: string;
+  readonly description: string;
+  readonly source: "extension" | "prompt" | "skill";
+  readonly scope: string;
+  readonly origin: string;
+  readonly sourcePath?: string;
+}
+
+export interface PiCommandCatalogStatus {
+  readonly cwd: string;
+  readonly agentDir: string;
+  readonly sessionId: string;
+  readonly commands: PiCommandInfo[];
+}
+
+export interface PiCommandInspectInput {
+  readonly cwd?: string;
+  readonly agentDir?: string;
+  readonly tools?: readonly string[];
+}
+
 export async function inspectPiRuntime(input: { readonly homeDir?: string } = {}): Promise<PiRuntimeStatus> {
   const home = input.homeDir ?? homedir();
   const rootPath = join(home, ".pi");
@@ -246,7 +271,7 @@ export async function inspectPiTools(input: PiToolInspectInput = {}): Promise<Pi
     agentDir,
     authStorage,
     modelRegistry,
-    tools: [...(input.tools?.length ? input.tools : ["read", "grep", "find", "ls"])],
+    tools: [...(input.tools?.length ? input.tools : DEFAULT_PI_ACTIVE_TOOLS)],
     sessionManager,
     settingsManager,
     resourceLoader
@@ -293,6 +318,42 @@ export async function inspectPiTools(input: PiToolInspectInput = {}): Promise<Pi
   }
 }
 
+export async function inspectPiCommands(input: PiCommandInspectInput = {}): Promise<PiCommandCatalogStatus> {
+  const pi = await import("@earendil-works/pi-coding-agent");
+  const cwd = input.cwd ?? process.cwd();
+  const agentDir = input.agentDir ?? join(homedir(), ".pi", "agent");
+  const settingsManager = pi.SettingsManager.create(cwd, agentDir);
+  const sessionManager = pi.SessionManager.inMemory(cwd);
+  const resourceLoader = new pi.DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager
+  });
+  await resourceLoader.reload();
+  const { authStorage, modelRegistry } = createPiModelRegistry(pi, agentDir);
+  const { session } = await pi.createAgentSession({
+    cwd,
+    agentDir,
+    authStorage,
+    modelRegistry,
+    tools: [...(input.tools?.length ? input.tools : DEFAULT_PI_ACTIVE_TOOLS)],
+    sessionManager,
+    settingsManager,
+    resourceLoader
+  });
+
+  try {
+    return {
+      cwd,
+      agentDir,
+      sessionId: session.sessionId,
+      commands: collectPiCommands(session)
+    };
+  } finally {
+    session.dispose();
+  }
+}
+
 export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgentRunResult> {
   if (!input.prompt.trim()) throw new Error("Pi prompt is required.");
   const started = Date.now();
@@ -329,7 +390,7 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
       modelRegistry,
       model: selectedModel,
       thinkingLevel: input.thinking,
-      tools: [...(input.tools?.length ? input.tools : ["read", "grep", "find", "ls"])],
+      tools: [...(input.tools?.length ? input.tools : DEFAULT_PI_ACTIVE_TOOLS)],
       sessionManager,
       settingsManager,
       resourceLoader
@@ -513,6 +574,44 @@ function createPiSessionManager(
   if (options.sessionMode === "memory") return SessionManager.inMemory(options.cwd);
   if (options.sessionMode === "create") return SessionManager.create(options.cwd, options.sessionDir);
   return SessionManager.continueRecent(options.cwd, options.sessionDir);
+}
+
+function collectPiCommands(session: import("@earendil-works/pi-coding-agent").AgentSession): PiCommandInfo[] {
+  const extensionCommands = session.extensionRunner.getRegisteredCommands().map((command) => ({
+    name: command.invocationName,
+    invocation: `/${command.invocationName}`,
+    description: command.description ?? "",
+    source: "extension" as const,
+    scope: command.sourceInfo.scope,
+    origin: command.sourceInfo.origin,
+    sourcePath: sourcePathFromInfo(command.sourceInfo)
+  }));
+  const promptCommands = session.promptTemplates.map((prompt) => ({
+    name: prompt.name,
+    invocation: `/${prompt.name}`,
+    description: prompt.description ?? "",
+    source: "prompt" as const,
+    scope: prompt.sourceInfo.scope,
+    origin: prompt.sourceInfo.origin,
+    sourcePath: sourcePathFromInfo(prompt.sourceInfo)
+  }));
+  const skillCommands = session.resourceLoader.getSkills().skills.map((skill) => ({
+    name: `skill:${skill.name}`,
+    invocation: `/skill:${skill.name}`,
+    description: skill.description ?? "",
+    source: "skill" as const,
+    scope: skill.sourceInfo.scope,
+    origin: skill.sourceInfo.origin,
+    sourcePath: sourcePathFromInfo(skill.sourceInfo)
+  }));
+  return [...extensionCommands, ...promptCommands, ...skillCommands].sort((left, right) => {
+    const nameOrder = left.name.localeCompare(right.name);
+    return nameOrder || left.source.localeCompare(right.source);
+  });
+}
+
+function sourcePathFromInfo(sourceInfo: { readonly path: string; readonly source: string }): string {
+  return sourceInfo.path || sourceInfo.source;
 }
 
 function createPiModelRegistry(pi: typeof import("@earendil-works/pi-coding-agent"), agentDir: string) {
