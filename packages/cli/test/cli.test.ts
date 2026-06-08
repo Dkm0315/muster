@@ -56,6 +56,30 @@ test("CLI pi models exposes Pi provider registry", async () => {
   assert.match(stdout, /claude/i);
 });
 
+test("CLI pi ask prints lifecycle trace when provider auth fails", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-trace-"));
+  const sessionDir = join(cwd, ".sessions");
+  const result = await runCliAllowFailure([
+    "pi",
+    "ask",
+    "Reply with one word.",
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4-5",
+    "--session",
+    "create",
+    "--session-dir",
+    sessionDir
+  ], cwd);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /event_trace=/);
+  assert.match(result.stdout, /session_created/);
+  assert.match(result.stdout, /prompt_start/);
+  assert.match(result.stdout, /prompt_end=failed/);
+});
+
 test("CLI capability inspect reports safe manifest status", async () => {
   const pack = await mkdtemp(join(tmpdir(), "hybrowclaw-capability-"));
   await writeFile(
@@ -159,4 +183,14 @@ async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "
     timeout: 30_000,
     maxBuffer: 1024 * 1024
   });
+}
+
+async function runCliAllowFailure(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string; code: number }> {
+  try {
+    const result = await runCli(args, cwd);
+    return { ...result, code: 0 };
+  } catch (error) {
+    const detail = error as Error & { stdout?: string; stderr?: string; code?: number };
+    return { stdout: detail.stdout ?? "", stderr: detail.stderr ?? "", code: detail.code ?? 1 };
+  }
 }

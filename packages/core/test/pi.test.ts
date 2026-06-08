@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent } from "../src/index.js";
+import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
@@ -127,6 +127,10 @@ test("runPiEmbeddedAgent returns persistent session metadata even when provider 
   assert.ok(result.sessionId);
   assert.ok(result.sessionFile?.startsWith(sessionDir));
   assert.deepEqual(result.activeTools, ["read", "grep", "find", "ls"]);
+  assert.ok(result.eventTrace?.some((event) => event.type === "session_created"));
+  assert.ok(result.eventTrace?.some((event) => event.type === "prompt_start"));
+  assert.ok(result.eventTrace?.some((event) => event.type === "prompt_end"));
   assert.match(buildPiSessionLabel(result), /mode=create/);
   assert.match(buildPiSessionLabel(result), /tools=read,grep,find,ls/);
+  assert.match(summarizePiEventTrace(result.eventTrace ?? []), /session_created/);
 });
