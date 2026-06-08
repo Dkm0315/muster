@@ -28,6 +28,7 @@ import {
   promoteMemory,
   runClaudeCode,
   runPiAgent,
+  runPiInteractive,
   runEvalCases,
   scanMigrationSource,
   seedEvalFromEpisode,
@@ -129,6 +130,7 @@ Usage:
   hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
   hybrowclaw pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
   hybrowclaw pi commands [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  hybrowclaw pi tui ["optional startup prompt"] [--agent-dir ~/.pi/agent] [--session create|continue|memory] [--session-dir path]
   hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
   hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
   hybrowclaw state show
@@ -469,6 +471,32 @@ function renderTuiState(state: Awaited<ReturnType<typeof buildCockpitState>>): v
 
 async function pi(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "tui") {
+    const prompt = stripFlags(args.slice(1), ["--agent-dir", "--provider", "--model", "--thinking", "--tools", "--session", "--session-dir", "--session-id"]).join(" ").trim();
+    const result = await runPiInteractive({
+      prompt,
+      cwd: process.cwd(),
+      agentDir: readFlag(args, "--agent-dir"),
+      provider: readFlag(args, "--provider"),
+      model: readFlag(args, "--model"),
+      thinking: readPiThinking(readFlag(args, "--thinking")),
+      tools: readCsvFlag(args, "--tools"),
+      sessionMode: readPiSessionMode(readFlag(args, "--session")),
+      sessionDir: readFlag(args, "--session-dir"),
+      sessionId: readFlag(args, "--session-id")
+    });
+    if (result.status === "blocked") {
+      console.log(`runtime=pi transport=interactive package=${result.packageName}@${result.packageVersion}`);
+      console.log(`status=${result.status}`);
+      console.log(`reason=${result.reason}`);
+      process.exitCode = 1;
+    } else if (result.status === "failed") {
+      console.log(`runtime=pi transport=interactive package=${result.packageName}@${result.packageVersion}`);
+      console.log(`status=${result.status} exit_code=${result.exitCode ?? "-"} signal=${result.signal ?? "-"}`);
+      process.exitCode = result.exitCode ?? 1;
+    }
+    return;
+  }
   if (subcommand === "ask") {
     const prompt = stripFlags(args.slice(1), ["--provider", "--model", "--thinking", "--transport", "--session", "--session-dir", "--timeout-ms"]).join(" ").trim();
     if (!prompt) throw new Error('Usage: hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]');
@@ -561,7 +589,7 @@ async function pi(args: string[]): Promise<void> {
     return;
   }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|commands|ask>");
+    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|commands|tui|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);

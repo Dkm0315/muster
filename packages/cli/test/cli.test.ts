@@ -17,6 +17,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw pi models/);
   assert.match(stdout, /hybrowclaw pi tools/);
   assert.match(stdout, /hybrowclaw pi commands/);
+  assert.match(stdout, /hybrowclaw pi tui/);
   assert.match(stdout, /--transport sdk\|cli/);
   assert.match(stdout, /--session memory\|create\|continue/);
   assert.match(stdout, /hybrowclaw claude inspect/);
@@ -90,6 +91,16 @@ test("CLI pi commands exposes Pi prompt and skill slash catalog", async () => {
   assert.match(stdout, /command\tsource\tscope\torigin\tpath\tdescription/);
   assert.match(stdout, /\/skill:postgres-dba\tskill/);
   assert.match(stdout, /\/release-note\tprompt/);
+});
+
+test("CLI pi tui reports a clear non-TTY guard instead of hanging", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-tui-"));
+  const result = await runCliAllowFailure(["pi", "tui", "hello", "--session", "memory"], cwd);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /runtime=pi transport=interactive/);
+  assert.match(result.stdout, /status=blocked/);
+  assert.match(result.stdout, /requires an attached TTY/);
 });
 
 test("CLI pi ask prints lifecycle trace when provider auth fails", async () => {

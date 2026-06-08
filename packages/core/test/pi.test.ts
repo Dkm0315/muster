@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildPiCliArgs, buildPiSessionLabel, inspectPiCommands, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
+import { buildPiCliArgs, buildPiInteractiveArgs, buildPiSessionLabel, inspectPiCommands, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, runPiInteractive, summarizePiEventTrace } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
@@ -59,6 +59,37 @@ test("buildPiCliArgs creates an explicit diagnostic Pi CLI invocation", () => {
     "low",
     "Review this repo"
   ]);
+});
+
+test("buildPiInteractiveArgs creates a real Pi TUI invocation without print mode", () => {
+  const args = buildPiInteractiveArgs({
+    prompt: "Help me inspect the workspace",
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    thinking: "medium",
+    tools: ["read", "grep"],
+    sessionMode: "continue",
+    sessionDir: "/tmp/hybrowclaw-sessions",
+    sessionId: "session-123"
+  });
+
+  assert.deepEqual(args, [
+    "--continue",
+    "--session-id",
+    "session-123",
+    "--session-dir",
+    "/tmp/hybrowclaw-sessions",
+    "--tools",
+    "read,grep",
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4-5",
+    "--thinking",
+    "medium",
+    "Help me inspect the workspace"
+  ]);
+  assert.equal(args.includes("--print"), false);
 });
 
 test("listPiModels exposes Pi-native provider and model discovery", async () => {
@@ -143,6 +174,20 @@ test("runPiCliDiagnostic invokes an external Pi-compatible command only when req
   assert.equal(result.command, command);
   assert.match(result.stdout, /pi-output:/);
   assert.match(result.stdout, /Say hello/);
+});
+
+test("runPiInteractive blocks safely in non-interactive test processes", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-tui-cwd-"));
+  const result = await runPiInteractive({
+    cwd,
+    prompt: "Open the TUI",
+    sessionMode: "memory"
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.command, /node/);
+  assert.ok(result.args.some((arg) => arg.endsWith("cli.js")));
+  assert.match(result.reason ?? "", /requires an attached TTY/);
 });
 
 test("runPiEmbeddedAgent returns persistent session metadata even when provider auth fails", async () => {
