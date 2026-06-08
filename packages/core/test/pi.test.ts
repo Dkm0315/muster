@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
+import { buildPiCliArgs, buildPiSessionLabel, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, summarizePiEventTrace } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
@@ -83,6 +83,20 @@ test("listPiModels can filter to Claude-capable Anthropic models", async () => {
   assert.ok(models.length > 0);
   assert.ok(models.every((model) => model.provider === "anthropic"));
   assert.ok(models.some((model) => model.id.toLowerCase().includes("claude")));
+});
+
+test("inspectPiTools exposes the real Pi tool registry and active allowlist", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-tools-cwd-"));
+  const agentDir = join(cwd, ".agent");
+  const report = await inspectPiTools({ cwd, agentDir, tools: ["read", "grep"] });
+
+  assert.equal(report.cwd, cwd);
+  assert.equal(report.agentDir, agentDir);
+  assert.deepEqual(report.activeTools, ["read", "grep"]);
+  assert.ok(report.tools.some((tool) => tool.name === "read" && tool.active));
+  assert.ok(report.tools.some((tool) => tool.name === "grep" && tool.active));
+  assert.ok(report.tools.some((tool) => tool.name === "ls" && !tool.active));
+  assert.ok(report.tools.every((tool) => Array.isArray(tool.parameterKeys)));
 });
 
 test("runPiCliDiagnostic invokes an external Pi-compatible command only when requested", async () => {

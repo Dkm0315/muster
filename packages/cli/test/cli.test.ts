@@ -15,6 +15,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /hybrowclaw tui ask/);
   assert.match(stdout, /hybrowclaw pi inspect/);
   assert.match(stdout, /hybrowclaw pi models/);
+  assert.match(stdout, /hybrowclaw pi tools/);
   assert.match(stdout, /--transport sdk\|cli/);
   assert.match(stdout, /--session memory\|create\|continue/);
   assert.match(stdout, /hybrowclaw claude inspect/);
@@ -54,6 +55,18 @@ test("CLI pi models exposes Pi provider registry", async () => {
   assert.match(stdout, /provider\tmodel\tavailable/);
   assert.match(stdout, /anthropic\t/);
   assert.match(stdout, /claude/i);
+});
+
+test("CLI pi tools exposes Pi tool registry", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-tools-"));
+  const agentDir = join(cwd, ".pi-agent");
+  const { stdout } = await runCli(["pi", "tools", "--agent-dir", agentDir, "--tools", "read,grep"], cwd);
+
+  assert.match(stdout, /active_tools=read,grep/);
+  assert.match(stdout, /tool\tactive\tscope\torigin\tsource\tparameters\tdescription/);
+  assert.match(stdout, /read\tyes/);
+  assert.match(stdout, /grep\tyes/);
+  assert.match(stdout, /ls\tno/);
 });
 
 test("CLI pi ask prints lifecycle trace when provider auth fails", async () => {
