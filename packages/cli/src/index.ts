@@ -3,6 +3,7 @@ import {
   adjudicateFeedback,
   addMemory,
   appendEpisode,
+  buildPiSessionLabel,
   appendFeedback,
   addOpenAICompatibleProvider,
   addCodexCliProvider,
@@ -17,6 +18,7 @@ import {
   inspectPiRuntime,
   listLearningCandidates,
   listEpisodes,
+  listPiModels,
   loadConfig,
   parseMemoryScope,
   planRun,
@@ -121,7 +123,8 @@ Usage:
   hybrowclaw provider add-codex-cli <id> <model>
   hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]
   hybrowclaw pi inspect [--home /path/to/home]
-  hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--timeout-ms 30000]
+  hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
+  hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
   hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
   hybrowclaw state show
   hybrowclaw migrate openclaw --dry-run
@@ -345,7 +348,7 @@ async function memory(args: string[]): Promise<void> {
 async function tui(): Promise<void> {
   if (args[0] === "ask") {
     const runtimeFlag = readFlag(args, "--runtime");
-    const promptArgs = stripFlags(args.slice(1), ["--runtime", "--provider", "--model", "--thinking", "--effort", "--timeout-ms"]);
+    const promptArgs = stripFlags(args.slice(1), ["--runtime", "--provider", "--model", "--thinking", "--effort", "--transport", "--session", "--session-dir", "--timeout-ms"]);
     const prompt = promptArgs.join(" ").trim();
     if (!prompt) throw new Error('Usage: hybrowclaw tui ask "your prompt"');
     if (runtimeFlag === "pi") {
@@ -353,6 +356,9 @@ async function tui(): Promise<void> {
         renderTui: true,
         provider: readFlag(args, "--provider"),
         model: readFlag(args, "--model"),
+        transport: readPiTransport(readFlag(args, "--transport")),
+        sessionMode: readPiSessionMode(readFlag(args, "--session")),
+        sessionDir: readFlag(args, "--session-dir"),
         timeoutMs: readNumberFlag(args, "--timeout-ms")
       });
       return;
@@ -459,19 +465,50 @@ function renderTuiState(state: Awaited<ReturnType<typeof buildCockpitState>>): v
 async function pi(args: string[]): Promise<void> {
   const subcommand = args[0];
   if (subcommand === "ask") {
-    const prompt = stripFlags(args.slice(1), ["--provider", "--model", "--thinking", "--transport", "--timeout-ms"]).join(" ").trim();
-    if (!prompt) throw new Error('Usage: hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--timeout-ms 30000]');
+    const prompt = stripFlags(args.slice(1), ["--provider", "--model", "--thinking", "--transport", "--session", "--session-dir", "--timeout-ms"]).join(" ").trim();
+    if (!prompt) throw new Error('Usage: hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]');
     await runPiPrompt(prompt, {
       provider: readFlag(args, "--provider"),
       model: readFlag(args, "--model"),
       thinking: readPiThinking(readFlag(args, "--thinking")),
       transport: readPiTransport(readFlag(args, "--transport")),
+      sessionMode: readPiSessionMode(readFlag(args, "--session")),
+      sessionDir: readFlag(args, "--session-dir"),
       timeoutMs: readNumberFlag(args, "--timeout-ms")
     });
     return;
   }
+  if (subcommand === "models") {
+    const models = await listPiModels({
+      provider: readFlag(args, "--provider"),
+      agentDir: readFlag(args, "--agent-dir"),
+      availableOnly: args.includes("--available")
+    });
+    if (!models.length) {
+      console.log("No Pi models matched. Run without filters or login/configure a provider in Pi.");
+      return;
+    }
+    console.log("provider\tmodel\tavailable\tauth\tapi\tthinking\tinput\tcontext\tmax_output\tname");
+    for (const model of models) {
+      console.log(
+        [
+          model.provider,
+          model.id,
+          model.available ? "yes" : "no",
+          model.usingOAuth ? "oauth" : model.authSource ?? "-",
+          model.api ?? "-",
+          model.reasoning ? "yes" : "no",
+          model.input.join(","),
+          formatCompactNumber(model.contextWindow),
+          formatCompactNumber(model.maxTokens),
+          model.name
+        ].join("\t")
+      );
+    }
+    return;
+  }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi <inspect|ask>");
+    throw new Error("Usage: hybrowclaw pi <inspect|models|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);
@@ -499,6 +536,8 @@ async function runPiPrompt(
     readonly model?: string;
     readonly thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
     readonly transport?: "sdk" | "cli";
+    readonly sessionMode?: "memory" | "create" | "continue";
+    readonly sessionDir?: string;
     readonly timeoutMs?: number;
   } = {}
 ): Promise<void> {
@@ -512,7 +551,9 @@ async function runPiPrompt(
     thinking: options.thinking,
     timeoutMs: options.timeoutMs,
     tools: ["read", "grep", "find", "ls"],
-    transport: options.transport
+    transport: options.transport,
+    sessionMode: options.sessionMode,
+    sessionDir: options.sessionDir
   });
   const failureText = result.errorMessage ?? result.stderr ?? "empty response";
   await appendEpisode({
@@ -533,7 +574,7 @@ async function runPiPrompt(
         status: result.status === "completed" ? "passed" : "failed",
         detail:
           result.transport === "sdk"
-            ? `createAgentSession session=${result.sessionId ?? "-"} events=${result.eventTypes?.length ?? 0} (${result.durationMs}ms)`
+            ? `${buildPiSessionLabel(result)} (${result.durationMs}ms)`
             : `${result.command} ${result.args?.slice(0, -1).join(" ")} (${result.durationMs}ms)`
       }
     ],
@@ -546,6 +587,10 @@ async function runPiPrompt(
   console.log(`runtime=pi transport=${result.transport} package=${result.packageName}@${result.packageVersion}`);
   if (result.command) console.log(`command=${result.command}`);
   if (result.sessionId) console.log(`session=${result.sessionId}`);
+  if (result.sessionMode) console.log(`session_mode=${result.sessionMode}`);
+  if (result.sessionFile) console.log(`session_file=${result.sessionFile}`);
+  if (result.sessionDir) console.log(`session_dir=${result.sessionDir}`);
+  if (result.activeTools?.length) console.log(`active_tools=${result.activeTools.join(",")}`);
   console.log(`status=${result.status} duration_ms=${result.durationMs}`);
   if (result.stderr) console.log(`stderr=${result.stderr}`);
   console.log("\n" + (result.stdout || result.errorMessage || "Pi returned no output") + "\n");
@@ -813,6 +858,12 @@ function readPiTransport(value: string | undefined): "sdk" | "cli" | undefined {
   throw new Error("Invalid Pi transport. Use sdk or cli.");
 }
 
+function readPiSessionMode(value: string | undefined): "memory" | "create" | "continue" | undefined {
+  if (!value) return undefined;
+  if (value === "memory" || value === "create" || value === "continue") return value;
+  throw new Error("Invalid Pi session mode. Use memory, create, or continue.");
+}
+
 function readClaudeEffort(value: string | undefined): "low" | "medium" | "high" | "xhigh" | "max" | undefined {
   if (!value) return undefined;
   if (value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max") return value;
@@ -875,6 +926,18 @@ function wrapText(text: string, width: number): string[] {
 
 function truncate(value: string, length: number): string {
   return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 3))}...`;
+}
+
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const thousands = value / 1_000;
+    return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`;
+  }
+  return String(value);
 }
 
 main().catch((error) => {

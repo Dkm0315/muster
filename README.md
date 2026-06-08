@@ -70,11 +70,15 @@ pnpm hc capability inspect /path/to/pack
 Ask through Pi's real SDK package and record the run as a HybrowClaw episode:
 
 ```bash
+pnpm hc pi models --provider anthropic
 pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
+pnpm hc pi ask "Review this repo with Claude" --provider anthropic --model claude-sonnet-4-5
+pnpm hc pi ask "Continue the persistent investigation" --session create --session-dir .hybrowclaw/pi-sessions
+pnpm hc pi ask "Pick up the same investigation" --session continue --session-dir .hybrowclaw/pi-sessions
 pnpm hc tui ask --runtime pi "Review this repo in one sentence"
 ```
 
-The default Pi transport is `sdk`, which creates a real Pi `AgentSession` through `createAgentSession()`. Use `--transport cli` only for diagnostics when comparing against the upstream `pi` command.
+The default Pi transport is `sdk`, which creates a real Pi `AgentSession` through `createAgentSession()`. Provider/model selection is resolved through Pi's own `AuthStorage` and `ModelRegistry`, so Claude, OpenAI, Codex, Copilot, local, and custom providers use the same Pi-native path. Pi exposes Claude Pro/Max and Anthropic API-key auth under the `anthropic` provider; run `pnpm hc pi models --provider anthropic` to confirm the exact model ids available in your installed Pi version. Session mode defaults to `memory`; use `--session create` or `--session continue` with `--session-dir` when you want durable Pi session files. Use `--transport cli` only for diagnostics when comparing against the upstream `pi` command.
 
 Migration is dry-run only in v0. The scanners inspect conventional home-directory state and do not mutate OpenClaw, Hermes, pi, or HybrowClaw data:
 
