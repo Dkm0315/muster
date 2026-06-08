@@ -4,6 +4,7 @@ import {
   addMemory,
   appendEpisode,
   buildPiSessionLabel,
+  summarizePiEventTrace,
   appendFeedback,
   addOpenAICompatibleProvider,
   addCodexCliProvider,
@@ -574,7 +575,7 @@ async function runPiPrompt(
         status: result.status === "completed" ? "passed" : "failed",
         detail:
           result.transport === "sdk"
-            ? `${buildPiSessionLabel(result)} (${result.durationMs}ms)`
+            ? `${buildPiSessionLabel(result)} ${summarizePiEventTrace(result.eventTrace ?? [])} (${result.durationMs}ms)`
             : `${result.command} ${result.args?.slice(0, -1).join(" ")} (${result.durationMs}ms)`
       }
     ],
@@ -591,6 +592,7 @@ async function runPiPrompt(
   if (result.sessionFile) console.log(`session_file=${result.sessionFile}`);
   if (result.sessionDir) console.log(`session_dir=${result.sessionDir}`);
   if (result.activeTools?.length) console.log(`active_tools=${result.activeTools.join(",")}`);
+  if (result.eventTrace?.length) console.log(`event_trace=${summarizePiEventTrace(result.eventTrace)}`);
   console.log(`status=${result.status} duration_ms=${result.durationMs}`);
   if (result.stderr) console.log(`stderr=${result.stderr}`);
   console.log("\n" + (result.stdout || result.errorMessage || "Pi returned no output") + "\n");

@@ -75,10 +75,25 @@ export interface PiAgentRunResult {
   readonly activeTools?: string[];
   readonly eventTypes?: string[];
   readonly eventCounts?: Record<string, number>;
+  readonly eventTrace?: PiEventTrace[];
   readonly errorMessage?: string;
 }
 
 export type PiSessionMode = "memory" | "create" | "continue";
+
+export type PiEventTraceKind = "session" | "prompt" | "pi_event" | "tool" | "error";
+
+export interface PiEventTrace {
+  readonly index: number;
+  readonly at: string;
+  readonly kind: PiEventTraceKind;
+  readonly type: string;
+  readonly status?: "started" | "updated" | "completed" | "failed";
+  readonly message?: string;
+  readonly toolCallId?: string;
+  readonly toolName?: string;
+  readonly detail?: string;
+}
 
 export interface PiModelInfo {
   readonly provider: string;
@@ -193,6 +208,11 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
   const started = Date.now();
   const eventTypes: string[] = [];
   const eventCounts: Record<string, number> = {};
+  const eventTrace: PiEventTrace[] = [];
+  let traceIndex = 0;
+  const appendTrace = (item: Omit<PiEventTrace, "index" | "at">) => {
+    eventTrace.push({ index: ++traceIndex, at: new Date().toISOString(), ...item });
+  };
   const sessionMode = input.sessionMode ?? "memory";
   try {
     const pi = await import("@earendil-works/pi-coding-agent");
@@ -225,19 +245,52 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
       resourceLoader
     });
     await prewarmPiSessionFile(sessionManager);
+    appendTrace({
+      kind: "session",
+      type: "session_created",
+      status: "completed",
+      message: `Pi session ${session.sessionId}`,
+      detail: buildPiSessionLabel({
+        sessionMode,
+        sessionId: session.sessionId,
+        sessionFile: session.sessionFile,
+        sessionDir: sessionManager.getSessionDir(),
+        activeTools: session.getActiveToolNames(),
+        eventCounts
+      })
+    });
     const unsubscribe = session.subscribe((event) => {
       eventTypes.push(event.type);
       eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
+      eventTrace.push(normalizePiEvent(event, ++traceIndex));
     });
     try {
       let responseText = "";
       let promptError: string | undefined;
+      appendTrace({
+        kind: "prompt",
+        type: "prompt_start",
+        status: "started",
+        message: "Prompt submitted to Pi AgentSession"
+      });
       try {
         await session.prompt(input.prompt);
         responseText = extractLatestAssistantText(session.messages);
       } catch (error) {
         promptError = error instanceof Error ? error.message : String(error);
+        appendTrace({
+          kind: "error",
+          type: "prompt_error",
+          status: "failed",
+          message: promptError
+        });
       }
+      appendTrace({
+        kind: "prompt",
+        type: "prompt_end",
+        status: responseText && !promptError ? "completed" : "failed",
+        message: responseText ? "Assistant text captured from Pi session" : "Pi session ended without assistant text"
+      });
       return {
         status: responseText && !promptError ? "completed" : "failed",
         transport: "sdk",
@@ -253,6 +306,7 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
         activeTools: session.getActiveToolNames(),
         eventTypes,
         eventCounts,
+        eventTrace,
         errorMessage: promptError ?? (responseText ? undefined : session.state.errorMessage ?? "Pi SDK completed without assistant text.")
       };
     } finally {
@@ -271,6 +325,7 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
       sessionMode,
       eventTypes,
       eventCounts,
+      eventTrace,
       errorMessage: error instanceof Error ? error.message : String(error)
     };
   }
@@ -349,6 +404,18 @@ export function buildPiSessionLabel(result: Pick<PiAgentRunResult, "sessionMode"
   ].join(" ");
 }
 
+export function summarizePiEventTrace(trace: readonly PiEventTrace[], limit = 8): string {
+  if (!trace.length) return "trace=-";
+  return trace
+    .slice(-Math.max(1, limit))
+    .map((event) => {
+      const tool = event.toolName ? `:${event.toolName}` : "";
+      const status = event.status ? `=${event.status}` : "";
+      return `${event.index}:${event.type}${tool}${status}`;
+    })
+    .join(" ");
+}
+
 function createPiSessionManager(
   SessionManager: typeof import("@earendil-works/pi-coding-agent").SessionManager,
   options: { readonly cwd: string; readonly sessionMode: PiSessionMode; readonly sessionDir?: string }
@@ -419,6 +486,76 @@ async function inspectPiSdkExports(): Promise<{ loadable: boolean; exports: stri
   }
 }
 
+function normalizePiEvent(event: import("@earendil-works/pi-coding-agent").AgentSessionEvent, index: number): PiEventTrace {
+  const base = {
+    index,
+    at: new Date().toISOString(),
+    type: event.type
+  };
+  if (event.type === "tool_execution_start") {
+    return {
+      ...base,
+      kind: "tool",
+      status: "started",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      detail: summarizeToolArgs(event.args)
+    };
+  }
+  if (event.type === "tool_execution_update") {
+    return {
+      ...base,
+      kind: "tool",
+      status: "updated",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      detail: summarizeToolArgs(event.args)
+    };
+  }
+  if (event.type === "tool_execution_end") {
+    return {
+      ...base,
+      kind: "tool",
+      status: event.isError ? "failed" : "completed",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      detail: event.isError ? "tool result marked as error" : "tool result completed"
+    };
+  }
+  if (event.type === "agent_start" || event.type === "turn_start" || event.type === "message_start") {
+    return { ...base, kind: "pi_event", status: "started", detail: summarizePiMessageEvent(event) };
+  }
+  if (event.type === "agent_end" || event.type === "turn_end" || event.type === "message_end") {
+    return { ...base, kind: "pi_event", status: "completed", detail: summarizePiMessageEvent(event) };
+  }
+  if (event.type === "message_update" || event.type === "queue_update") {
+    return { ...base, kind: "pi_event", status: "updated", detail: summarizePiMessageEvent(event) };
+  }
+  if (event.type === "compaction_end" || event.type === "auto_retry_end") {
+    return { ...base, kind: "pi_event", status: "success" in event && event.success === false ? "failed" : "completed" };
+  }
+  if (event.type === "auto_retry_start" || event.type === "compaction_start") {
+    return { ...base, kind: "pi_event", status: "started" };
+  }
+  return { ...base, kind: "pi_event" };
+}
+
+function summarizeToolArgs(args: unknown): string {
+  if (!isRecord(args)) return "args=-";
+  const keys = Object.keys(args).sort();
+  return keys.length ? `args=${keys.join(",")}` : "args=-";
+}
+
+function summarizePiMessageEvent(event: unknown): string | undefined {
+  if (!isRecord(event)) return undefined;
+  const message = event.message;
+  if (!isRecord(message)) return undefined;
+  const role = typeof message.role === "string" ? message.role : undefined;
+  const content = message.content;
+  const contentKind = Array.isArray(content) ? `parts:${content.length}` : typeof content;
+  return [role ? `role=${role}` : undefined, `content=${contentKind}`].filter(Boolean).join(" ");
+}
+
 function extractLatestAssistantText(messages: readonly unknown[]): string {
   for (const message of [...messages].reverse()) {
     const candidate = message as { readonly role?: string; readonly content?: unknown };
@@ -435,6 +572,10 @@ function extractLatestAssistantText(messages: readonly unknown[]): string {
     }
   }
   return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function canExecute(command: string, args: string[]): Promise<boolean> {
