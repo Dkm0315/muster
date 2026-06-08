@@ -1,5 +1,6 @@
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -58,6 +59,33 @@ export interface PiAgentRunInput {
 export interface PiCliDiagnosticRunInput extends PiAgentRunInput {
   readonly command?: string;
   readonly noSession?: boolean;
+}
+
+export interface PiInteractiveRunInput {
+  readonly prompt?: string;
+  readonly cwd?: string;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  readonly tools?: readonly string[];
+  readonly sessionMode?: PiSessionMode;
+  readonly sessionDir?: string;
+  readonly sessionId?: string;
+  readonly agentDir?: string;
+  readonly allowNonTty?: boolean;
+  readonly verbose?: boolean;
+}
+
+export interface PiInteractiveRunResult {
+  readonly status: "completed" | "failed" | "blocked";
+  readonly command: string;
+  readonly args: string[];
+  readonly cwd: string;
+  readonly packageName: string;
+  readonly packageVersion: string;
+  readonly exitCode?: number;
+  readonly signal?: NodeJS.Signals;
+  readonly reason?: string;
 }
 
 export interface PiAgentRunResult {
@@ -220,6 +248,42 @@ export async function readPiCandidateFile(path: string): Promise<string> {
 export async function runPiAgent(input: PiAgentRunInput): Promise<PiAgentRunResult> {
   if (input.transport === "cli") return runPiCliDiagnostic(input);
   return runPiEmbeddedAgent(input);
+}
+
+export async function runPiInteractive(input: PiInteractiveRunInput = {}): Promise<PiInteractiveRunResult> {
+  const cwd = input.cwd ?? process.cwd();
+  const command = process.execPath;
+  const args = [resolvePiCliPath(), ...buildPiInteractiveArgs(input)];
+  if (!input.allowNonTty && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    return {
+      status: "blocked",
+      command,
+      args,
+      cwd,
+      packageName: PI_CODING_AGENT_PACKAGE,
+      packageVersion: PI_CODING_AGENT_VERSION,
+      reason: "Pi interactive mode requires an attached TTY. Use `hybrowclaw pi ask` for non-interactive runs."
+    };
+  }
+
+  const child = spawn(command, args, {
+    cwd,
+    stdio: "inherit",
+    env: buildPiInteractiveEnv(input)
+  });
+  const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  return {
+    status: result.code === 0 ? "completed" : "failed",
+    command,
+    args,
+    cwd,
+    packageName: PI_CODING_AGENT_PACKAGE,
+    packageVersion: PI_CODING_AGENT_VERSION,
+    exitCode: result.code ?? undefined,
+    signal: result.signal ?? undefined
+  };
 }
 
 export async function listPiModels(input: PiModelListInput = {}): Promise<PiModelInfo[]> {
@@ -540,6 +604,22 @@ export function buildPiCliArgs(input: PiCliDiagnosticRunInput): string[] {
 export const buildPiAgentArgs = buildPiCliArgs;
 export const runPiCodingAgent = runPiCliDiagnostic;
 
+export function buildPiInteractiveArgs(input: PiInteractiveRunInput = {}): string[] {
+  const args: string[] = [];
+  if (input.sessionMode === "memory") args.push("--no-session");
+  if (input.sessionMode === "continue") args.push("--continue");
+  if (input.sessionId) args.push("--session-id", input.sessionId);
+  if (input.sessionDir) args.push("--session-dir", input.sessionDir);
+  const tools = input.tools?.length ? input.tools : DEFAULT_PI_ACTIVE_TOOLS;
+  args.push("--tools", tools.join(","));
+  if (input.provider) args.push("--provider", input.provider);
+  if (input.model) args.push("--model", input.model);
+  if (input.thinking) args.push("--thinking", input.thinking);
+  if (input.verbose) args.push("--verbose");
+  if (input.prompt?.trim()) args.push(input.prompt.trim());
+  return args;
+}
+
 export function buildPiSessionLabel(result: Pick<PiAgentRunResult, "sessionMode" | "sessionId" | "sessionFile" | "sessionDir" | "activeTools" | "eventCounts">): string {
   const events = Object.entries(result.eventCounts ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
@@ -612,6 +692,18 @@ function collectPiCommands(session: import("@earendil-works/pi-coding-agent").Ag
 
 function sourcePathFromInfo(sourceInfo: { readonly path: string; readonly source: string }): string {
   return sourceInfo.path || sourceInfo.source;
+}
+
+function buildPiInteractiveEnv(input: PiInteractiveRunInput): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...(input.agentDir ? { PI_CODING_AGENT_DIR: input.agentDir } : {}),
+    ...(input.sessionDir ? { PI_CODING_AGENT_SESSION_DIR: input.sessionDir } : {})
+  };
+}
+
+function resolvePiCliPath(): string {
+  return join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli.js");
 }
 
 function createPiModelRegistry(pi: typeof import("@earendil-works/pi-coding-agent"), agentDir: string) {
