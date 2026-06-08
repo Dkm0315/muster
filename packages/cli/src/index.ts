@@ -9,6 +9,7 @@ import {
   addOpenAICompatibleProvider,
   addCodexCliProvider,
   buildCockpitState,
+  buildEpisodeContextGraph,
   completeChat,
   configPath,
   ensureDefaultConfig,
@@ -21,6 +22,7 @@ import {
   inspectPiTools,
   listLearningCandidates,
   listEpisodes,
+  listMemory,
   listPiModels,
   loadConfig,
   parseMemoryScope,
@@ -76,6 +78,9 @@ async function main(): Promise<void> {
     case "capability":
       await capability(args);
       return;
+    case "context":
+      await context(args);
+      return;
     case "memory":
       await memory(args);
       return;
@@ -117,6 +122,7 @@ Usage:
   hybrowclaw eval seed <episode-id> [--expect "..."] [--forbid "..."]
   hybrowclaw eval run [path-or-dir]
   hybrowclaw capability inspect <path>
+  hybrowclaw context graph [episode-id] [--scope tenant:hybrow] [--latest]
   hybrowclaw memory add --summary "..." --scope user:me --provenance manual
   hybrowclaw memory search --scope user:me [--query "..."] [--include-global]
   hybrowclaw memory promote <memory-id> --to tenant:acme [--allow-global]
@@ -305,6 +311,26 @@ async function capability(args: string[]): Promise<void> {
     for (const warning of report.warnings) console.log(`- ${warning}`);
   }
   if (report.status === "blocked") process.exitCode = 1;
+}
+
+async function context(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand !== "graph") {
+    throw new Error("Usage: hybrowclaw context graph [episode-id] [--scope kind:id] [--latest]");
+  }
+  const episodes = await listEpisodes();
+  if (!episodes.length) throw new Error("No episodes found. Run a prompt first.");
+  const positional = stripFlags(args.slice(1), ["--scope"]).filter((arg) => arg !== "--latest");
+  const requestedId = args.includes("--latest") ? undefined : positional[0];
+  const episode = requestedId ? episodes.find((item) => item.id === requestedId) : episodes.at(-1);
+  if (!episode) throw new Error(`Episode not found: ${requestedId}`);
+  const scopeRaw = readFlag(args, "--scope");
+  const graph = buildEpisodeContextGraph({
+    episode,
+    memories: await listMemory(),
+    scope: scopeRaw ? parseMemoryScope(scopeRaw) : undefined
+  });
+  console.log(JSON.stringify(graph, null, 2));
 }
 
 async function memory(args: string[]): Promise<void> {
