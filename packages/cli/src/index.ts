@@ -35,7 +35,24 @@ import {
   scanMigrationSource,
   seedEvalFromEpisode,
   searchMemory,
-  setRuntimeProvider
+  setRuntimeProvider,
+  executeRun,
+  listTokenRecords,
+  renderTokenTable,
+  activeProfile,
+  createProfile,
+  listProfiles,
+  useProfile,
+  addSchedule,
+  listSchedules,
+  removeSchedule,
+  runDueSchedules,
+  loadEvolveSuite,
+  evolve,
+  renderEvolveReport,
+  runHarnessChecks,
+  verifyIntegrity,
+  renderIntegrityReport
 } from "@hybrowclaw/core";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -102,6 +119,24 @@ async function main(): Promise<void> {
     case "migrate":
       await migrate(args);
       return;
+    case "run":
+      await runCommand(args);
+      return;
+    case "tokens":
+      await tokensCommand(args);
+      return;
+    case "profile":
+      await profileCommand(args);
+      return;
+    case "schedule":
+      await scheduleCommand(args);
+      return;
+    case "evolve":
+      await evolveCommand(args);
+      return;
+    case "verify":
+      await verifyCommand();
+      return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -143,6 +178,13 @@ Usage:
   hybrowclaw migrate openclaw --dry-run
   hybrowclaw migrate hermes --dry-run
   hybrowclaw migrate pi --dry-run
+  hybrowclaw run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
+  hybrowclaw tokens [--limit 20]
+  hybrowclaw profile create|list|use|current [name]
+  hybrowclaw schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
+  hybrowclaw evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
+  hybrowclaw evolve selfcheck
+  hybrowclaw verify
 
 Design rule:
   One active runtime per run. Providers/models can route dynamically by task.
@@ -379,6 +421,10 @@ async function memory(args: string[]): Promise<void> {
 }
 
 async function tui(): Promise<void> {
+  if (args[0] === "/tokens" || args[0] === "tokens") {
+    console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(args, "--limit") ?? 20));
+    return;
+  }
   if (args[0] === "ask") {
     const runtimeFlag = readFlag(args, "--runtime");
     const promptArgs = stripFlags(args.slice(1), ["--runtime", "--provider", "--model", "--thinking", "--effort", "--transport", "--session", "--session-dir", "--timeout-ms"]);
@@ -1062,3 +1108,147 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+
+
+async function runCommand(commandArgs: string[]): Promise<void> {
+  const flagNames = ["--runtime", "--provider", "--model", "--thinking", "--session", "--session-dir", "--scope", "--task-kind", "--timeout-ms", "--recall-limit"];
+  const prompt = stripFlags(commandArgs, flagNames).filter((value) => value !== "--sensitive").join(" ").trim();
+  if (!prompt) throw new Error('Usage: hybrowclaw run "prompt" [--runtime pi] [--provider X] [--model Y] [--session memory|create|continue] [--scope user:me]');
+  const config = await loadConfig();
+  const scopeFlags = commandArgs.flatMap((value, index) => (value === "--scope" && commandArgs[index + 1] ? [commandArgs[index + 1]] : []));
+  const outcome = await executeRun(config, {
+    prompt,
+    runtime: readFlag(commandArgs, "--runtime"),
+    provider: readFlag(commandArgs, "--provider"),
+    model: readFlag(commandArgs, "--model"),
+    thinking: readFlag(commandArgs, "--thinking") as never,
+    sessionMode: readPiSessionMode(readFlag(commandArgs, "--session")),
+    sessionDir: readFlag(commandArgs, "--session-dir"),
+    taskKind: readFlag(commandArgs, "--task-kind") as never,
+    sensitive: commandArgs.includes("--sensitive"),
+    scopes: scopeFlags.length ? scopeFlags.map(parseMemoryScope) : undefined,
+    recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
+    timeoutMs: readNumberFlag(commandArgs, "--timeout-ms")
+  });
+  if (outcome.recalled.length) {
+    console.log(`recalled ${outcome.recalled.length} scoped memories into context`);
+  }
+  if (outcome.fallbackUsed) {
+    console.log(`governed fallback used: ${outcome.fallbackUsed} (recorded as evidence)`);
+  }
+  console.log(`run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} task=${outcome.plan.taskKind} status=${outcome.episode.outcome?.kind}`);
+  console.log(`tokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}${outcome.tokens.costUsd !== undefined ? ` cost=$${outcome.tokens.costUsd.toFixed(4)}` : ""}`);
+  if (outcome.episode.outcome?.kind === "failed") {
+    throw new Error(outcome.episode.outcome.detail ?? "Run failed");
+  }
+  console.log("\n" + outcome.episode.responseText + "\n");
+}
+
+async function tokensCommand(commandArgs: string[]): Promise<void> {
+  console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(commandArgs, "--limit") ?? 20));
+}
+
+async function profileCommand(commandArgs: string[]): Promise<void> {
+  const [action, name] = commandArgs;
+  if (action === "create" && name) {
+    await createProfile(name);
+    console.log(`Created profile: ${name}`);
+    return;
+  }
+  if (action === "list") {
+    const current = activeProfile();
+    for (const profile of await listProfiles()) {
+      console.log(`${profile === current ? "* " : "  "}${profile}`);
+    }
+    return;
+  }
+  if (action === "use" && name) {
+    await useProfile(name);
+    console.log(`Active profile: ${name}`);
+    return;
+  }
+  if (action === "current" || action === undefined) {
+    console.log(activeProfile());
+    return;
+  }
+  throw new Error("Usage: hybrowclaw profile create|list|use|current [name]");
+}
+
+async function scheduleCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  if (action === "add") {
+    const positional = stripFlags(rest, ["--profile"]);
+    const [cron, ...promptParts] = positional;
+    const prompt = promptParts.join(" ").trim();
+    if (!cron || !prompt) throw new Error('Usage: hybrowclaw schedule add "*/5 * * * *" "prompt" [--profile name]');
+    const job = await addSchedule(cron, prompt, { profile: readFlag(rest, "--profile") });
+    console.log(`Scheduled ${job.id}: [${job.cron}] ${job.prompt}`);
+    console.log("No daemon runs these. Add to external cron: * * * * * cd <repo> && pnpm hc schedule run-due");
+    return;
+  }
+  if (action === "list") {
+    const jobs = await listSchedules();
+    if (!jobs.length) {
+      console.log("No schedules.");
+      return;
+    }
+    for (const job of jobs) {
+      console.log(`${job.id} [${job.cron}] ${job.prompt.slice(0, 60)} last=${job.lastRunAt ?? "-"} status=${job.lastStatus ?? "-"}`);
+    }
+    return;
+  }
+  if (action === "remove" && rest[0]) {
+    const removed = await removeSchedule(rest[0]);
+    console.log(removed ? `Removed ${rest[0]}` : `No schedule found: ${rest[0]}`);
+    return;
+  }
+  if (action === "run-due") {
+    const config = await loadConfig();
+    const results = await runDueSchedules(async (job) => {
+      const outcome = await executeRun(config, { prompt: job.prompt });
+      return { runId: outcome.plan.runId, status: outcome.episode.outcome?.kind === "completed" ? "completed" : "failed" };
+    });
+    if (!results.length) {
+      console.log("No jobs due.");
+      return;
+    }
+    for (const result of results) {
+      console.log(`${result.job.id}: ${result.status}${result.runId ? ` run=${result.runId}` : ""}${result.detail ? ` (${result.detail})` : ""}`);
+    }
+    return;
+  }
+  throw new Error("Usage: hybrowclaw schedule add|list|remove|run-due");
+}
+
+async function evolveCommand(commandArgs: string[]): Promise<void> {
+  if (commandArgs[0] === "selfcheck") {
+    const checks = await runHarnessChecks();
+    for (const check of checks) {
+      console.log(`[${check.status === "passed" ? "PASS" : "FAIL"}] ${check.id}: ${check.description}${check.detail ? ` - ${check.detail}` : ""}`);
+    }
+    if (checks.some((check) => check.status === "failed")) process.exitCode = 1;
+    return;
+  }
+  const flagNames = ["--runtime", "--provider", "--model", "--iterations", "--session", "--timeout-ms"];
+  const suitePath = stripFlags(commandArgs, flagNames)[0];
+  if (!suitePath) throw new Error("Usage: hybrowclaw evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2] | hybrowclaw evolve selfcheck");
+  const config = await loadConfig();
+  const tasks = await loadEvolveSuite(resolve(suitePath));
+  const report = await evolve(config, tasks, {
+    runtime: readFlag(commandArgs, "--runtime"),
+    provider: readFlag(commandArgs, "--provider"),
+    model: readFlag(commandArgs, "--model"),
+    sessionMode: readPiSessionMode(readFlag(commandArgs, "--session")),
+    timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"),
+    maxIterations: readNumberFlag(commandArgs, "--iterations") ?? 2
+  });
+  console.log(renderEvolveReport(report));
+  if (!report.converged || report.harnessChecks.some((check) => check.status === "failed")) process.exitCode = 1;
+}
+
+async function verifyCommand(): Promise<void> {
+  const report = await verifyIntegrity();
+  console.log(renderIntegrityReport(report));
+  if (!report.ok) process.exitCode = 1;
+}
+

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { profileConfigPath } from "./profiles.js";
 import type { HybrowClawConfig, ProviderConfig } from "./types.js";
 
 export const CONFIG_DIR = ".hybrowclaw";
@@ -41,7 +42,7 @@ export function defaultConfig(): HybrowClawConfig {
 }
 
 export function configPath(cwd = process.cwd()): string {
-  return join(cwd, CONFIG_DIR, CONFIG_FILE);
+  return profileConfigPath(cwd);
 }
 
 export async function ensureDefaultConfig(cwd = process.cwd()): Promise<string> {

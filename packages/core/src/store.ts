@@ -1,10 +1,11 @@
 import { appendFile, mkdir, open, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.js";
+import { profileDataDir } from "./profiles.js";
 import type { EpisodeRecord, FeedbackRecord, HybrowClawConfig, LearningCandidate } from "./types.js";
 
 export function dataDir(cwd = process.cwd()): string {
-  return join(cwd, ".hybrowclaw", "data");
+  return profileDataDir(cwd);
 }
 
 export function episodesPath(cwd = process.cwd()): string {
