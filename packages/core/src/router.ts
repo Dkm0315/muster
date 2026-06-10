@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { HybrowClawConfig, RunPlan, RunRequest, TaskKind } from "./types.js";
+import type { MusterConfig, RunPlan, RunRequest, TaskKind } from "./types.js";
 
 const CODING_HINTS = /\b(code|repo|bug|test|build|compile|patch|pr|commit|typescript|python|frappe|stack trace)\b/i;
 const ARCH_HINTS = /\b(architecture|design|system|tradeoff|roadmap|prd|cto|plan|strategy)\b/i;
@@ -17,7 +17,7 @@ export function classifyTask(prompt: string, explicit?: TaskKind): TaskKind {
   return "simple_qa";
 }
 
-export function planRun(config: HybrowClawConfig, request: RunRequest): RunPlan {
+export function planRun(config: MusterConfig, request: RunRequest): RunPlan {
   const taskKind = classifyTask(request.prompt, request.taskKind);
   const sensitive = Boolean(request.sensitive) || PRIVATE_HINTS.test(request.prompt);
   const runtimeId = selectRuntime(config, request.runtime, sensitive);
@@ -47,7 +47,7 @@ export function planRun(config: HybrowClawConfig, request: RunRequest): RunPlan 
   };
 }
 
-function selectRuntime(config: HybrowClawConfig, requested: string | undefined, sensitive: boolean): string {
+function selectRuntime(config: MusterConfig, requested: string | undefined, sensitive: boolean): string {
   if (requested) return requested;
   if (sensitive && config.routing.preferLocalForSensitive) {
     const localRuntime = Object.values(config.runtimes).find((runtime) => {

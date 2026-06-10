@@ -1,6 +1,6 @@
-# HybrowClaw Product Wedge
+# Muster Product Wedge
 
-HybrowClaw should not compete by claiming "agents, tools, memory, and workflows." Those are table stakes. OpenClaw, Hermes, pi.dev-style systems, Graphiti/Zep-style memory systems, and modern coding agents already make those claims credible.
+Muster should not compete by claiming "agents, tools, memory, and workflows." Those are table stakes. OpenClaw, Hermes, pi.dev-style systems, Graphiti/Zep-style memory systems, and modern coding agents already make those claims credible.
 
 The wedge is a beautifully stable, trust-first harness that knows what it is allowed to remember, what it is allowed to do, why it chose a route, and how to repair itself from evidence instead of vibes.
 
@@ -29,7 +29,7 @@ The wedge is a beautifully stable, trust-first harness that knows what it is all
 - Hybrid retrieval across semantic search, keyword search, and graph traversal.
 - Incremental updates without full graph recomputation.
 
-## HybrowClaw Differentiators
+## Muster Differentiators
 
 ### 1. Trust Kernel
 
@@ -48,11 +48,11 @@ The Trust Kernel is responsible for:
 - evidence capture and outcome verification
 - memory/eval/tool/policy candidate creation
 
-This makes HybrowClaw operationally safer than a harness that only records chat logs and tool calls.
+This makes Muster operationally safer than a harness that only records chat logs and tool calls.
 
 ### 2. Context Objects Before Context Graphs
 
-A full temporal graph is powerful but heavy. HybrowClaw starts with `ContextObject` as the portable primitive:
+A full temporal graph is powerful but heavy. Muster starts with `ContextObject` as the portable primitive:
 
 ```text
 id
@@ -130,7 +130,7 @@ Nothing high-risk is silently applied. Low-risk verified wins can be queued for 
 
 ### 4. Harness Self-Repair
 
-When a run fails, HybrowClaw should classify the failure:
+When a run fails, Muster should classify the failure:
 
 - wrong context
 - stale memory
@@ -146,7 +146,7 @@ The repair proposal should target the harness structure, not merely rewrite the 
 
 ### 5. Capability Pack Hygiene
 
-Skills/tools are supply-chain risk. HybrowClaw capability packs need:
+Skills/tools are supply-chain risk. Muster capability packs need:
 
 - manifest and signed digest
 - declared permissions
@@ -160,7 +160,7 @@ The rare product move is to make installing a capability pack feel as easy as np
 
 ### 6. One Runtime Per Run, Many Runtime Types
 
-HybrowClaw can connect to Codex, Claude Code, Cursor SDK, OpenHands, OpenAI-compatible chat, Anthropic, local models, or internal gateways. But each run chooses one active runtime. This keeps traces understandable and cost/security accountable.
+Muster can connect to Codex, Claude Code, Cursor SDK, OpenHands, OpenAI-compatible chat, Anthropic, local models, or internal gateways. But each run chooses one active runtime. This keeps traces understandable and cost/security accountable.
 
 ## Beautiful Stability Principles
 
@@ -177,15 +177,15 @@ HybrowClaw can connect to Codex, Claude Code, Cursor SDK, OpenHands, OpenAI-comp
 ## v0 Product Shape
 
 ```text
-@hybrowclaw/core
+@musterhq/core
   config, route planning, provider calls, store, scoped memory, capability inspection,
   eval fixtures, embedded Pi SDK adapter, feedback adjudication, cockpit state
 
-@hybrowclaw/cli
+@musterhq/cli
   init, doctor, provider, chat, tui, episodes, feedback, candidates, eval, memory,
   capability, migrate, pi inspect/ask, state
 
-@hybrowclaw/ui
+@musterhq/ui
   Terminal Cockpit viewer for exported runs, evidence, candidates, and route state
 
 future
@@ -204,4 +204,4 @@ CLI/TUI -> core runtime -> pi adapter / runtime adapter -> Trust Kernel -> memor
 Web UI  -> exported state / future local bridge
 ```
 
-This keeps HybrowClaw aligned with serious harnesses: fast terminal operation first, rich observability second.
+This keeps Muster aligned with serious harnesses: fast terminal operation first, rich observability second.

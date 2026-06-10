@@ -1,13 +1,13 @@
-# HybrowClaw v0 Setup and Migration
+# Muster v0 Setup and Migration
 
-This is the operator path for the current HybrowClaw v0 CLI and Terminal Cockpit. It is intentionally local-first, pnpm-native, and dry-run safe for migration.
+This is the operator path for the current Muster v0 CLI and Terminal Cockpit. It is intentionally local-first, pnpm-native, and dry-run safe for migration.
 
 ## Install
 
 Use `pnpm` first because the workspace scripts are pnpm-native.
 
 ```bash
-cd hybrowclaw
+cd muster
 corepack enable
 pnpm install
 ```
@@ -22,7 +22,7 @@ Create or reuse local config:
 pnpm hc init
 ```
 
-This writes `.hybrowclaw/config.json` if it does not already exist. The default provider is `local`, an OpenAI-compatible endpoint at `http://localhost:11434/v1` using model `llama3.1`.
+This writes `.muster/config.json` if it does not already exist. The default provider is `local`, an OpenAI-compatible endpoint at `http://localhost:11434/v1` using model `llama3.1`.
 
 Run health checks:
 
@@ -61,14 +61,14 @@ Ask through Pi's real SDK package:
 pnpm hc pi models --provider anthropic
 pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
 pnpm hc pi ask "Review this repo with Claude" --provider anthropic --model claude-sonnet-4-5
-pnpm hc pi ask "Start a persistent run" --session create --session-dir .hybrowclaw/pi-sessions
-pnpm hc pi ask "Continue that run" --session continue --session-dir .hybrowclaw/pi-sessions
+pnpm hc pi ask "Start a persistent run" --session create --session-dir .muster/pi-sessions
+pnpm hc pi ask "Continue that run" --session continue --session-dir .muster/pi-sessions
 pnpm hc tui ask --runtime pi "Review this repo in one sentence"
 ```
 
-HybrowClaw does not reimplement Pi's agent/TUI/tool/session runtime. The default path embeds Pi through `@earendil-works/pi-coding-agent` and creates a real `AgentSession` with `createAgentSession()`, then records the run, events, output, session metadata, active tools, and status as a HybrowClaw episode.
+Muster does not reimplement Pi's agent/TUI/tool/session runtime. The default path embeds Pi through `@earendil-works/pi-coding-agent` and creates a real `AgentSession` with `createAgentSession()`, then records the run, events, output, session metadata, active tools, and status as a Muster episode.
 
-Provider and model selection is also Pi-native. HybrowClaw creates Pi's `AuthStorage` and `ModelRegistry`, resolves the requested `--provider`/`--model` pair, and passes that model into `createAgentSession()`. That means Claude is not a sidecar-only path: use Pi's `anthropic` provider for Claude Pro/Max subscription auth or Anthropic API keys, and use `pnpm hc pi models --provider anthropic` to discover exact Claude ids in the installed Pi package. `--session memory` is disposable, while `--session create` and `--session continue` use Pi's persistent `SessionManager`. `--transport cli` is reserved for explicit diagnostics against the upstream `pi` command.
+Provider and model selection is also Pi-native. Muster creates Pi's `AuthStorage` and `ModelRegistry`, resolves the requested `--provider`/`--model` pair, and passes that model into `createAgentSession()`. That means Claude is not a sidecar-only path: use Pi's `anthropic` provider for Claude Pro/Max subscription auth or Anthropic API keys, and use `pnpm hc pi models --provider anthropic` to discover exact Claude ids in the installed Pi package. `--session memory` is disposable, while `--session create` and `--session continue` use Pi's persistent `SessionManager`. `--transport cli` is reserved for explicit diagnostics against the upstream `pi` command.
 
 Add any OpenAI-compatible provider:
 
@@ -78,17 +78,17 @@ pnpm hc provider add-openai-compatible openrouter https://openrouter.ai/api/v1 o
 pnpm hc provider list
 ```
 
-Provider ids must start with a lowercase letter and may contain lowercase letters, numbers, underscores, or dashes. Secrets stay in environment variables through `--api-key-env`; do not paste keys into `.hybrowclaw/config.json`.
+Provider ids must start with a lowercase letter and may contain lowercase letters, numbers, underscores, or dashes. Secrets stay in environment variables through `--api-key-env`; do not paste keys into `.muster/config.json`.
 
 ## Chat, Feedback, and Candidates
 
 Run a prompt:
 
 ```bash
-pnpm hc chat "Explain HybrowClaw v0 in one sentence"
+pnpm hc chat "Explain Muster v0 in one sentence"
 ```
 
-The CLI prints route metadata, the model response, an `episode=<id>` line, and a suggested feedback command. The episode is appended to `.hybrowclaw/data/episodes.jsonl`.
+The CLI prints route metadata, the model response, an `episode=<id>` line, and a suggested feedback command. The episode is appended to `.muster/data/episodes.jsonl`.
 
 Record feedback:
 
@@ -97,7 +97,7 @@ pnpm hc feedback <episode-id> --useful --correct --reason "Answer matched the re
 pnpm hc feedback <episode-id> --not-useful --reason "Missed the migration constraints"
 ```
 
-Feedback is a signal, not an automatic memory write. HybrowClaw adjudicates it against recorded evidence and appends candidate eval, memory, policy, or tool follow-ups to `.hybrowclaw/data/feedback.jsonl`.
+Feedback is a signal, not an automatic memory write. Muster adjudicates it against recorded evidence and appends candidate eval, memory, policy, or tool follow-ups to `.muster/data/feedback.jsonl`.
 
 Inspect candidates:
 
@@ -116,18 +116,18 @@ pnpm hc eval seed <episode-id> --expect "important phrase that must remain true"
 pnpm hc eval run
 ```
 
-Fixtures are stored in `.hybrowclaw/data/evals/*.json`. The v0 runner is deterministic: it checks recorded episode output against expected and forbidden text. Live provider replay comes later, after route/tool traces are stable enough to make failures meaningful.
+Fixtures are stored in `.muster/data/evals/*.json`. The v0 runner is deterministic: it checks recorded episode output against expected and forbidden text. Live provider replay comes later, after route/tool traces are stable enough to make failures meaningful.
 
 Use forbidden checks for safety regressions:
 
 ```bash
 pnpm hc eval seed <episode-id> --expect "safe answer" --forbid "private notes"
-pnpm hc eval run .hybrowclaw/data/evals
+pnpm hc eval run .muster/data/evals
 ```
 
 ## Scoped Memory
 
-HybrowClaw memory is append-only `ContextObject` state stored in `.hybrowclaw/data/memory.jsonl`. Every memory requires scopes and provenance. This is the first hard boundary for enterprise use: user, tenant, session, pairing, role, persona, and global memory cannot collapse into one unsafe bucket.
+Muster memory is append-only `ContextObject` state stored in `.muster/data/memory.jsonl`. Every memory requires scopes and provenance. This is the first hard boundary for enterprise use: user, tenant, session, pairing, role, persona, and global memory cannot collapse into one unsafe bucket.
 
 Add a scoped memory:
 
@@ -159,9 +159,9 @@ Global promotion is intentionally explicit because it is the highest-risk learni
 
 ## Capability Packs
 
-Capability packs are the portable unit for future HybrowClaw tools, skills, agents, workflows, and channels. They are intentionally closer to npm-style installation, but the harness must inspect risk before anything becomes runnable.
+Capability packs are the portable unit for future Muster tools, skills, agents, workflows, and channels. They are intentionally closer to npm-style installation, but the harness must inspect risk before anything becomes runnable.
 
-Create `hybrowclaw.capability.json` in the pack root:
+Create `muster.capability.json` in the pack root:
 
 ```json
 {
@@ -214,12 +214,12 @@ Read the report as an import plan, not an apply log. `map` means structurally ma
 
 ## Terminal Cockpit State Export
 
-The Terminal Cockpit reads a bounded local state snapshot from `packages/ui/public/hybrowclaw-state.json`.
+The Terminal Cockpit reads a bounded local state snapshot from `packages/ui/public/muster-state.json`.
 
 ```bash
 pnpm hc state show
 pnpm hc state export
-pnpm --filter @hybrowclaw/ui dev
+pnpm --filter @musterhq/ui dev
 ```
 
 Use `state show` for read-only QA. Use `state export` when the browser UI needs to load the snapshot.
@@ -228,20 +228,20 @@ For static builds, export state before building because Vite copies `packages/ui
 
 ```bash
 pnpm hc state export
-pnpm --filter @hybrowclaw/ui build
+pnpm --filter @musterhq/ui build
 ```
 
 To write elsewhere:
 
 ```bash
-pnpm hc state export --output /tmp/hybrowclaw-state.json
+pnpm hc state export --output /tmp/muster-state.json
 ```
 
 The export includes recent episodes, feedback, and learning candidates. It is a UI bridge for v0, not a sync protocol.
 
 ## Verification Pass
 
-Before handing off docs or QA, run the docs-covered command path from `hybrowclaw/`:
+Before handing off docs or QA, run the docs-covered command path from `muster/`:
 
 ```bash
 pnpm hc init

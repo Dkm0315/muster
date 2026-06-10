@@ -15,6 +15,9 @@ export async function completeChat(request: ChatCompletionRequest): Promise<stri
   if (provider.kind === "codex-cli") {
     return completeWithCodexCli(provider, route, messages);
   }
+  if (provider.kind === "anthropic") {
+    return completeWithAnthropic(provider, route, messages);
+  }
   if (provider.kind !== "openai-compatible" && provider.kind !== "openai") {
     throw new Error(`Provider kind is not implemented in v0: ${provider.kind}`);
   }
@@ -42,6 +45,37 @@ export async function completeChat(request: ChatCompletionRequest): Promise<stri
     choices?: Array<{ message?: { content?: string } }>;
   };
   return payload.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function completeWithAnthropic(provider: ProviderConfig, route: ModelRoute, messages: ChatMessage[]): Promise<string> {
+  const apiKey = provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error(`Anthropic API key missing. Set ${provider.apiKeyEnv ?? "ANTHROPIC_API_KEY"}, or use --runtime claude-code to reuse your local Claude login.`);
+  }
+  const baseUrl = (provider.baseUrl ?? "https://api.anthropic.com").replace(/\/$/, "");
+  const system = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
+  const conversation = messages.filter((message) => message.role !== "system");
+  const response = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: route.model || provider.defaultModel,
+      max_tokens: route.maxOutputTokens ?? 4096,
+      ...(system ? { system } : {}),
+      messages: conversation.map((message) => ({ role: message.role, content: message.content })),
+    }),
+    signal: AbortSignal.timeout(provider.timeoutMs ?? 120_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Anthropic request failed (${response.status}): ${body.slice(0, 500)}`);
+  }
+  const payload = (await response.json()) as { content?: Array<{ type?: string; text?: string }> };
+  return (payload.content ?? []).filter((block) => block.type === "text").map((block) => block.text ?? "").join("").trim();
 }
 
 async function completeWithCodexCli(provider: ProviderConfig, route: ModelRoute, messages: ChatMessage[]): Promise<string> {

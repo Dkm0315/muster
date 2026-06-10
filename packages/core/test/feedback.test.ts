@@ -6,7 +6,7 @@ import type { EpisodeRecord } from "../src/index.js";
 const episode: EpisodeRecord = {
   id: "episode-1",
   createdAt: "2026-06-06T00:00:00.000Z",
-  cwd: "/tmp/hybrowclaw",
+  cwd: "/tmp/muster",
   prompt: "Show pending invoices",
   taskKind: "simple_qa",
   runtimeId: "native",

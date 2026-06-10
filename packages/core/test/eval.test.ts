@@ -9,7 +9,7 @@ import type { EpisodeRecord } from "../src/index.js";
 const episode: EpisodeRecord = {
   id: "episode-eval-1",
   createdAt: "2026-06-06T00:00:00.000Z",
-  cwd: "/tmp/hybrowclaw",
+  cwd: "/tmp/muster",
   prompt: "Summarize Redis risk",
   taskKind: "architecture",
   runtimeId: "native",
@@ -21,7 +21,7 @@ const episode: EpisodeRecord = {
 };
 
 test("seedEvalFromEpisode writes a replayable fixture", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-eval-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-eval-"));
   await appendEpisode(episode, cwd);
 
   const fixture = await seedEvalFromEpisode(episode.id, { expectedContains: ["patch is deployed"] }, cwd);

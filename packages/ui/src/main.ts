@@ -43,13 +43,13 @@ const runtimeLabel = `${activeEpisode?.runtimeId ?? state.configSummary?.default
 const routeLabel = `${activeEpisode?.providerId ?? "local"}:${activeEpisode?.model ?? "llama3.1"} -> primary`;
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <main class="cockpit" aria-label="HybrowClaw Terminal Cockpit">
+  <main class="cockpit" aria-label="Muster Terminal Cockpit">
     <header class="top-frame">
       <div class="brand-block">
         <div class="flame">HC</div>
         <div>
           <div class="brand-line">
-            <strong>HybrowClaw</strong>
+            <strong>Muster</strong>
             <span>v0.1.0</span>
           </div>
         </div>
@@ -82,7 +82,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <p><span class="dot good"></span>System</p>
           <strong>All systems operational.</strong>
           <hr />
-          <p>HybrowClaw Engine</p>
+          <p>Muster Engine</p>
           <strong>v0.1.0 - pi.dev - node</strong>
           <hr />
           <p><span class="dot good"></span>Connected</p>
@@ -117,7 +117,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
           <section class="assistant-output">
             <h3>## Summary</h3>
-            <p>${escapeHtml(activeEpisode?.responseText ?? "HybrowClaw should route the task through the trust kernel, inspect source evidence, then produce a scoped answer without promoting memory globally.")}</p>
+            <p>${escapeHtml(activeEpisode?.responseText ?? "Muster should route the task through the trust kernel, inspect source evidence, then produce a scoped answer without promoting memory globally.")}</p>
             <h3>### Recommended Mitigations</h3>
             <ul>
               <li>Keep memory scoped to tenant, user, pairing, session, role, and persona.</li>
@@ -195,7 +195,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
 async function loadCockpitState(): Promise<CockpitState> {
   try {
-    const response = await fetch("/hybrowclaw-state.json", { cache: "no-store" });
+    const response = await fetch("/muster-state.json", { cache: "no-store" });
     if (!response.ok) return demoState();
     return normalizeCockpitState(await response.json());
   } catch (error) {

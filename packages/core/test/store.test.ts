@@ -13,7 +13,7 @@ import {
 } from "../src/index.js";
 
 test("listLearningCandidates flattens persisted feedback records", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-store-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-store-"));
   await appendFeedback(
     {
       episodeId: "episode-1",
@@ -41,7 +41,7 @@ test("listLearningCandidates flattens persisted feedback records", async () => {
 });
 
 test("buildCockpitState summarizes config and recent local run state", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cockpit-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cockpit-"));
   await ensureDefaultConfig(cwd);
   await appendEpisode(
     {
@@ -78,7 +78,7 @@ test("buildCockpitState summarizes config and recent local run state", async () 
 });
 
 test("buildCockpitState bounds exported learning candidates", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cockpit-bounds-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cockpit-bounds-"));
   await ensureDefaultConfig(cwd);
   for (let index = 0; index < 105; index += 1) {
     await appendFeedback(
@@ -107,8 +107,8 @@ test("buildCockpitState bounds exported learning candidates", async () => {
 });
 
 test("JSONL read errors identify the broken line", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-corrupt-jsonl-"));
-  await mkdir(join(cwd, ".hybrowclaw", "data"), { recursive: true });
+  const cwd = await mkdtemp(join(tmpdir(), "muster-corrupt-jsonl-"));
+  await mkdir(join(cwd, ".muster", "data"), { recursive: true });
   await appendFile(feedbackPath(cwd), "{\"episodeId\":\"ok\",\"value\":\"useful\",\"createdAt\":\"2026-06-06T00:00:00.000Z\",\"adjudication\":\"verified_success\",\"learningCandidates\":[]}\n", "utf8");
   await appendFile(feedbackPath(cwd), "{bad-json}\n", "utf8");
 

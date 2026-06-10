@@ -1,109 +1,89 @@
-# HybrowClaw
+# Muster — the AI agent harness you can audit
 
-HybrowClaw is an independent universal AI harness. It uses pi.dev-style orchestration as the bedrock, borrows the useful baseline primitives from OpenClaw and Hermes, and adds evidence-aware learning on top.
+**Open-source agent runtime with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and integrity verification. Works with Claude, OpenAI, Gemini, Grok, Kimi, DeepSeek, Ollama, and 20+ providers. TypeScript, MIT, self-hosted.**
 
-This repository is the first v0 scaffold. It intentionally starts lean:
-
-- npm/pnpm-first developer experience
-- one active runtime/backend per run
-- cloud and local OpenAI-compatible provider routing
-- episode recording
-- useful/not useful feedback with adjudication
-- replayable eval fixtures seeded from episodes
-- scoped memory ledger with user/tenant/session isolation
-- capability-pack manifest validation
-- embedded Pi SDK adapter through `@earendil-works/pi-coding-agent`
-- migration/doctor surfaces reserved for OpenClaw, Hermes, and pi.dev
-
-## Quick Start
-
-Use `pnpm` first. `npm` works for package installation, but the v0 workspace scripts and examples are pnpm-native.
+> Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
 ```bash
-cd hybrowclaw
-corepack enable
-pnpm install
-pnpm hc init
-pnpm hc doctor
-pnpm hc provider list
-pnpm hc chat "Explain what HybrowClaw is in one sentence"
+pnpm dlx @musterhq/cli init && muster doctor
 ```
 
-By default, `init` writes `.hybrowclaw/config.json` with a local OpenAI-compatible endpoint at `http://localhost:11434/v1` for Ollama-style local use. A red `provider:local:models` doctor check is expected if no local model server is running yet.
+## Why Muster
 
-Add another OpenAI-compatible provider when you want cloud or gateway routing:
+Every agent framework demos beautifully. Then production happens:
+
+- **Token burn you can't see.** Agents replay megatokens of stale context; field reports show 60–89% of spend wasted. Muster records every run in a **token ledger** (`muster tokens`) and flags replay waste with the exact ratio.
+- **Memory that leaks.** Most harnesses have one memory pool. Muster memory is **scoped** — tenant / workspace / user / role / session lanes with promotion gates. Cross-user leakage is a failing CI check, not a hope.
+- **Silent model drift.** Fallbacks that quietly swap your model mid-session. Muster's fallback is **governed**: recorded as evidence on the episode, verified by `muster verify`, never silent.
+- **Learning on vibes.** "Self-improving" agents that promote skills nobody validated. Muster learning is **eval-gated**: feedback → adjudication against evidence → replayable fixture → promotion only when the suite passes.
+- **Sessions that rot.** Corrupt transcripts, duplicate runs, poisoned context replaying old failures. `muster verify` detects all four classes; `muster evolve` re-tests the harness itself against them.
+
+## 60-second tour
 
 ```bash
-export OPENROUTER_API_KEY=...
-pnpm hc provider add-openai-compatible openrouter https://openrouter.ai/api/v1 openai/gpt-5-mini --api-key-env OPENROUTER_API_KEY
-pnpm hc provider list
+muster provider presets                 # 20 providers: openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter...
+muster provider add anthropic           # or: add kimi / add ollama / add-openai-compatible <any-url>
+
+muster memory add --summary "We deploy to uat-erp.example.com" --scope user:$USER --provenance manual
+muster run "Where do we deploy?" --runtime claude-code --model haiku
+#   -> recalls scoped memory, answers from it, records episode + tokens
+
+muster tokens                           # per-run cost table, waste flags, totals by model
+muster verify                           # store integrity: corruption, drift, poisoning
+muster evolve evolve-suites/core-capabilities.json --runtime claude-code
+#   -> recursive self-test: runs real tasks, judges, adjudicates, converges
+
+muster profile create team-a            # fully isolated config + memory + ledger per profile
+muster schedule add "0 9 * * 1-5" "summarize my open work"   # cron loops, no daemon
 ```
 
-Run a chat, record feedback against the emitted episode id, and inspect learning candidates:
+Every command renders plain-text tables in your terminal. No web dashboard required.
 
-```bash
-pnpm hc chat "Draft a two-line migration checklist"
-pnpm hc feedback <episode-id> --useful --correct --reason "Worked for the current repo"
-pnpm hc candidates
+## Architecture
+
+```
+prompt ──> router ──> [agent rules + recalled scoped memory] ──> runtime
+                                                                  ├─ Pi SDK (embedded)
+  scoped memory lanes                                             ├─ Claude Code CLI
+  tenant/workspace/user/role/session                              ├─ Codex CLI
+        │                                                         └─ any HTTP provider
+        ▼
+  episode store ──> token ledger ──> feedback adjudication ──> eval fixtures
+        │                 │                                         │
+        └──── muster verify (integrity) ◄──── muster evolve (self-test loop)
 ```
 
-Seed and run a deterministic eval from a recorded episode:
+Built on the [pi.dev](https://pi.dev) coding-agent SDK as bedrock — embedded sessions, tools, and TUI — with the governance layer Muster adds on top.
 
-```bash
-pnpm hc eval seed <episode-id> --expect "important phrase"
-pnpm hc eval run
-```
+## How it compares
 
-Add and search scoped memory without leaking user/session memories into global recall:
+| | Muster | OpenClaw | Hermes | crewAI |
+|---|---|---|---|---|
+| Token ledger + waste detection | ✅ | ❌ | ❌ | ❌ |
+| Scoped memory (leak = CI failure) | ✅ | partial | ❌ (single MEMORY.md) | ❌ |
+| Eval-gated learning | ✅ | ❌ | ❌ (promotes on use) | ❌ |
+| Governed fallback (evidence, never silent) | ✅ | ❌ ([#65646](https://github.com/openclaw/openclaw/issues/65646)) | ❌ | ❌ |
+| Session integrity verification | ✅ | ❌ ([#75235](https://github.com/openclaw/openclaw/issues/75235)) | ❌ ([#5563](https://github.com/NousResearch/hermes-agent/issues/5563)) | ❌ |
+| Channels (Telegram/WhatsApp/...) | 🔜 | ✅ 20+ | ✅ | ❌ |
+| Maturity / ecosystem | v0 | huge | large | large |
 
-```bash
-pnpm hc memory add --summary "Use terse CTO-style critique." --scope user:dhairya --provenance manual
-pnpm hc memory search --scope user:dhairya --query CTO --include-global
-```
+Honest table: they have breadth and ecosystems we don't (yet). We have the governance core they demonstrably lack — each ❌ above links to their own issue tracker.
 
-Inspect a capability pack before enabling future tools or skills:
+## Use cases
 
-```bash
-pnpm hc capability inspect /path/to/pack
-```
+- **AI agents for business systems**: the Frappe/ERPNext capability pack ships permission-scoped tools where every action executes as the real user — see [`capability-packs/frappe/`](capability-packs/frappe/FRAPPE_SURFACE_SPEC.md). Built from a production deployment serving thousands of employees.
+- **Cost-controlled agent fleets**: per-profile ledgers, per-flow budgets, waste alerts.
+- **Regulated / BFSI / air-gapped**: local models (Ollama, vLLM, SGLang), no cloud required, full audit trail.
+- **Agent CI**: `muster evolve` as a pipeline gate — your agent's behavior is regression-tested like code.
 
-Ask through Pi's real SDK package and record the run as a HybrowClaw episode:
+## Keywords
 
-```bash
-pnpm hc pi models --provider anthropic
-pnpm hc pi ask "Review this repo in one sentence" --provider openai --model gpt-4o-mini
-pnpm hc pi ask "Review this repo with Claude" --provider anthropic --model claude-sonnet-4-5
-pnpm hc pi ask "Continue the persistent investigation" --session create --session-dir .hybrowclaw/pi-sessions
-pnpm hc pi ask "Pick up the same investigation" --session continue --session-dir .hybrowclaw/pi-sessions
-pnpm hc tui ask --runtime pi "Review this repo in one sentence"
-```
+AI agent framework · LLM agent harness · agent memory · token cost tracking · agent observability · eval-driven development · agentic workflows · Claude agent SDK · OpenAI agents · Ollama agents · self-hosted AI agent · AI governance · agent audit trail · ERPNext AI · Frappe AI assistant · multi-provider LLM routing
 
-The default Pi transport is `sdk`, which creates a real Pi `AgentSession` through `createAgentSession()`. Provider/model selection is resolved through Pi's own `AuthStorage` and `ModelRegistry`, so Claude, OpenAI, Codex, Copilot, local, and custom providers use the same Pi-native path. Pi exposes Claude Pro/Max and Anthropic API-key auth under the `anthropic` provider; run `pnpm hc pi models --provider anthropic` to confirm the exact model ids available in your installed Pi version. Session mode defaults to `memory`; use `--session create` or `--session continue` with `--session-dir` when you want durable Pi session files. Use `--transport cli` only for diagnostics when comparing against the upstream `pi` command.
+## Status & roadmap
 
-Migration is dry-run only in v0. The scanners inspect conventional home-directory state and do not mutate OpenClaw, Hermes, pi, or HybrowClaw data:
+v0, moving fast with PR-sized slices and 93 tests. Shipped: run loop, scoped memory, token ledger, profiles, scheduler, eval loop, integrity verify, 20-provider catalog, agent operating rules. Next: flow engine ([spec](docs/FLOW_ENGINE_SPEC.md)), capability-pack loader, Telegram channel, MCP client, migration-with-verification from OpenClaw/Hermes. See [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md).
 
-```bash
-pnpm hc migrate openclaw --dry-run
-pnpm hc migrate hermes --dry-run
-pnpm hc migrate pi --dry-run
-```
+## License
 
-Export the local JSONL state snapshot for the Terminal Cockpit UI:
-
-```bash
-pnpm hc state show
-pnpm hc state export
-pnpm --filter @hybrowclaw/ui dev
-```
-
-See [`docs/SETUP_AND_MIGRATION.md`](docs/SETUP_AND_MIGRATION.md) for the operator runbook.
-See [`docs/PRODUCT_WEDGE.md`](docs/PRODUCT_WEDGE.md) for the research-backed product wedge.
-See [`docs/UPSTREAM_ALIGNMENT.md`](docs/UPSTREAM_ALIGNMENT.md) before adding runtime features so HybrowClaw stays aligned with Pi, OpenClaw, and Hermes without reimplementing them badly.
-
-## Core Product Rule
-
-HybrowClaw does not blindly learn from thumbs up/down. Feedback is treated as a signal and adjudicated against evidence, tool outcomes, and run context.
-
-```text
-run episode -> evidence -> feedback -> adjudication -> candidate memory/eval/policy/tool update
-```
+MIT. Built by [Hybrowlabs](https://github.com/hybrowlabs). Contributions welcome — start with `good first issue`.

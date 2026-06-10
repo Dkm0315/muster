@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { scanMigrationSource } from "../src/index.js";
 
 test("openclaw scanner reports missing root safely", async () => {
-  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-missing-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-missing-"));
   const report = await scanMigrationSource("openclaw", { homeDir: home });
 
   assert.equal(report.exists, false);
@@ -16,7 +16,7 @@ test("openclaw scanner reports missing root safely", async () => {
 });
 
 test("hermes scanner discovers memory and provider assets", async () => {
-  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-hermes-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-hermes-"));
   await mkdir(join(home, ".hermes", "memory"), { recursive: true });
   await writeFile(join(home, ".hermes", "memory", "project.md"), "remember this\n");
   await writeFile(join(home, ".hermes", "providers.json"), "{}\n");
@@ -30,7 +30,7 @@ test("hermes scanner discovers memory and provider assets", async () => {
 });
 
 test("pi scanner marks historical flows as archive-only", async () => {
-  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-pi-"));
   await mkdir(join(home, ".pi", "agents"), { recursive: true });
   await mkdir(join(home, ".pi", "flows"), { recursive: true });
   await writeFile(join(home, ".pi", "agents", "architect.md"), "# Architect\n");

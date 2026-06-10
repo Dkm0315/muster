@@ -1,6 +1,6 @@
-# HybrowClaw v0 Architecture
+# Muster v0 Architecture
 
-HybrowClaw is a new independent harness. It is not a fork or wrapper around OpenClaw or Hermes.
+Muster is a new independent harness. It is not a fork or wrapper around OpenClaw or Hermes.
 
 ## Product Commitments
 

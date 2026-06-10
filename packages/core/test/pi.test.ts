@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { buildPiCliArgs, buildPiInteractiveArgs, buildPiSessionLabel, inspectPiCommands, inspectPiRuntime, inspectPiTools, listPiModels, runPiCliDiagnostic, runPiEmbeddedAgent, runPiInteractive, summarizePiEventTrace } from "../src/index.js";
 
 test("inspectPiRuntime reports missing pi root without throwing", async () => {
-  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-no-pi-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-no-pi-"));
   const report = await inspectPiRuntime({ homeDir: home });
 
   assert.equal(report.installed, false);
@@ -21,7 +21,7 @@ test("inspectPiRuntime reports missing pi root without throwing", async () => {
 });
 
 test("inspectPiRuntime detects workflow and config candidates", async () => {
-  const home = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-pi-"));
   await mkdir(join(home, ".pi", "workflows"), { recursive: true });
   await writeFile(join(home, ".pi", "config.json"), "{}\n", "utf8");
   await writeFile(join(home, ".pi", "workflows", "incident-flow.yaml"), "name: incident\n", "utf8");
@@ -69,7 +69,7 @@ test("buildPiInteractiveArgs creates a real Pi TUI invocation without print mode
     thinking: "medium",
     tools: ["read", "grep"],
     sessionMode: "continue",
-    sessionDir: "/tmp/hybrowclaw-sessions",
+    sessionDir: "/tmp/muster-sessions",
     sessionId: "session-123"
   });
 
@@ -78,7 +78,7 @@ test("buildPiInteractiveArgs creates a real Pi TUI invocation without print mode
     "--session-id",
     "session-123",
     "--session-dir",
-    "/tmp/hybrowclaw-sessions",
+    "/tmp/muster-sessions",
     "--tools",
     "read,grep",
     "--provider",
@@ -93,7 +93,7 @@ test("buildPiInteractiveArgs creates a real Pi TUI invocation without print mode
 });
 
 test("listPiModels exposes Pi-native provider and model discovery", async () => {
-  const agentDir = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-agent-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "muster-pi-agent-"));
   const models = await listPiModels({ agentDir });
 
   assert.ok(models.length > 0);
@@ -108,7 +108,7 @@ test("listPiModels exposes Pi-native provider and model discovery", async () => 
 });
 
 test("listPiModels can filter to Claude-capable Anthropic models", async () => {
-  const agentDir = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-agent-anthropic-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "muster-pi-agent-anthropic-"));
   const models = await listPiModels({ agentDir, provider: "anthropic" });
 
   assert.ok(models.length > 0);
@@ -117,7 +117,7 @@ test("listPiModels can filter to Claude-capable Anthropic models", async () => {
 });
 
 test("inspectPiTools exposes the real Pi tool registry and active allowlist", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-tools-cwd-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pi-tools-cwd-"));
   const agentDir = join(cwd, ".agent");
   const report = await inspectPiTools({ cwd, agentDir, tools: ["read", "grep"] });
 
@@ -131,7 +131,7 @@ test("inspectPiTools exposes the real Pi tool registry and active allowlist", as
 });
 
 test("inspectPiCommands exposes Pi-native prompt and skill command catalog", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-commands-cwd-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pi-commands-cwd-"));
   const agentDir = join(cwd, ".agent");
   await mkdir(join(agentDir, "skills", "redis-triage"), { recursive: true });
   await mkdir(join(agentDir, "prompts"), { recursive: true });
@@ -156,7 +156,7 @@ test("inspectPiCommands exposes Pi-native prompt and skill command catalog", asy
 });
 
 test("runPiCliDiagnostic invokes an external Pi-compatible command only when requested", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-command-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pi-command-"));
   const command = join(cwd, "fake-pi.sh");
   await writeFile(command, "#!/usr/bin/env bash\nprintf 'pi-output:%s\\n' \"$*\"\n", "utf8");
   await chmod(command, 0o755);
@@ -177,7 +177,7 @@ test("runPiCliDiagnostic invokes an external Pi-compatible command only when req
 });
 
 test("runPiInteractive blocks safely in non-interactive test processes", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-tui-cwd-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pi-tui-cwd-"));
   const result = await runPiInteractive({
     cwd,
     prompt: "Open the TUI",
@@ -191,7 +191,7 @@ test("runPiInteractive blocks safely in non-interactive test processes", async (
 });
 
 test("runPiEmbeddedAgent returns persistent session metadata even when provider auth fails", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-pi-session-cwd-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pi-session-cwd-"));
   const sessionDir = join(cwd, ".sessions");
   const agentDir = join(cwd, ".agent");
 

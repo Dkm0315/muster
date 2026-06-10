@@ -29,7 +29,7 @@ test("buildClaudeCodeArgs creates a non-interactive Claude Code invocation", () 
 });
 
 test("runClaudeCode invokes an external Claude-compatible command", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-claude-command-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-claude-command-"));
   const command = join(cwd, "fake-claude.sh");
   await writeFile(command, "#!/usr/bin/env bash\nprintf 'claude-output:%s\\n' \"$*\"\n", "utf8");
   await chmod(command, 0o755);

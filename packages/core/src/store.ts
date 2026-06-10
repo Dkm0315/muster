@@ -1,10 +1,11 @@
 import { appendFile, mkdir, open, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.js";
-import type { EpisodeRecord, FeedbackRecord, HybrowClawConfig, LearningCandidate } from "./types.js";
+import { profileDataDir } from "./profiles.js";
+import type { EpisodeRecord, FeedbackRecord, MusterConfig, LearningCandidate } from "./types.js";
 
 export function dataDir(cwd = process.cwd()): string {
-  return join(cwd, ".hybrowclaw", "data");
+  return profileDataDir(cwd);
 }
 
 export function episodesPath(cwd = process.cwd()): string {
@@ -58,7 +59,7 @@ export interface CockpitState {
 }
 
 export interface CockpitConfigSummary {
-  readonly version: HybrowClawConfig["version"];
+  readonly version: MusterConfig["version"];
   readonly defaultRuntime: string;
   readonly oneRuntimePerRun: boolean;
   readonly preferLocalForSensitive: boolean;
@@ -99,7 +100,7 @@ export async function buildCockpitState(cwd = process.cwd()): Promise<CockpitSta
   };
 }
 
-function summarizeConfig(config: HybrowClawConfig): CockpitConfigSummary {
+function summarizeConfig(config: MusterConfig): CockpitConfigSummary {
   return {
     version: config.version,
     defaultRuntime: config.routing.defaultRuntime,

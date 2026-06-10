@@ -52,9 +52,15 @@ export interface RoutingPolicy {
   readonly preferLocalForSensitive: boolean;
   readonly maxCostUsdPerRun?: number;
   readonly approvalRequiredAboveUsd?: number;
+  /**
+   * Governed fallback routes tried in order when the primary route fails.
+   * Every fallback attempt is recorded as system_check evidence on the episode;
+   * the harness never switches models silently.
+   */
+  readonly fallbacks?: ModelRoute[];
 }
 
-export interface HybrowClawConfig {
+export interface MusterConfig {
   readonly version: 1;
   readonly providers: Record<string, ProviderConfig>;
   readonly runtimes: Record<string, RuntimeConfig>;

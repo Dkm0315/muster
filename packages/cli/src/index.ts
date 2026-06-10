@@ -35,11 +35,30 @@ import {
   scanMigrationSource,
   seedEvalFromEpisode,
   searchMemory,
-  setRuntimeProvider
-} from "@hybrowclaw/core";
+  setRuntimeProvider,
+  addPresetProvider,
+  renderProviderPresets,
+  executeRun,
+  listTokenRecords,
+  renderTokenTable,
+  activeProfile,
+  createProfile,
+  listProfiles,
+  useProfile,
+  addSchedule,
+  listSchedules,
+  removeSchedule,
+  runDueSchedules,
+  loadEvolveSuite,
+  evolve,
+  renderEvolveReport,
+  runHarnessChecks,
+  verifyIntegrity,
+  renderIntegrityReport
+} from "@musterhq/core";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ChatMessage, EvidenceRecord, FeedbackValue, MigrationSource } from "@hybrowclaw/core";
+import type { ChatMessage, EvidenceRecord, FeedbackValue, MigrationSource } from "@musterhq/core";
 
 const [, , command, ...args] = process.argv;
 
@@ -102,47 +121,74 @@ async function main(): Promise<void> {
     case "migrate":
       await migrate(args);
       return;
+    case "run":
+      await runCommand(args);
+      return;
+    case "tokens":
+      await tokensCommand(args);
+      return;
+    case "profile":
+      await profileCommand(args);
+      return;
+    case "schedule":
+      await scheduleCommand(args);
+      return;
+    case "evolve":
+      await evolveCommand(args);
+      return;
+    case "verify":
+      await verifyCommand();
+      return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
 }
 
 function printHelp(): void {
-  console.log(`HybrowClaw v0
+  console.log(`Muster v0
 
 Usage:
-  hybrowclaw init
-  hybrowclaw doctor
-  hybrowclaw chat "your prompt"
-  hybrowclaw claude inspect
-  hybrowclaw claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
-  hybrowclaw episodes
-  hybrowclaw feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
-  hybrowclaw candidates
-  hybrowclaw eval seed <episode-id> [--expect "..."] [--forbid "..."]
-  hybrowclaw eval run [path-or-dir]
-  hybrowclaw capability inspect <path>
-  hybrowclaw context graph [episode-id] [--scope tenant:hybrow] [--latest]
-  hybrowclaw memory add --summary "..." --scope user:me --provenance manual
-  hybrowclaw memory search --scope user:me [--query "..."] [--include-global]
-  hybrowclaw memory promote <memory-id> --to tenant:acme [--allow-global]
-  hybrowclaw tui
-  hybrowclaw tui ask "your prompt"
-  hybrowclaw provider list
-  hybrowclaw provider add-openai-compatible <id> <base-url> <model> [--api-key-env OPENAI_API_KEY]
-  hybrowclaw provider add-codex-cli <id> <model>
-  hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]
-  hybrowclaw pi inspect [--home /path/to/home]
-  hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
-  hybrowclaw pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
-  hybrowclaw pi commands [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
-  hybrowclaw pi tui ["optional startup prompt"] [--agent-dir ~/.pi/agent] [--session create|continue|memory] [--session-dir path]
-  hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
-  hybrowclaw state export [--output packages/ui/public/hybrowclaw-state.json]
-  hybrowclaw state show
-  hybrowclaw migrate openclaw --dry-run
-  hybrowclaw migrate hermes --dry-run
-  hybrowclaw migrate pi --dry-run
+  muster init
+  muster doctor
+  muster chat "your prompt"
+  muster claude inspect
+  muster claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
+  muster episodes
+  muster feedback <episode-id> --useful|--not-useful [--correct] [--reason "..."]
+  muster candidates
+  muster eval seed <episode-id> [--expect "..."] [--forbid "..."]
+  muster eval run [path-or-dir]
+  muster capability inspect <path>
+  muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
+  muster memory add --summary "..." --scope user:me --provenance manual
+  muster memory search --scope user:me [--query "..."] [--include-global]
+  muster memory promote <memory-id> --to tenant:acme [--allow-global]
+  muster tui
+  muster tui ask "your prompt"
+  muster provider list
+  muster provider add-openai-compatible <id> <base-url> <model> [--api-key-env OPENAI_API_KEY]
+  muster provider add-codex-cli <id> <model>
+  muster provider presets
+  muster provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter, ...)
+  muster runtime use-provider <runtime-id> <provider-id> [model]
+  muster pi inspect [--home /path/to/home]
+  muster pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
+  muster pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  muster pi commands [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  muster pi tui ["optional startup prompt"] [--agent-dir ~/.pi/agent] [--session create|continue|memory] [--session-dir path]
+  muster pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
+  muster state export [--output packages/ui/public/muster-state.json]
+  muster state show
+  muster migrate openclaw --dry-run
+  muster migrate hermes --dry-run
+  muster migrate pi --dry-run
+  muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
+  muster tokens [--limit 20]
+  muster profile create|list|use|current [name]
+  muster schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
+  muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
+  muster evolve selfcheck
+  muster verify
 
 Design rule:
   One active runtime per run. Providers/models can route dynamically by task.
@@ -151,9 +197,9 @@ Design rule:
 
 async function init(): Promise<void> {
   const target = await ensureDefaultConfig();
-  console.log(`Created or reused HybrowClaw config: ${target}`);
+  console.log(`Created or reused Muster config: ${target}`);
   console.log("Default provider: local OpenAI-compatible endpoint at http://localhost:11434/v1");
-  console.log("Next: hybrowclaw doctor");
+  console.log("Next: muster doctor");
 }
 
 async function doctor(): Promise<void> {
@@ -189,7 +235,7 @@ async function doctor(): Promise<void> {
 
 async function chat(prompt: string): Promise<void> {
   if (!prompt) {
-    throw new Error('Missing prompt. Example: hybrowclaw chat "Summarize this repo"');
+    throw new Error('Missing prompt. Example: muster chat "Summarize this repo"');
   }
   await runPrompt(prompt);
 }
@@ -250,7 +296,7 @@ async function evalCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   if (subcommand === "seed") {
     const episodeId = args[1];
-    if (!episodeId) throw new Error('Usage: hybrowclaw eval seed <episode-id> [--expect "..."] [--forbid "..."]');
+    if (!episodeId) throw new Error('Usage: muster eval seed <episode-id> [--expect "..."] [--forbid "..."]');
     const fixture = await seedEvalFromEpisode(episodeId, {
       expectedContains: readFlags(args, "--expect"),
       forbiddenContains: readFlags(args, "--forbid")
@@ -278,14 +324,14 @@ async function evalCommand(args: string[]): Promise<void> {
     if (results.some((result) => result.status === "failed")) process.exitCode = 1;
     return;
   }
-  throw new Error("Usage: hybrowclaw eval <seed|run>");
+  throw new Error("Usage: muster eval <seed|run>");
 }
 
 async function capability(args: string[]): Promise<void> {
   const subcommand = args[0];
   const path = args[1];
   if (subcommand !== "inspect" || !path) {
-    throw new Error("Usage: hybrowclaw capability inspect <path>");
+    throw new Error("Usage: muster capability inspect <path>");
   }
   const report = await inspectCapabilityPack(resolve(process.cwd(), path));
   console.log(`status=${report.status}`);
@@ -316,7 +362,7 @@ async function capability(args: string[]): Promise<void> {
 async function context(args: string[]): Promise<void> {
   const subcommand = args[0];
   if (subcommand !== "graph") {
-    throw new Error("Usage: hybrowclaw context graph [episode-id] [--scope kind:id] [--latest]");
+    throw new Error("Usage: muster context graph [episode-id] [--scope kind:id] [--latest]");
   }
   const episodes = await listEpisodes();
   if (!episodes.length) throw new Error("No episodes found. Run a prompt first.");
@@ -337,7 +383,7 @@ async function memory(args: string[]): Promise<void> {
   const subcommand = args[0];
   if (subcommand === "add") {
     const summary = readFlag(args, "--summary");
-    if (!summary) throw new Error('Usage: hybrowclaw memory add --summary "..." --scope user:me --provenance manual');
+    if (!summary) throw new Error('Usage: muster memory add --summary "..." --scope user:me --provenance manual');
     const scopes = readFlags(args, "--scope").map(parseMemoryScope);
     const provenance = readFlags(args, "--provenance");
     const confidenceRaw = readFlag(args, "--confidence");
@@ -369,21 +415,25 @@ async function memory(args: string[]): Promise<void> {
   }
   if (subcommand === "promote") {
     const id = args[1];
-    if (!id) throw new Error("Usage: hybrowclaw memory promote <memory-id> --to tenant:acme [--allow-global]");
+    if (!id) throw new Error("Usage: muster memory promote <memory-id> --to tenant:acme [--allow-global]");
     const targetScopes = readFlags(args, "--to").map(parseMemoryScope);
     const object = await promoteMemory({ id, targetScopes, allowGlobal: args.includes("--allow-global") });
     printMemoryObject(object);
     return;
   }
-  throw new Error("Usage: hybrowclaw memory <add|search|promote>");
+  throw new Error("Usage: muster memory <add|search|promote>");
 }
 
 async function tui(): Promise<void> {
+  if (args[0] === "/tokens" || args[0] === "tokens") {
+    console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(args, "--limit") ?? 20));
+    return;
+  }
   if (args[0] === "ask") {
     const runtimeFlag = readFlag(args, "--runtime");
     const promptArgs = stripFlags(args.slice(1), ["--runtime", "--provider", "--model", "--thinking", "--effort", "--transport", "--session", "--session-dir", "--timeout-ms"]);
     const prompt = promptArgs.join(" ").trim();
-    if (!prompt) throw new Error('Usage: hybrowclaw tui ask "your prompt"');
+    if (!prompt) throw new Error('Usage: muster tui ask "your prompt"');
     if (runtimeFlag === "pi") {
       await runPiPrompt(prompt, {
         renderTui: true,
@@ -422,7 +472,7 @@ async function runPrompt(prompt: string, options: { readonly renderTui?: boolean
     {
       role: "system",
       content:
-        "You are HybrowClaw v0 running inside the terminal harness. Be concise, evidence-aware, and explicit about missing evidence."
+        "You are Muster v0 running inside the terminal harness. Be concise, evidence-aware, and explicit about missing evidence."
     },
     { role: "user", content: prompt }
   ];
@@ -468,20 +518,20 @@ async function runPrompt(prompt: string, options: { readonly renderTui?: boolean
   }
   console.log("\n" + responseText + "\n");
   console.log(`episode=${plan.runId}`);
-  console.log(`feedback: hybrowclaw feedback ${plan.runId} --useful --correct`);
+  console.log(`feedback: muster feedback ${plan.runId} --useful --correct`);
 }
 
 function renderTuiState(state: Awaited<ReturnType<typeof buildCockpitState>>): void {
   const episode = state.episodes.at(-1);
   const feedback = episode ? state.feedback.filter((item) => item.episodeId === episode.id).at(-1) : undefined;
   const candidates = (episode ? state.candidates.filter((item) => item.episodeId === episode.id) : state.candidates).slice(-5);
-  const title = "HybrowClaw Terminal Cockpit";
+  const title = "Muster Terminal Cockpit";
   const width = Math.min(process.stdout.columns || 120, 140);
   console.log(boxLine("top", width));
   console.log(boxText(`${title}  source=${state.source} configured=${state.configured}`, width));
   console.log(boxLine("mid", width));
   console.log(boxText(`run=${episode?.id ?? "-"} runtime=${episode?.runtimeId ?? state.configSummary?.defaultRuntime ?? "-"} provider=${episode?.providerId ?? "-"} model=${episode?.model ?? "-"}`, width));
-  console.log(boxText(`prompt=${truncate(episode?.prompt ?? "No run recorded yet. Use hybrowclaw chat or seed an episode.", width - 10)}`, width));
+  console.log(boxText(`prompt=${truncate(episode?.prompt ?? "No run recorded yet. Use muster chat or seed an episode.", width - 10)}`, width));
   console.log(boxLine("mid", width));
   console.log(boxText("assistant", width));
   console.log(wrapText(episode?.responseText ?? "No assistant response recorded yet.", width).map((line) => boxText(line, width)).join("\n"));
@@ -491,7 +541,7 @@ function renderTuiState(state: Awaited<ReturnType<typeof buildCockpitState>>): v
     console.log(boxText(`- ${candidate.kind}/${candidate.risk}: ${truncate(candidate.summary, width - 18)}`, width));
   }
   console.log(boxLine("mid", width));
-  console.log(boxText("next: hybrowclaw pi inspect | hybrowclaw state export | hybrowclaw feedback <episode> --useful --correct", width));
+  console.log(boxText("next: muster pi inspect | muster state export | muster feedback <episode> --useful --correct", width));
   console.log(boxLine("bottom", width));
 }
 
@@ -525,7 +575,7 @@ async function pi(args: string[]): Promise<void> {
   }
   if (subcommand === "ask") {
     const prompt = stripFlags(args.slice(1), ["--provider", "--model", "--thinking", "--transport", "--session", "--session-dir", "--timeout-ms"]).join(" ").trim();
-    if (!prompt) throw new Error('Usage: hybrowclaw pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]');
+    if (!prompt) throw new Error('Usage: muster pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]');
     await runPiPrompt(prompt, {
       provider: readFlag(args, "--provider"),
       model: readFlag(args, "--model"),
@@ -615,7 +665,7 @@ async function pi(args: string[]): Promise<void> {
     return;
   }
   if (subcommand !== "inspect") {
-    throw new Error("Usage: hybrowclaw pi <inspect|models|tools|commands|tui|ask>");
+    throw new Error("Usage: muster pi <inspect|models|tools|commands|tui|ask>");
   }
   const report = await inspectPiRuntime({ homeDir: readFlag(args, "--home") });
   console.log(`pi_root=${report.rootPath}`);
@@ -716,7 +766,7 @@ async function claude(args: string[]): Promise<void> {
   }
   if (subcommand === "ask") {
     const prompt = stripFlags(args.slice(1), ["--model", "--effort", "--timeout-ms"]).join(" ").trim();
-    if (!prompt) throw new Error('Usage: hybrowclaw claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]');
+    if (!prompt) throw new Error('Usage: muster claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]');
     await runClaudePrompt(prompt, {
       model: readFlag(args, "--model"),
       effort: readClaudeEffort(readFlag(args, "--effort")),
@@ -724,7 +774,7 @@ async function claude(args: string[]): Promise<void> {
     });
     return;
   }
-  throw new Error("Usage: hybrowclaw claude <inspect|ask>");
+  throw new Error("Usage: muster claude <inspect|ask>");
 }
 
 async function runClaudePrompt(
@@ -781,6 +831,33 @@ async function runClaudePrompt(
 
 async function provider(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "presets") {
+    console.log(renderProviderPresets());
+    return;
+  }
+  if (subcommand === "add") {
+    const presetId = args[1];
+    if (!presetId) {
+      throw new Error("Usage: muster provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]. List presets with: muster provider presets");
+    }
+    const added = await addPresetProvider(presetId, {
+      model: readFlag(args, "--model"),
+      apiKeyEnv: readFlag(args, "--api-key-env"),
+      baseUrl: readFlag(args, "--base-url"),
+    });
+    console.log(`provider_added=${added.id}`);
+    console.log(`kind=${added.kind}`);
+    if (added.baseUrl) console.log(`base_url=${added.baseUrl}`);
+    console.log(`default_model=${added.defaultModel}`);
+    if (added.apiKeyEnv) {
+      const keyPresent = Boolean(process.env[added.apiKeyEnv]);
+      console.log(`api_key_env=${added.apiKeyEnv} (${keyPresent ? "set" : "NOT SET - export it before running"})`);
+    } else {
+      console.log("api_key_env=- (no key required)");
+    }
+    console.log(`try: muster run "hello" --runtime native --provider ${added.id}`);
+    return;
+  }
   if (subcommand === "list") {
     const config = await loadConfig();
     for (const item of Object.values(config.providers)) {
@@ -793,7 +870,7 @@ async function provider(args: string[]): Promise<void> {
   if (subcommand === "add-openai-compatible") {
     const [id, baseUrl, model] = args.slice(1);
     if (!id || !baseUrl || !model) {
-      throw new Error("Usage: hybrowclaw provider add-openai-compatible <id> <base-url> <model> [--api-key-env ENV_NAME]");
+      throw new Error("Usage: muster provider add-openai-compatible <id> <base-url> <model> [--api-key-env ENV_NAME]");
     }
     const apiKeyEnv = readFlag(args, "--api-key-env");
     await addOpenAICompatibleProvider({ id, baseUrl, defaultModel: model, apiKeyEnv });
@@ -807,7 +884,7 @@ async function provider(args: string[]): Promise<void> {
   if (subcommand === "add-codex-cli") {
     const [id, model] = args.slice(1);
     if (!id || !model) {
-      throw new Error("Usage: hybrowclaw provider add-codex-cli <id> <model>");
+      throw new Error("Usage: muster provider add-codex-cli <id> <model>");
     }
     await addCodexCliProvider({ id, defaultModel: model });
     console.log(`provider_added=${id}`);
@@ -815,17 +892,17 @@ async function provider(args: string[]): Promise<void> {
     console.log(`default_model=${model}`);
     return;
   }
-  throw new Error("Usage: hybrowclaw provider <list|add-openai-compatible|add-codex-cli>");
+  throw new Error("Usage: muster provider <list|add-openai-compatible|add-codex-cli>");
 }
 
 async function runtime(args: string[]): Promise<void> {
   const subcommand = args[0];
   if (subcommand !== "use-provider") {
-    throw new Error("Usage: hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]");
+    throw new Error("Usage: muster runtime use-provider <runtime-id> <provider-id> [model]");
   }
   const [runtimeId, providerId, model] = args.slice(1);
   if (!runtimeId || !providerId) {
-    throw new Error("Usage: hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]");
+    throw new Error("Usage: muster runtime use-provider <runtime-id> <provider-id> [model]");
   }
   await setRuntimeProvider({ runtimeId, providerId, model });
   console.log(`runtime=${runtimeId}`);
@@ -840,9 +917,9 @@ async function state(args: string[]): Promise<void> {
     return;
   }
   if (subcommand !== "export") {
-    throw new Error("Usage: hybrowclaw state <export|show> [--output path]");
+    throw new Error("Usage: muster state <export|show> [--output path]");
   }
-  const output = readFlag(args, "--output") ?? readFlag(args, "--out") ?? "packages/ui/public/hybrowclaw-state.json";
+  const output = readFlag(args, "--output") ?? readFlag(args, "--out") ?? "packages/ui/public/muster-state.json";
   const target = resolve(process.cwd(), output);
   const statePayload = await buildCockpitState();
   await mkdir(dirname(target), { recursive: true });
@@ -862,7 +939,7 @@ async function migrate(args: string[]): Promise<void> {
   const source = args[0];
   const dryRun = args.includes("--dry-run");
   if (!isMigrationSource(source)) {
-    throw new Error("Usage: hybrowclaw migrate <openclaw|hermes|pi> --dry-run");
+    throw new Error("Usage: muster migrate <openclaw|hermes|pi> --dry-run");
   }
   if (!dryRun) {
     throw new Error("v0 only supports migration dry-runs. Apply will be added after scanners are verified.");
@@ -1062,3 +1139,147 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+
+
+async function runCommand(commandArgs: string[]): Promise<void> {
+  const flagNames = ["--runtime", "--provider", "--model", "--thinking", "--session", "--session-dir", "--scope", "--task-kind", "--timeout-ms", "--recall-limit"];
+  const prompt = stripFlags(commandArgs, flagNames).filter((value) => value !== "--sensitive").join(" ").trim();
+  if (!prompt) throw new Error('Usage: muster run "prompt" [--runtime pi] [--provider X] [--model Y] [--session memory|create|continue] [--scope user:me]');
+  const config = await loadConfig();
+  const scopeFlags = commandArgs.flatMap((value, index) => (value === "--scope" && commandArgs[index + 1] ? [commandArgs[index + 1]] : []));
+  const outcome = await executeRun(config, {
+    prompt,
+    runtime: readFlag(commandArgs, "--runtime"),
+    provider: readFlag(commandArgs, "--provider"),
+    model: readFlag(commandArgs, "--model"),
+    thinking: readFlag(commandArgs, "--thinking") as never,
+    sessionMode: readPiSessionMode(readFlag(commandArgs, "--session")),
+    sessionDir: readFlag(commandArgs, "--session-dir"),
+    taskKind: readFlag(commandArgs, "--task-kind") as never,
+    sensitive: commandArgs.includes("--sensitive"),
+    scopes: scopeFlags.length ? scopeFlags.map(parseMemoryScope) : undefined,
+    recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
+    timeoutMs: readNumberFlag(commandArgs, "--timeout-ms")
+  });
+  if (outcome.recalled.length) {
+    console.log(`recalled ${outcome.recalled.length} scoped memories into context`);
+  }
+  if (outcome.fallbackUsed) {
+    console.log(`governed fallback used: ${outcome.fallbackUsed} (recorded as evidence)`);
+  }
+  console.log(`run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} task=${outcome.plan.taskKind} status=${outcome.episode.outcome?.kind}`);
+  console.log(`tokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}${outcome.tokens.costUsd !== undefined ? ` cost=$${outcome.tokens.costUsd.toFixed(4)}` : ""}`);
+  if (outcome.episode.outcome?.kind === "failed") {
+    throw new Error(outcome.episode.outcome.detail ?? "Run failed");
+  }
+  console.log("\n" + outcome.episode.responseText + "\n");
+}
+
+async function tokensCommand(commandArgs: string[]): Promise<void> {
+  console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(commandArgs, "--limit") ?? 20));
+}
+
+async function profileCommand(commandArgs: string[]): Promise<void> {
+  const [action, name] = commandArgs;
+  if (action === "create" && name) {
+    await createProfile(name);
+    console.log(`Created profile: ${name}`);
+    return;
+  }
+  if (action === "list") {
+    const current = activeProfile();
+    for (const profile of await listProfiles()) {
+      console.log(`${profile === current ? "* " : "  "}${profile}`);
+    }
+    return;
+  }
+  if (action === "use" && name) {
+    await useProfile(name);
+    console.log(`Active profile: ${name}`);
+    return;
+  }
+  if (action === "current" || action === undefined) {
+    console.log(activeProfile());
+    return;
+  }
+  throw new Error("Usage: muster profile create|list|use|current [name]");
+}
+
+async function scheduleCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  if (action === "add") {
+    const positional = stripFlags(rest, ["--profile"]);
+    const [cron, ...promptParts] = positional;
+    const prompt = promptParts.join(" ").trim();
+    if (!cron || !prompt) throw new Error('Usage: muster schedule add "*/5 * * * *" "prompt" [--profile name]');
+    const job = await addSchedule(cron, prompt, { profile: readFlag(rest, "--profile") });
+    console.log(`Scheduled ${job.id}: [${job.cron}] ${job.prompt}`);
+    console.log("No daemon runs these. Add to external cron: * * * * * cd <repo> && pnpm hc schedule run-due");
+    return;
+  }
+  if (action === "list") {
+    const jobs = await listSchedules();
+    if (!jobs.length) {
+      console.log("No schedules.");
+      return;
+    }
+    for (const job of jobs) {
+      console.log(`${job.id} [${job.cron}] ${job.prompt.slice(0, 60)} last=${job.lastRunAt ?? "-"} status=${job.lastStatus ?? "-"}`);
+    }
+    return;
+  }
+  if (action === "remove" && rest[0]) {
+    const removed = await removeSchedule(rest[0]);
+    console.log(removed ? `Removed ${rest[0]}` : `No schedule found: ${rest[0]}`);
+    return;
+  }
+  if (action === "run-due") {
+    const config = await loadConfig();
+    const results = await runDueSchedules(async (job) => {
+      const outcome = await executeRun(config, { prompt: job.prompt });
+      return { runId: outcome.plan.runId, status: outcome.episode.outcome?.kind === "completed" ? "completed" : "failed" };
+    });
+    if (!results.length) {
+      console.log("No jobs due.");
+      return;
+    }
+    for (const result of results) {
+      console.log(`${result.job.id}: ${result.status}${result.runId ? ` run=${result.runId}` : ""}${result.detail ? ` (${result.detail})` : ""}`);
+    }
+    return;
+  }
+  throw new Error("Usage: muster schedule add|list|remove|run-due");
+}
+
+async function evolveCommand(commandArgs: string[]): Promise<void> {
+  if (commandArgs[0] === "selfcheck") {
+    const checks = await runHarnessChecks();
+    for (const check of checks) {
+      console.log(`[${check.status === "passed" ? "PASS" : "FAIL"}] ${check.id}: ${check.description}${check.detail ? ` - ${check.detail}` : ""}`);
+    }
+    if (checks.some((check) => check.status === "failed")) process.exitCode = 1;
+    return;
+  }
+  const flagNames = ["--runtime", "--provider", "--model", "--iterations", "--session", "--timeout-ms"];
+  const suitePath = stripFlags(commandArgs, flagNames)[0];
+  if (!suitePath) throw new Error("Usage: muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2] | muster evolve selfcheck");
+  const config = await loadConfig();
+  const tasks = await loadEvolveSuite(resolve(suitePath));
+  const report = await evolve(config, tasks, {
+    runtime: readFlag(commandArgs, "--runtime"),
+    provider: readFlag(commandArgs, "--provider"),
+    model: readFlag(commandArgs, "--model"),
+    sessionMode: readPiSessionMode(readFlag(commandArgs, "--session")),
+    timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"),
+    maxIterations: readNumberFlag(commandArgs, "--iterations") ?? 2
+  });
+  console.log(renderEvolveReport(report));
+  if (!report.converged || report.harnessChecks.some((check) => check.status === "failed")) process.exitCode = 1;
+}
+
+async function verifyCommand(): Promise<void> {
+  const report = await verifyIntegrity();
+  console.log(renderIntegrityReport(report));
+  if (!report.ok) process.exitCode = 1;
+}
+
