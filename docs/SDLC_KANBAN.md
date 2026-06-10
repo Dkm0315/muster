@@ -75,3 +75,21 @@ hybrowclaw migrate pi --dry-run
 ```
 
 For v0, a red provider connectivity check is acceptable when no local Ollama/OpenAI-compatible server is listening; it must be reported clearly by `doctor`.
+
+
+## 2026-06-10 beast sprint (feature/phase123-beast)
+
+| Card | Outcome | Status |
+| --- | --- | --- |
+| HC-023 | Pi SDK 0.79.1 bump (Fable 5 adaptive thinking, project trust) | Done |
+| HC-024 | `hc run`: real run loop with scoped-memory recall injection, episode + token recording | Done |
+| HC-025 | Token ledger: `hc tokens` + `tui /tokens` CLI tables, replay-waste detection, cost estimates | Done |
+| HC-026 | Profiles: isolated config + data stores (`hc profile create/use/list`) | Done |
+| HC-027 | Scheduler: cron jobs via `hc schedule add/list/remove/run-due` (external cron, no daemon) | Done |
+| HC-028 | Governed model fallback: `routing.fallbacks`, recorded as evidence, never silent | Done |
+| HC-029 | `hc verify`: store integrity, duplicate run ids, silent model drift, stale-narrative poisoning | Done |
+| HC-030 | `hc evolve`: recursive suite runner + harness self-checks from OpenClaw/Hermes failure modes; live-converged 6/6 with Claude (haiku) | Done |
+| HC-031 | Provider preset catalog (20 presets: OpenAI, Anthropic API, xAI, Kimi, DeepSeek, Groq, Ollama, OpenRouter, vLLM, ...) + native Anthropic Messages API + claude-code runtime | Done |
+| HC-032 | Frappe capability pack manifest scaffold (implementation lands with pack loader HC-012) | Scaffold |
+
+Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (init -> profile -> provider add -> run via claude-code with memory recall -> tokens -> verify -> evolve) all passing.

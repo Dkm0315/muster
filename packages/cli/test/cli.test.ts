@@ -267,6 +267,43 @@ test("CLI pi inspect exposes real Pi package adapter availability", async () => 
   assert.match(stdout, /npx_available=/);
 });
 
+test("CLI provider presets lists the multi-provider catalog", async () => {
+  const { stdout } = await runCli(["provider", "presets"]);
+  for (const id of ["openai", "anthropic", "xai", "kimi", "deepseek", "ollama", "openrouter"]) {
+    assert.ok(stdout.includes(id), `presets output missing ${id}`);
+  }
+});
+
+test("CLI profile, schedule, tokens, and verify work end to end in a fresh workspace", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-beast-"));
+  await runCli(["init"], cwd);
+
+  await runCli(["profile", "create", "team-a"], cwd);
+  await runCli(["profile", "use", "team-a"], cwd);
+  const profiles = await runCli(["profile", "list"], cwd);
+  assert.match(profiles.stdout, /\* team-a/);
+
+  const added = await runCli(["provider", "add", "kimi", "--model", "kimi-latest"], cwd);
+  assert.match(added.stdout, /provider_added=kimi/);
+  assert.match(added.stdout, /MOONSHOT_API_KEY/);
+
+  const schedule = await runCli(["schedule", "add", "*/5 * * * *", "daily digest"], cwd);
+  assert.match(schedule.stdout, /Scheduled sched_/);
+  const schedules = await runCli(["schedule", "list"], cwd);
+  assert.match(schedules.stdout, /daily digest/);
+
+  const tokens = await runCli(["tokens"], cwd);
+  assert.match(tokens.stdout, /No token records yet/);
+
+  const verify = await runCli(["verify"], cwd);
+  assert.match(verify.stdout, /integrity check at .*: OK/);
+
+  const selfcheck = await runCli(["evolve", "selfcheck"], cwd);
+  assert.match(selfcheck.stdout, /\[PASS\] memory_isolation/);
+  assert.match(selfcheck.stdout, /\[PASS\] replay_waste_detection/);
+  assert.match(selfcheck.stdout, /\[PASS\] store_integrity/);
+});
+
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("tsx", [cliPath, ...args], {
     cwd,
