@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
-export const PI_CODING_AGENT_VERSION = "0.78.1";
+export const PI_CODING_AGENT_VERSION = "0.79.1";
 export const PI_CODING_AGENT_NPX_SPEC = `${PI_CODING_AGENT_PACKAGE}@${PI_CODING_AGENT_VERSION}`;
 
 const REQUIRED_SDK_EXPORTS = [

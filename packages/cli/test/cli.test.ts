@@ -261,7 +261,7 @@ test("CLI pi inspect exposes real Pi package adapter availability", async () => 
   const home = await mkdtemp(join(tmpdir(), "hybrowclaw-cli-pi-home-"));
   const { stdout } = await runCli(["pi", "inspect", "--home", home]);
 
-  assert.match(stdout, /package=@earendil-works\/pi-coding-agent@0\.78\.1/);
+  assert.match(stdout, /package=@earendil-works\/pi-coding-agent@0\.79\.1/);
   assert.match(stdout, /missing_sdk_exports=-/);
   assert.match(stdout, /cli_available=/);
   assert.match(stdout, /npx_available=/);
