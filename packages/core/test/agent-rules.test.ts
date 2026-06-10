@@ -14,14 +14,14 @@ test("default agent rules encode the four disciplines plus exact-blocker reporti
 });
 
 test("loadAgentRules falls back to defaults when no AGENTS.md exists", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-rules-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-rules-"));
   const rules = await loadAgentRules(cwd);
   assert.equal(rules.source, "default");
   assert.equal(rules.text, DEFAULT_AGENT_RULES);
 });
 
 test("workspace AGENTS.md overrides the defaults", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-rules-ws-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-rules-ws-"));
   await writeFile(join(cwd, "AGENTS.md"), "Workspace rule: always answer in French.");
   const rules = await loadAgentRules(cwd);
   assert.equal(rules.source, "workspace");
@@ -29,11 +29,11 @@ test("workspace AGENTS.md overrides the defaults", async () => {
 });
 
 test("profile AGENTS.md takes precedence over workspace rules", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-rules-profile-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-rules-profile-"));
   await writeFile(join(cwd, "AGENTS.md"), "Workspace rule.");
   await createProfile("strict", cwd);
-  await mkdir(join(cwd, ".hybrowclaw", "profiles", "strict"), { recursive: true });
-  await writeFile(join(cwd, ".hybrowclaw", "profiles", "strict", "AGENTS.md"), "Profile rule: strict mode.");
+  await mkdir(join(cwd, ".muster", "profiles", "strict"), { recursive: true });
+  await writeFile(join(cwd, ".muster", "profiles", "strict", "AGENTS.md"), "Profile rule: strict mode.");
   await useProfile("strict", cwd);
   const rules = await loadAgentRules(cwd);
   assert.equal(rules.source, "profile");

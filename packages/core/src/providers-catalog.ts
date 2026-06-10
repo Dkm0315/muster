@@ -82,7 +82,7 @@ export function renderProviderPresets(): string {
   }
   lines.push("Also available without presets:");
   lines.push("  any OpenAI-compatible endpoint:  provider add-openai-compatible <id> <base-url> <model> [--api-key-env VAR]");
-  lines.push("  Claude Code CLI runtime:         hybrowclaw run \"...\" --runtime claude-code (uses your local `claude` login)");
-  lines.push("  Pi-managed providers:            hybrowclaw run \"...\" --runtime pi --provider anthropic (uses Pi auth)");
+  lines.push("  Claude Code CLI runtime:         muster run \"...\" --runtime claude-code (uses your local `claude` login)");
+  lines.push("  Pi-managed providers:            muster run \"...\" --runtime pi --provider anthropic (uses Pi auth)");
   return lines.join("\n");
 }

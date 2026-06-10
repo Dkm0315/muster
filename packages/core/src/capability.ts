@@ -30,7 +30,7 @@ export interface CapabilityPackInspection {
 }
 
 export async function inspectCapabilityPack(path: string): Promise<CapabilityPackInspection> {
-  const manifestPath = join(path, "hybrowclaw.capability.json");
+  const manifestPath = join(path, "muster.capability.json");
   const raw = await readFile(manifestPath, "utf8");
   const parsed = JSON.parse(raw) as unknown;
   return inspectCapabilityManifest(path, parsed);

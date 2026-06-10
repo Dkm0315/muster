@@ -34,7 +34,7 @@ const contexts: ContextObject[] = [
     observedAt: "2026-06-06T08:00:00.000Z",
     confidence: 0.92,
     provenance: ["user"],
-    scopes: [{ kind: "workspace", id: "hybrowclaw" }],
+    scopes: [{ kind: "workspace", id: "muster" }],
     redactionState: "redacted",
     feedbackScore: 0.8
   },
@@ -75,7 +75,7 @@ test("buildTrustEnvelope returns a ready deterministic execution envelope", () =
     contexts,
     evidence,
     permissions,
-    scope: { kind: "workspace", id: "hybrowclaw" }
+    scope: { kind: "workspace", id: "muster" }
   });
 
   assert.equal(envelope.status, "ready");
@@ -121,7 +121,7 @@ test("buildTrustEnvelope returns a ready deterministic execution envelope", () =
       contextId: "ctx-policy",
       kind: "preference",
       risk: "low",
-      summary: "Promote verified preference memory within workspace:hybrowclaw.",
+      summary: "Promote verified preference memory within workspace:muster.",
       autoApply: false
     }
   ]);

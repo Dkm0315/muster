@@ -17,9 +17,9 @@ import {
   tokensPath,
   verifyIntegrity,
 } from "../src/index.js";
-import type { HybrowClawConfig } from "../src/index.js";
+import type { MusterConfig } from "../src/index.js";
 
-function stubConfig(baseUrl: string): HybrowClawConfig {
+function stubConfig(baseUrl: string): MusterConfig {
   const config = defaultConfig();
   return {
     ...config,
@@ -54,15 +54,15 @@ function startStubServer(handler: (body: string) => { status: number; payload: u
 }
 
 test("executeRun records the episode, token usage, and a session-scoped memory candidate", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-run-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-"));
   const server = await startStubServer(() => ({
     status: 200,
-    payload: { choices: [{ message: { content: "stubbed answer about HybrowClaw" } }] },
+    payload: { choices: [{ message: { content: "stubbed answer about Muster" } }] },
   }));
   try {
-    const outcome = await executeRun(stubConfig(server.url), { prompt: "what is hybrowclaw?", cwd });
+    const outcome = await executeRun(stubConfig(server.url), { prompt: "what is muster?", cwd });
     assert.equal(outcome.episode.outcome?.kind, "completed");
-    assert.equal(outcome.episode.responseText, "stubbed answer about HybrowClaw");
+    assert.equal(outcome.episode.responseText, "stubbed answer about Muster");
 
     const episodes = await listEpisodes(cwd);
     assert.equal(episodes.length, 1);
@@ -88,7 +88,7 @@ test("executeRun records the episode, token usage, and a session-scoped memory c
 });
 
 test("executeRun injects recalled scoped memory into the prompt", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-run-recall-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-recall-"));
   let observedPrompt = "";
   const server = await startStubServer((body) => {
     observedPrompt = (JSON.parse(body).messages as Array<{ content: string }>).map((message) => message.content).join("\n");
@@ -113,7 +113,7 @@ test("executeRun injects recalled scoped memory into the prompt", async () => {
 });
 
 test("governed fallback is recorded as evidence and never silent", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-run-fallback-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-fallback-"));
   let calls = 0;
   const server = await startStubServer(() => {
     calls += 1;
@@ -122,7 +122,7 @@ test("governed fallback is recorded as evidence and never silent", async () => {
   });
   try {
     const config = stubConfig(server.url);
-    const withFallback: HybrowClawConfig = {
+    const withFallback: MusterConfig = {
       ...config,
       routing: { ...config.routing, fallbacks: [{ provider: "stub", model: "fallback-model" }] },
     };
@@ -141,7 +141,7 @@ test("governed fallback is recorded as evidence and never silent", async () => {
 });
 
 test("verifyIntegrity detects corrupt lines, duplicate run ids, and silent model drift", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-integrity-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-integrity-"));
   const episodes = episodesPath(cwd);
   await mkdir(dirname(episodes), { recursive: true });
   const baseEpisode = {
@@ -170,7 +170,7 @@ test("verifyIntegrity detects corrupt lines, duplicate run ids, and silent model
 });
 
 test("harness self-checks pass on a clean workspace", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-selfcheck-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-selfcheck-"));
   const checks = await runHarnessChecks(cwd);
   assert.deepEqual(checks.map((check) => check.status), ["passed", "passed", "passed"]);
 });

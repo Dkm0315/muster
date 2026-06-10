@@ -64,7 +64,7 @@ const RULES: Record<MigrationSource, { root: string; assets: AssetRule[] }> = {
     root: ".pi",
     assets: [
       { relativePath: "agents", kind: "agent", importMode: "map", note: "Map markdown agents into optional persona/agent overlays.", recursive: true },
-      { relativePath: "workflows", kind: "workflow", importMode: "map", note: "Map pi workflow graphs directly into HybrowClaw flows.", recursive: true },
+      { relativePath: "workflows", kind: "workflow", importMode: "map", note: "Map pi workflow graphs directly into Muster flows.", recursive: true },
       { relativePath: "flows", kind: "workflow", importMode: "archive_only", note: "Persist historical flow runs as episode evidence.", recursive: true },
       { relativePath: "config.json", kind: "config", importMode: "map", note: "Map pi provider/runtime defaults." }
     ]
@@ -147,7 +147,7 @@ function nextActions(source: MigrationSource, assets: MigrationAsset[]): string[
   return [
     "Review dry-run report for secrets or stale state.",
     "Create a backup before apply.",
-    "Import mappable assets into HybrowClaw state.",
+    "Import mappable assets into Muster state.",
     "Archive unknown or historical state without activating it.",
     "Run doctor and generated evals after migration."
   ];

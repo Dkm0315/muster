@@ -30,7 +30,7 @@ test("provider presets cover cloud, aggregator, local, and CLI categories", () =
 });
 
 test("addPresetProvider persists the provider with overrides", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-presets-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-presets-"));
   await ensureDefaultConfig(cwd);
   const added = await addPresetProvider("kimi", { model: "kimi-latest" }, cwd);
   assert.equal(added.kind, "openai-compatible");
@@ -40,7 +40,7 @@ test("addPresetProvider persists the provider with overrides", async () => {
 });
 
 test("addPresetProvider rejects unknown presets with guidance", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-presets-bad-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-presets-bad-"));
   await ensureDefaultConfig(cwd);
   await assert.rejects(() => addPresetProvider("not-a-provider", {}, cwd), /provider presets/);
 });

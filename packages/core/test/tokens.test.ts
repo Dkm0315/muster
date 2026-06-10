@@ -83,7 +83,7 @@ test("estimateCostUsd returns undefined for unknown models instead of guessing",
 });
 
 test("token ledger persists records and renders an aligned table with totals", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-tokens-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-tokens-"));
   await appendTokenRecord(buildTokenRecord({
     runId: "run_table_1",
     provider: "anthropic",

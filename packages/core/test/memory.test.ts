@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { addMemory, formatMemoryScope, parseMemoryScope, promoteMemory, searchMemory } from "../src/index.js";
 
 test("searchMemory only returns objects visible to every required scope", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-memory-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-"));
   await addMemory(
     {
       summary: "Dhairya prefers concise CTO-style architecture notes.",
@@ -36,7 +36,7 @@ test("searchMemory only returns objects visible to every required scope", async 
 });
 
 test("searchMemory can include global memories without exposing private memories globally", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-memory-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-"));
   await addMemory(
     {
       summary: "Use evidence-aware answers by default.",
@@ -63,7 +63,7 @@ test("searchMemory can include global memories without exposing private memories
 });
 
 test("promoteMemory refuses global promotion unless explicitly allowed", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-memory-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-"));
   const source = await addMemory(
     {
       summary: "Verified tenant runbook preference.",

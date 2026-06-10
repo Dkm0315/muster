@@ -2,12 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { profileConfigPath } from "./profiles.js";
 import { findProviderPreset, presetToProviderConfig } from "./providers-catalog.js";
-import type { HybrowClawConfig, ProviderConfig } from "./types.js";
+import type { MusterConfig, ProviderConfig } from "./types.js";
 
-export const CONFIG_DIR = ".hybrowclaw";
+export const CONFIG_DIR = ".muster";
 export const CONFIG_FILE = "config.json";
 
-export function defaultConfig(): HybrowClawConfig {
+export function defaultConfig(): MusterConfig {
   return {
     version: 1,
     providers: {
@@ -58,16 +58,16 @@ export async function ensureDefaultConfig(cwd = process.cwd()): Promise<string> 
   }
 }
 
-export async function loadConfig(cwd = process.cwd()): Promise<HybrowClawConfig> {
+export async function loadConfig(cwd = process.cwd()): Promise<MusterConfig> {
   const raw = await readFile(configPath(cwd), "utf8");
-  const parsed = JSON.parse(raw) as HybrowClawConfig;
+  const parsed = JSON.parse(raw) as MusterConfig;
   if (parsed.version !== 1) {
-    throw new Error(`Unsupported HybrowClaw config version: ${String(parsed.version)}`);
+    throw new Error(`Unsupported Muster config version: ${String(parsed.version)}`);
   }
   return parsed;
 }
 
-export async function saveConfig(config: HybrowClawConfig, cwd = process.cwd()): Promise<void> {
+export async function saveConfig(config: MusterConfig, cwd = process.cwd()): Promise<void> {
   const target = configPath(cwd);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -81,7 +81,7 @@ export async function addOpenAICompatibleProvider(
     readonly apiKeyEnv?: string;
   },
   cwd = process.cwd()
-): Promise<HybrowClawConfig> {
+): Promise<MusterConfig> {
   validateProviderId(input.id);
   validateBaseUrl(input.baseUrl);
   if (!input.defaultModel.trim()) {
@@ -96,7 +96,7 @@ export async function addOpenAICompatibleProvider(
     apiKeyEnv: input.apiKeyEnv,
     timeoutMs: 120_000
   };
-  const next: HybrowClawConfig = {
+  const next: MusterConfig = {
     ...config,
     providers: {
       ...config.providers,
@@ -113,7 +113,7 @@ export async function addCodexCliProvider(
     readonly defaultModel: string;
   },
   cwd = process.cwd()
-): Promise<HybrowClawConfig> {
+): Promise<MusterConfig> {
   validateProviderId(input.id);
   if (!input.defaultModel.trim()) {
     throw new Error("Provider default model cannot be empty.");
@@ -125,7 +125,7 @@ export async function addCodexCliProvider(
     defaultModel: input.defaultModel,
     timeoutMs: 120_000
   };
-  const next: HybrowClawConfig = {
+  const next: MusterConfig = {
     ...config,
     providers: {
       ...config.providers,
@@ -143,14 +143,14 @@ export async function setRuntimeProvider(
     readonly model?: string;
   },
   cwd = process.cwd()
-): Promise<HybrowClawConfig> {
+): Promise<MusterConfig> {
   const config = await loadConfig(cwd);
   const runtime = config.runtimes[input.runtimeId];
   if (!runtime) throw new Error(`Runtime not found: ${input.runtimeId}`);
   const provider = config.providers[input.providerId];
   if (!provider) throw new Error(`Provider not found: ${input.providerId}`);
   const model = input.model ?? provider.defaultModel;
-  const next: HybrowClawConfig = {
+  const next: MusterConfig = {
     ...config,
     runtimes: {
       ...config.runtimes,
@@ -199,7 +199,7 @@ export async function addPresetProvider(
 ): Promise<ProviderConfig> {
   const preset = findProviderPreset(presetId);
   if (!preset) {
-    throw new Error(`Unknown provider preset: ${presetId}. List presets with: hybrowclaw provider presets`);
+    throw new Error(`Unknown provider preset: ${presetId}. List presets with: muster provider presets`);
   }
   const providerConfig = presetToProviderConfig(preset, overrides);
   const config = await loadConfig(cwd);

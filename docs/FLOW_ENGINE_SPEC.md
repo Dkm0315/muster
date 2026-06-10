@@ -48,7 +48,7 @@ Core properties (each one a Lobster pain inverted):
 1. **Preflight** (`hc flow check <id>`): schema validation, tool existence,
    template-variable resolution, permission requirements — before anything runs.
 2. **Durable runs as data**: every step result appends to
-   `.hybrowclaw/data/flows/<run>.jsonl`. Resume = re-run the file; the gate
+   `.muster/data/flows/<run>.jsonl`. Resume = re-run the file; the gate
    state lives in the run record, not a magic token. Survives restarts.
 3. **Replay & diff** (`hc flow replay <run> --against <run>`): re-execute
    deterministically and diff step outputs — regression detection for

@@ -22,7 +22,7 @@ export interface TokenRecord {
 }
 
 // Rough public list prices per 1M tokens (input, output). Used only for the
-// estimate column in `hybrowclaw tokens`; absence of a match leaves cost blank.
+// estimate column in `muster tokens`; absence of a match leaves cost blank.
 const PRICE_PER_MTOK: Array<[RegExp, { input: number; output: number }]> = [
   [/claude.*opus/i, { input: 15, output: 75 }],
   [/claude.*sonnet/i, { input: 3, output: 15 }],
@@ -121,7 +121,7 @@ function num(value: number): string {
 }
 
 export function renderTokenTable(records: readonly TokenRecord[], limit = 20): string {
-  if (!records.length) return "No token records yet. Run `hybrowclaw run \"<prompt>\"` to record usage.";
+  if (!records.length) return "No token records yet. Run `muster run \"<prompt>\"` to record usage.";
   const recent = records.slice(-limit);
   const lines: string[] = [];
   const header = `${pad("run", 14)} ${pad("model", 28)} ${pad("in", 8)} ${pad("out", 8)} ${pad("est", 4)} ${pad("cost$", 8)} ${pad("waste", 7)} ${pad("session", 10)}`;

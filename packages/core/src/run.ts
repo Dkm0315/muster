@@ -11,7 +11,7 @@ import type {
   ContextObject,
   EpisodeRecord,
   EvidenceRecord,
-  HybrowClawConfig,
+  MusterConfig,
   MemoryScope,
   ModelRoute,
   RunPlan,
@@ -112,7 +112,7 @@ interface AttemptResult {
 }
 
 async function attemptRoute(
-  config: HybrowClawConfig,
+  config: MusterConfig,
   plan: RunPlan,
   route: ModelRoute,
   fullPrompt: string,
@@ -163,7 +163,7 @@ async function attemptRoute(
   }
 }
 
-export async function executeRun(config: HybrowClawConfig, options: RunOptions): Promise<RunOutcome> {
+export async function executeRun(config: MusterConfig, options: RunOptions): Promise<RunOutcome> {
   const cwd = options.cwd ?? process.cwd();
   const plan = options.runtime === "pi" || options.runtime === "claude-code" || options.runtime === "claude"
     ? planForManagedRuntime(options.runtime === "pi" ? "pi" : "claude-code", options)

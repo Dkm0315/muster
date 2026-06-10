@@ -1,7 +1,7 @@
-# HybrowClaw Codex SDLC Kanban
+# Muster Codex SDLC Kanban
 
 Goal:
-Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtime with optional personas, pluggable agent runtimes, smoother auth/pairing direction, migration dry-runs, evidence-aware feedback, and a Terminal Cockpit web UI.
+Build Muster v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtime with optional personas, pluggable agent runtimes, smoother auth/pairing direction, migration dry-runs, evidence-aware feedback, and a Terminal Cockpit web UI.
 
 ## Board
 
@@ -10,7 +10,7 @@ Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtim
 | HC-001 | Done | Architect Agent | Product contract captured | `docs/ARCHITECTURE.md`, `README.md` | None | Product rules mention pi.dev bedrock, optional personas, one runtime per run, evidence-aware feedback |
 | HC-002 | Done | Backend Engineer | Core config/routing/provider foundations | `packages/core/src/config.ts`, `router.ts`, `provider.ts`, `types.ts` | HC-001 | `pnpm typecheck && pnpm test` |
 | HC-003 | Done | CLI Engineer | Initial CLI operator surface | `packages/cli/src/index.ts` | HC-002 | `pnpm hc init && pnpm hc doctor` |
-| HC-004 | Done | Frontend Engineer | Option 1 Terminal Cockpit skeleton | `packages/ui/*` | HC-001 | `pnpm --filter @hybrowclaw/ui build` |
+| HC-004 | Done | Frontend Engineer | Option 1 Terminal Cockpit skeleton | `packages/ui/*` | HC-001 | `pnpm --filter @musterhq/ui build` |
 | HC-005 | Done | Backend Engineer | Real migration dry-run scanners | `packages/core/src/migration.ts`, `packages/cli/src/index.ts`, tests | HC-002, HC-003 | `pnpm hc migrate openclaw --dry-run`, `hermes`, and `pi` return discovered/absent state without throwing |
 | HC-006 | Done | CLI Engineer | Provider add/list commands | `packages/core/src/config.ts`, `packages/cli/src/index.ts`, tests | HC-002 | Operator can add an OpenAI-compatible provider and list configured providers |
 | HC-007 | Done | Test Engineer | Eval candidate artifact output | `packages/core/src/feedback.ts`, `store.ts`, CLI feedback path, tests | HC-002, HC-003 | Negative/positive feedback emits persisted learning candidates and `pnpm test` covers classifications |
@@ -19,22 +19,22 @@ Build HybrowClaw v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtim
 | HC-010 | Done | QA Agent | Command-only QA pass | Real CLI commands only | HC-005, HC-006, HC-007, HC-009 | Typecheck, tests, build, doctor, migration dry-runs, state show/export, and served static UI state probe completed |
 | HC-011 | Done | Memory Architect | Scoped memory contract | `packages/core/src/types.ts`, `docs/PRODUCT_WEDGE.md`, `docs/ARCHITECTURE.md` | HC-001, HC-007 | Memory model distinguishes tenant, user, pairing, session, role, persona, and global scopes |
 | HC-012 | Ready | UI Engineer | Runtime bridge for cockpit controls | `packages/ui`, future local bridge/API | HC-008 | Stop/Steer/Modify, composer, and feedback buttons are wired or remain visibly disabled |
-| HC-013 | Done | Terminal Engineer | Terminal/TUI cockpit | `packages/cli/src/index.ts` | HC-008 | `hybrowclaw tui` renders latest run, response, feedback, and candidates without the web UI; `tui ask` records prompt outcomes |
-| HC-014 | Done | Runtime Engineer | pi.dev embedded SDK boundary | `packages/core/src/pi.ts`, `packages/cli/src/index.ts` | HC-001 | `hybrowclaw pi inspect` verifies the installed Pi SDK exports and detects pi root/workflows |
+| HC-013 | Done | Terminal Engineer | Terminal/TUI cockpit | `packages/cli/src/index.ts` | HC-008 | `muster tui` renders latest run, response, feedback, and candidates without the web UI; `tui ask` records prompt outcomes |
+| HC-014 | Done | Runtime Engineer | pi.dev embedded SDK boundary | `packages/core/src/pi.ts`, `packages/cli/src/index.ts` | HC-001 | `muster pi inspect` verifies the installed Pi SDK exports and detects pi root/workflows |
 | HC-015 | Done | Trust Kernel Engineer | Trust Kernel execution envelope | `packages/core` | HC-011, HC-014 | Runs persist route, permissions, scoped context, evidence ledger, blockers, and promotion candidates |
 | HC-016 | Done | QA Engineer | CLI smoke tests and CI pipeline | `packages/cli/test`, `.github/workflows` | HC-013, HC-014 | CLI has real tests and GitHub Actions validates typecheck/test/build/smoke |
-| HC-017 | Done | Runtime Engineer | Real Pi embedded SDK adapter | `packages/core/src/pi.ts`, `packages/cli/src/index.ts`, tests | HC-014, HC-015 | `hybrowclaw pi ask` creates a Pi `AgentSession` through the published SDK and records the result as a HybrowClaw episode; CLI transport is diagnostic only |
+| HC-017 | Done | Runtime Engineer | Real Pi embedded SDK adapter | `packages/core/src/pi.ts`, `packages/cli/src/index.ts`, tests | HC-014, HC-015 | `muster pi ask` creates a Pi `AgentSession` through the published SDK and records the result as a Muster episode; CLI transport is diagnostic only |
 | HC-018 | Ready | Release Engineer | GitHub PR and release publication | GitHub remote | HC-016 | Changes are split into PRs, merged, tagged, and release workflow is run |
-| HC-019 | Done | Capability Engineer | Capability pack manifest gate | `packages/core/src/capability.ts`, `packages/cli/src/index.ts`, tests | HC-015 | `hybrowclaw capability inspect <path>` validates manifest shape, permissions, sandbox, secrets, evals, and digest warnings |
-| HC-020 | Done | Memory Engineer | Scoped memory ledger | `packages/core/src/memory.ts`, `packages/cli/src/index.ts`, tests | HC-011, HC-015 | `hybrowclaw memory add/search/promote` persists ContextObjects and proves global search cannot read user/session/private memory |
-| HC-021 | Done | Eval Engineer | Replayable eval fixture runner | `packages/core/src/eval.ts`, `packages/cli/src/index.ts`, tests | HC-007, HC-015 | `hybrowclaw eval seed <episode>` writes a fixture and `hybrowclaw eval run` reports pass/fail checks |
-| HC-022 | Ready | Runtime Engineer | Deeper Pi session and extension bridge | `packages/core/src/pi.ts`, future adapter | HC-017 | HybrowClaw can configure Pi sessions/extensions/tools directly without hiding Pi's native runtime |
+| HC-019 | Done | Capability Engineer | Capability pack manifest gate | `packages/core/src/capability.ts`, `packages/cli/src/index.ts`, tests | HC-015 | `muster capability inspect <path>` validates manifest shape, permissions, sandbox, secrets, evals, and digest warnings |
+| HC-020 | Done | Memory Engineer | Scoped memory ledger | `packages/core/src/memory.ts`, `packages/cli/src/index.ts`, tests | HC-011, HC-015 | `muster memory add/search/promote` persists ContextObjects and proves global search cannot read user/session/private memory |
+| HC-021 | Done | Eval Engineer | Replayable eval fixture runner | `packages/core/src/eval.ts`, `packages/cli/src/index.ts`, tests | HC-007, HC-015 | `muster eval seed <episode>` writes a fixture and `muster eval run` reports pass/fail checks |
+| HC-022 | Ready | Runtime Engineer | Deeper Pi session and extension bridge | `packages/core/src/pi.ts`, future adapter | HC-017 | Muster can configure Pi sessions/extensions/tools directly without hiding Pi's native runtime |
 
 ## Agent Assignments
 
 ### Backend Engineer: HC-005 Migration Scanners
 
-You are not alone in the codebase. Do not revert or overwrite unrelated changes. Own only this scope: `hybrowclaw/packages/core/src/migration.ts`, `hybrowclaw/packages/core/src/index.ts`, `hybrowclaw/packages/core/test/migration.test.ts`, and the `migrate` branch inside `hybrowclaw/packages/cli/src/index.ts`.
+You are not alone in the codebase. Do not revert or overwrite unrelated changes. Own only this scope: `muster/packages/core/src/migration.ts`, `muster/packages/core/src/index.ts`, `muster/packages/core/test/migration.test.ts`, and the `migrate` branch inside `muster/packages/cli/src/index.ts`.
 
 Implement dry-run scanners for `openclaw`, `hermes`, and `pi`. They must never mutate external state. They should inspect conventional home-directory paths and return a structured report with found paths, missing paths, candidate assets, archive-only notes, and recommended next actions. Keep the scanner deterministic and testable by allowing a custom home directory.
 
@@ -48,7 +48,7 @@ You are not alone in the codebase. Do not revert or overwrite unrelated changes.
 
 ## Integration Gate
 
-Run from `hybrowclaw/`:
+Run from `muster/`:
 
 ```bash
 pnpm typecheck
@@ -66,12 +66,12 @@ pnpm hc migrate pi --dry-run
 Use only real user/operator commands in a fresh temporary directory:
 
 ```bash
-pnpm dlx ./path-to-hybrowclaw init
-hybrowclaw doctor
-hybrowclaw provider list
-hybrowclaw migrate openclaw --dry-run
-hybrowclaw migrate hermes --dry-run
-hybrowclaw migrate pi --dry-run
+pnpm dlx ./path-to-muster init
+muster doctor
+muster provider list
+muster migrate openclaw --dry-run
+muster migrate hermes --dry-run
+muster migrate pi --dry-run
 ```
 
 For v0, a red provider connectivity check is acceptable when no local Ollama/OpenAI-compatible server is listening; it must be reported clearly by `doctor`.

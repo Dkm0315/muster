@@ -230,12 +230,12 @@ export async function inspectPiRuntime(input: { readonly homeDir?: string } = {}
     adapterState: sdk.loadable ? (installed ? "sdk_ready_with_pi_home" : "sdk_ready") : "sdk_missing",
     nextActions: sdk.loadable
       ? [
-          "Create HybrowClaw runs through Pi's createAgentSession() embedded SDK path.",
-          "Inject HybrowClaw tools, context graph, memory hooks, eval hooks, and TUI event renderers around the real AgentSession.",
+          "Create Muster runs through Pi's createAgentSession() embedded SDK path.",
+          "Inject Muster tools, context graph, memory hooks, eval hooks, and TUI event renderers around the real AgentSession.",
           "Use the Pi CLI only as an explicit diagnostic transport, never as the default harness runtime."
         ]
       : [
-          `Install ${PI_CODING_AGENT_NPX_SPEC} and its sibling pi packages in @hybrowclaw/core.`,
+          `Install ${PI_CODING_AGENT_NPX_SPEC} and its sibling pi packages in @musterhq/core.`,
           "Do not ship a fake local runner while the embedded Pi SDK is unavailable."
         ]
   };
@@ -262,7 +262,7 @@ export async function runPiInteractive(input: PiInteractiveRunInput = {}): Promi
       cwd,
       packageName: PI_CODING_AGENT_PACKAGE,
       packageVersion: PI_CODING_AGENT_VERSION,
-      reason: "Pi interactive mode requires an attached TTY. Use `hybrowclaw pi ask` for non-interactive runs."
+      reason: "Pi interactive mode requires an attached TTY. Use `muster pi ask` for non-interactive runs."
     };
   }
 
@@ -547,7 +547,7 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
 }
 
 /**
- * Diagnostic-only transport. HybrowClaw's product runtime must use runPiEmbeddedAgent().
+ * Diagnostic-only transport. Muster's product runtime must use runPiEmbeddedAgent().
  */
 export async function runPiCliDiagnostic(input: PiCliDiagnosticRunInput): Promise<PiAgentRunResult> {
   if (!input.prompt.trim()) throw new Error("Pi prompt is required.");
@@ -719,7 +719,7 @@ function resolvePiModel(
 ) {
   if (!provider && !modelId) return undefined;
   if (!provider || !modelId) {
-    throw new Error("Pi provider and model must be passed together. Use `hybrowclaw pi models` to discover valid pairs.");
+    throw new Error("Pi provider and model must be passed together. Use `muster pi models` to discover valid pairs.");
   }
   const model = modelRegistry.find(provider, modelId);
   if (!model) {
@@ -731,7 +731,7 @@ function resolvePiModel(
       .join(", ");
     throw new Error(
       `Pi model not found for provider=${provider} model=${modelId}.` +
-        (known ? ` Known ${provider} models include: ${known}.` : " Run `hybrowclaw pi models` to discover providers and models.")
+        (known ? ` Known ${provider} models include: ${known}.` : " Run `muster pi models` to discover providers and models.")
     );
   }
   return model;

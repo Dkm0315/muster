@@ -1,9 +1,9 @@
 {
-  "name": "@hybrowclaw/cli",
+  "name": "@musterhq/cli",
   "version": "0.0.1",
   "type": "module",
   "bin": {
-    "hybrowclaw": "dist/index.js",
+    "muster": "dist/index.js",
     "hc": "dist/index.js"
   },
   "scripts": {
@@ -12,6 +12,6 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@hybrowclaw/core": "workspace:*"
+    "@musterhq/core": "workspace:*"
   }
 }

@@ -5,16 +5,16 @@ import { join } from "node:path";
 const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const DEFAULT_PROFILE = "default";
 
-export function hybrowclawRoot(cwd = process.cwd()): string {
-  return join(cwd, ".hybrowclaw");
+export function musterRoot(cwd = process.cwd()): string {
+  return join(cwd, ".muster");
 }
 
 export function profilePointerPath(cwd = process.cwd()): string {
-  return join(hybrowclawRoot(cwd), "profile");
+  return join(musterRoot(cwd), "profile");
 }
 
 export function profilesRoot(cwd = process.cwd()): string {
-  return join(hybrowclawRoot(cwd), "profiles");
+  return join(musterRoot(cwd), "profiles");
 }
 
 export function validateProfileName(name: string): void {
@@ -33,7 +33,7 @@ export function activeProfile(cwd = process.cwd()): string {
 }
 
 export function profileDataDir(cwd = process.cwd(), profile = activeProfile(cwd)): string {
-  if (profile === DEFAULT_PROFILE) return join(hybrowclawRoot(cwd), "data");
+  if (profile === DEFAULT_PROFILE) return join(musterRoot(cwd), "data");
   return join(profilesRoot(cwd), profile, "data");
 }
 
@@ -42,7 +42,7 @@ export function profileConfigPath(cwd = process.cwd(), profile = activeProfile(c
     const scoped = join(profilesRoot(cwd), profile, "config.json");
     if (existsSync(scoped)) return scoped;
   }
-  return join(hybrowclawRoot(cwd), "config.json");
+  return join(musterRoot(cwd), "config.json");
 }
 
 export async function createProfile(name: string, cwd = process.cwd()): Promise<string> {
@@ -68,8 +68,8 @@ export async function listProfiles(cwd = process.cwd()): Promise<string[]> {
 export async function useProfile(name: string, cwd = process.cwd()): Promise<void> {
   validateProfileName(name);
   if (name !== DEFAULT_PROFILE && !existsSync(join(profilesRoot(cwd), name))) {
-    throw new Error(`Profile "${name}" does not exist. Create it first with: hybrowclaw profile create ${name}`);
+    throw new Error(`Profile "${name}" does not exist. Create it first with: muster profile create ${name}`);
   }
-  await mkdir(hybrowclawRoot(cwd), { recursive: true });
+  await mkdir(musterRoot(cwd), { recursive: true });
   await writeFile(profilePointerPath(cwd), `${name}\n`);
 }

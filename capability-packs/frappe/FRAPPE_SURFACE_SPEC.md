@@ -2,13 +2,13 @@
 
 The Frappe pack is not "a chatbot for ERPNext". It is an AI operating layer that
 sees what the user sees, knows how the site was customized, and remembers each
-employee separately — enforced by HybrowClaw's trust kernel, not by prompt hope.
+employee separately — enforced by Muster's trust kernel, not by prompt hope.
 Reference deployment: Oxygen HR (uat-erp.pwhr.in) — thousands of employees,
 2,000+ custom fields, 926 property setters, custom workflows per module.
 
 ## 1. Screen Context Protocol (the "it picks up the current screen" layer)
 
-A ~2KB embeddable snippet (`hybrowclaw-frappe-surface.js`) for ANY Frappe UI —
+A ~2KB embeddable snippet (`muster-frappe-surface.js`) for ANY Frappe UI —
 Desk, Helpdesk, Gameplan, ChatNext, custom SPAs. It observes, never controls:
 
 - Hooks `frappe.router` (Desk) / route change events (SPA) to capture:
@@ -48,7 +48,7 @@ The `frappe_customization_context` engine already running on Oxygen HR:
 
 ## 3. Per-employee memory lanes (thousands of users, zero leaks)
 
-Direct mapping onto HybrowClaw scoped memory — already enforced and tested:
+Direct mapping onto Muster scoped memory — already enforced and tested:
 - `user:<frappe_user>` — personal facts, preferences, recurring requests
 - `role:<frappe_role>` — what HR managers vs employees see
 - `workspace:<module>` — module-level operational memory (HR, Payroll, Helpdesk)
@@ -65,7 +65,7 @@ Not "AI writes a script": governed creation of living automation:
   + transition matrix, validated against live roles/states, behind approval.
 - `frappe_loop_create`: recurring agent loops bound to doctype events or cron
   ("every Monday 9am: summarize unassigned HD Tickets per team and post to
-  the team lead") — each loop is a HybrowClaw schedule + run with its own
+  the team lead") — each loop is a Muster schedule + run with its own
   token budget, evidence trail, and kill switch. Loops are data: list, diff,
   pause, replay (`hc loop list/pause/replay`).
 - `frappe_script_propose`: server/client script drafts with a dry-run diff of
@@ -77,7 +77,7 @@ Not "AI writes a script": governed creation of living automation:
 
 One contract, three transports:
 - `<script>` snippet for classic Desk
-- npm package `@hybrowclaw/frappe-surface` for Vue/React SPAs (Helpdesk,
+- npm package `@musterhq/frappe-surface` for Vue/React SPAs (Helpdesk,
   Gameplan, ChatNext, custom apps) — 0 deps, emits ContextObjects + renders
   an optional headless chat/drawer primitive (BYO styling)
 - REST/WS bridge for server-side surfaces (Telegram/WhatsApp federation,

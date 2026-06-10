@@ -60,7 +60,7 @@ export interface RoutingPolicy {
   readonly fallbacks?: ModelRoute[];
 }
 
-export interface HybrowClawConfig {
+export interface MusterConfig {
   readonly version: 1;
   readonly providers: Record<string, ProviderConfig>;
   readonly runtimes: Record<string, RuntimeConfig>;

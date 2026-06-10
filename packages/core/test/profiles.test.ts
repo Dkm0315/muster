@@ -15,13 +15,13 @@ import {
 } from "../src/index.js";
 
 test("default profile resolves to the legacy data directory for backwards compatibility", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-profiles-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-"));
   assert.equal(activeProfile(cwd), "default");
-  assert.equal(profileDataDir(cwd), join(cwd, ".hybrowclaw", "data"));
+  assert.equal(profileDataDir(cwd), join(cwd, ".muster", "data"));
 });
 
 test("profiles isolate memory completely", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-profiles-iso-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-iso-"));
   await createProfile("tenant-a", cwd);
   await createProfile("tenant-b", cwd);
 
@@ -42,14 +42,14 @@ test("profiles isolate memory completely", async () => {
 });
 
 test("profile listing includes default plus created profiles, sorted", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-profiles-list-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-list-"));
   await createProfile("zeta", cwd);
   await createProfile("alpha", cwd);
   assert.deepEqual(await listProfiles(cwd), ["alpha", "default", "zeta"]);
 });
 
 test("useProfile refuses profiles that do not exist", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-profiles-missing-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-missing-"));
   await assert.rejects(() => useProfile("ghost", cwd), /does not exist/);
 });
 

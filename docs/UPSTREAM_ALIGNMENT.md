@@ -1,8 +1,8 @@
 # Upstream Alignment: Pi, OpenClaw, Hermes
 
-HybrowClaw should be original in its trust model and operator experience, not original for the sake of reimplementing solved runtime mechanics.
+Muster should be original in its trust model and operator experience, not original for the sake of reimplementing solved runtime mechanics.
 
-This note is the guardrail before each implementation slice: check what Pi, OpenClaw, and Hermes already do well, then build the smallest HybrowClaw layer that preserves their strengths while adding our wedge.
+This note is the guardrail before each implementation slice: check what Pi, OpenClaw, and Hermes already do well, then build the smallest Muster layer that preserves their strengths while adding our wedge.
 
 ## Pi / PyEdit.dev Bedrock
 
@@ -15,15 +15,15 @@ Use these primitives directly:
 - `@earendil-works/pi-ai` for provider/model abstraction.
 - `@earendil-works/pi-tui` for terminal rendering primitives where we need real interactive TUI behavior.
 
-Pi provider/model resolution is part of the bedrock. HybrowClaw should create Pi's `AuthStorage` and `ModelRegistry`, list models through `getAll()`/`getAvailable()`, and pass the resolved model into `createAgentSession()`. Do not create a second provider switchboard for Claude, Codex, Copilot, or local OpenAI-compatible models when Pi already owns that abstraction.
+Pi provider/model resolution is part of the bedrock. Muster should create Pi's `AuthStorage` and `ModelRegistry`, list models through `getAll()`/`getAvailable()`, and pass the resolved model into `createAgentSession()`. Do not create a second provider switchboard for Claude, Codex, Copilot, or local OpenAI-compatible models when Pi already owns that abstraction.
 
 Do not recreate:
 
-- session trees, prompt expansion, slash-command prompt templates, skills loading, extension loading, tool execution, or built-in coding tools unless HybrowClaw is adding a policy wrapper.
+- session trees, prompt expansion, slash-command prompt templates, skills loading, extension loading, tool execution, or built-in coding tools unless Muster is adding a policy wrapper.
 - a fake local workflow runner and call it Pi integration.
 - subprocess scraping as the default runtime. CLI/RPC modes are useful diagnostics and compatibility lanes; the product runtime should embed SDK primitives.
 
-HybrowClaw's Pi layer should add:
+Muster's Pi layer should add:
 
 - Trust Kernel envelopes around each Pi turn.
 - scoped memory and eval hooks before/after `session.prompt()`.
@@ -86,10 +86,10 @@ Borrow these ideas:
 
 Do not copy blindly:
 
-- Python-only assumptions. HybrowClaw is npm/pnpm/bun-first unless a backend earns its place.
-- global memory behavior. HybrowClaw memory must be scoped by tenant, user, pairing, session, role, persona, and workspace.
+- Python-only assumptions. Muster is npm/pnpm/bun-first unless a backend earns its place.
+- global memory behavior. Muster memory must be scoped by tenant, user, pairing, session, role, persona, and workspace.
 - unmanaged skill mutation. Agent-created or modified skills must pass manifest, permission, and eval gates before promotion.
-- markdown-only memory as the final architecture. HybrowClaw memory should be typed, scoped, provenance-scored, contradiction-aware, and reviewable.
+- markdown-only memory as the final architecture. Muster memory should be typed, scoped, provenance-scored, contradiction-aware, and reviewable.
 
 ## Pi Agents And Flow Graphs
 
@@ -100,9 +100,9 @@ Pi's agent/workflow model is stronger than a hand-rolled local sequence runner. 
 - `/flows`-style inspection and persistence.
 - slash commands, prompt templates, skills, and ResourceLoader-managed extension surfaces.
 
-HybrowClaw should not invent a parallel flow language unless it is a policy layer over these primitives. If a local flow runner exists for tests, label it as a local fixture runner, not Pi integration.
+Muster should not invent a parallel flow language unless it is a policy layer over these primitives. If a local flow runner exists for tests, label it as a local fixture runner, not Pi integration.
 
-## HybrowClaw Wedge
+## Muster Wedge
 
 The wedge is not "we have agents/tools/memory." That is baseline.
 
@@ -121,8 +121,8 @@ The wedge is:
 
 1. Keep the Pi SDK adapter real: session creation, auth/model injection, event subscription, session persistence, and custom tool hooks.
 2. Add guarded session files, transcript repair, resource-loader phases, and exact tool allowlists before expanding tools.
-3. Add a real TUI loop on top of Pi/HybrowClaw events; do not treat a static state box as the final TUI.
-4. Add profile-scoped memory/session search inspired by Hermes, but with HybrowClaw scope isolation.
+3. Add a real TUI loop on top of Pi/Muster events; do not treat a static state box as the final TUI.
+4. Add profile-scoped memory/session search inspired by Hermes, but with Muster scope isolation.
 5. Add capability-pack activation and skill loading through Pi `ResourceLoader` instead of inventing a parallel skill runtime.
 6. Add OpenClaw/Hermes/Pi migration verifiers that prove what migrated and what remained archive-only.
 7. Add release packaging only after the CLI can run a real embedded Pi session with a configured provider.

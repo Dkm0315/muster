@@ -1,4 +1,4 @@
-name: HybrowClaw Release
+name: Muster Release
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
 
       - name: Create tag
         run: |
-          git config user.name "hybrowclaw-release"
-          git config user.email "release@hybrowclaw.local"
+          git config user.name "muster-release"
+          git config user.email "release@muster.local"
           git tag "v${{ inputs.version }}"
           git push origin "v${{ inputs.version }}"

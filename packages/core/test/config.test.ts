@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { addCodexCliProvider, addOpenAICompatibleProvider, ensureDefaultConfig, loadConfig, setRuntimeProvider } from "../src/index.js";
 
 test("addOpenAICompatibleProvider persists a provider", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-config-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
   await ensureDefaultConfig(cwd);
 
   await addOpenAICompatibleProvider(
@@ -26,7 +26,7 @@ test("addOpenAICompatibleProvider persists a provider", async () => {
 });
 
 test("addOpenAICompatibleProvider rejects unsafe provider ids", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-config-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
   await ensureDefaultConfig(cwd);
 
   await assert.rejects(
@@ -43,7 +43,7 @@ test("addOpenAICompatibleProvider rejects unsafe provider ids", async () => {
 });
 
 test("addCodexCliProvider persists a local Codex CLI provider", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-config-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
   await ensureDefaultConfig(cwd);
 
   await addCodexCliProvider({ id: "codex", defaultModel: "o4-mini" }, cwd);
@@ -54,7 +54,7 @@ test("addCodexCliProvider persists a local Codex CLI provider", async () => {
 });
 
 test("setRuntimeProvider repoints runtime routes to a provider", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-config-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
   await ensureDefaultConfig(cwd);
   await addCodexCliProvider({ id: "codex", defaultModel: "o4-mini" }, cwd);
 

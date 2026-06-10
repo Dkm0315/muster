@@ -1,5 +1,5 @@
 {
-  "description": "Core capability suite for the recursive self-test loop (hybrowclaw evolve). Run with a real model, e.g.: pnpm hc evolve evolve-suites/core-capabilities.json --runtime claude-code --model haiku",
+  "description": "Core capability suite for the recursive self-test loop (muster evolve). Run with a real model, e.g.: pnpm hc evolve evolve-suites/core-capabilities.json --runtime claude-code --model haiku",
   "tasks": [
     {
       "id": "simple-qa-grounded",

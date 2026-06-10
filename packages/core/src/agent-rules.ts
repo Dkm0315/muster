@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { activeProfile, hybrowclawRoot, profilesRoot } from "./profiles.js";
+import { activeProfile, musterRoot, profilesRoot } from "./profiles.js";
 
 /**
  * Default operating discipline injected into every run. Distilled from
@@ -8,7 +8,7 @@ import { activeProfile, hybrowclawRoot, profilesRoot } from "./profiles.js";
  * over-engineering, no orthogonal changes, explicit verification) and the
  * verification-first patterns of production agent harnesses. Override per
  * project with an AGENTS.md in the workspace root, or per profile with
- * .hybrowclaw/profiles/<name>/AGENTS.md.
+ * .muster/profiles/<name>/AGENTS.md.
  */
 export const DEFAULT_AGENT_RULES = `Operating discipline (hard rules):
 1. No silent assumptions. If a fact, file, or behavior is unverified, either verify it with a tool or state the assumption explicitly before relying on it.
@@ -26,7 +26,7 @@ export async function loadAgentRules(cwd = process.cwd()): Promise<AgentRules> {
   const profile = activeProfile(cwd);
   const candidates: Array<{ path: string; source: AgentRules["source"] }> = [
     ...(profile !== "default" ? [{ path: join(profilesRoot(cwd), profile, "AGENTS.md"), source: "profile" as const }] : []),
-    { path: join(hybrowclawRoot(cwd), "AGENTS.md"), source: "workspace" as const },
+    { path: join(musterRoot(cwd), "AGENTS.md"), source: "workspace" as const },
     { path: join(cwd, "AGENTS.md"), source: "workspace" as const },
   ];
   for (const candidate of candidates) {

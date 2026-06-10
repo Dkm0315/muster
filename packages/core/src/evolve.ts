@@ -5,7 +5,7 @@ import { addMemory, searchMemory } from "./memory.js";
 import { executeRun, type RunOptions } from "./run.js";
 import { appendFeedback } from "./store.js";
 import { buildTokenRecord } from "./tokens.js";
-import type { HybrowClawConfig, TaskKind } from "./types.js";
+import type { MusterConfig, TaskKind } from "./types.js";
 
 export interface EvolveTask {
   readonly id: string;
@@ -73,7 +73,7 @@ function judgeResponse(task: EvolveTask, responseText: string): { status: "passe
  * harness fixes between iterations can be verified to actually converge.
  */
 export async function evolve(
-  config: HybrowClawConfig,
+  config: MusterConfig,
   tasks: EvolveTask[],
   options: Omit<RunOptions, "prompt"> & { maxIterations?: number } = {},
 ): Promise<EvolveReport> {

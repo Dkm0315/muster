@@ -34,12 +34,12 @@ test("parseCron rejects malformed expressions with a clear message", () => {
 });
 
 test("addSchedule validates the cron expression up front", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-sched-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sched-"));
   await assert.rejects(() => addSchedule("not a cron", "do things", { cwd }), /5 fields/);
 });
 
 test("runDueSchedules executes due jobs once per minute and records state", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-sched-run-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sched-run-"));
   await addSchedule("* * * * *", "always due", { cwd });
   await addSchedule("0 0 1 1 *", "new year only", { cwd });
 
@@ -68,7 +68,7 @@ test("runDueSchedules executes due jobs once per minute and records state", asyn
 });
 
 test("runDueSchedules records runner failures without losing the job", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-sched-fail-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sched-fail-"));
   await addSchedule("* * * * *", "will fail", { cwd });
   const results = await runDueSchedules(async () => {
     throw new Error("provider exploded");
@@ -81,7 +81,7 @@ test("runDueSchedules records runner failures without losing the job", async () 
 });
 
 test("removeSchedule reports whether anything was removed", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "hybrowclaw-sched-rm-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sched-rm-"));
   const job = await addSchedule("* * * * *", "temp", { cwd });
   assert.equal(await removeSchedule(job.id, cwd), true);
   assert.equal(await removeSchedule(job.id, cwd), false);

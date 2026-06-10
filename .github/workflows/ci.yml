@@ -1,4 +1,4 @@
-name: HybrowClaw CI
+name: Muster CI
 
 on:
   pull_request:
