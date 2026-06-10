@@ -12,6 +12,8 @@ export interface EvolveTask {
   readonly prompt: string;
   readonly taskKind?: TaskKind;
   readonly expectedContains?: string[];
+  /** At least one of these must appear (case-insensitive). Use for intent checks where correct behavior has many valid phrasings. */
+  readonly expectedAnyOf?: string[];
   readonly forbiddenContains?: string[];
 }
 
@@ -52,6 +54,9 @@ function judgeResponse(task: EvolveTask, responseText: string): { status: "passe
     if (!lower.includes(expected.toLowerCase())) {
       return { status: "failed", failureKind: "missing_expected", detail: `Missing expected content: "${expected}"` };
     }
+  }
+  if (task.expectedAnyOf?.length && !task.expectedAnyOf.some((option) => lower.includes(option.toLowerCase()))) {
+    return { status: "failed", failureKind: "missing_expected", detail: `Missing all acceptable phrasings: ${task.expectedAnyOf.join(" | ")}` };
   }
   for (const forbidden of task.forbiddenContains ?? []) {
     if (lower.includes(forbidden.toLowerCase())) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { loadAgentRules } from "./agent-rules.js";
 import { runClaudeCode } from "./claude.js";
 import { addMemory, searchMemory } from "./memory.js";
 import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from "./pi.js";
@@ -32,6 +33,7 @@ export interface RunOptions {
   readonly cwd?: string;
   readonly timeoutMs?: number;
   readonly skipMemoryWrite?: boolean;
+  readonly skipAgentRules?: boolean;
 }
 
 export interface RunOutcome {
@@ -176,7 +178,9 @@ export async function executeRun(config: HybrowClawConfig, options: RunOptions):
   const scopes = options.scopes ?? defaultScopes();
   const recalled = await recallMemory(options.prompt, scopes, options.recallLimit ?? 5, cwd);
   const recalledBlock = buildRecalledBlock(recalled);
-  const fullPrompt = recalledBlock ? `${recalledBlock}\n\n---\n\n${options.prompt}` : options.prompt;
+  const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
+  const preamble = [rules?.text, recalledBlock].filter(Boolean).join("\n\n");
+  const fullPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
 
   const startedAt = Date.now();
   const evidence: EvidenceRecord[] = [];
