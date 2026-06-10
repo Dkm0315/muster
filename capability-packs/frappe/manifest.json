@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "frappe-federated-bridge",
+  "name": "Frappe/ERPNext Federated Bridge",
+  "version": "0.1.0",
+  "kind": "tool",
+  "entrypoint": "src/index.ts",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["FRAPPE_SITE_URL", "FRAPPE_OAUTH_CLIENT_ID", "FRAPPE_OAUTH_CLIENT_SECRET"],
+  "evals": ["evals/identity-resolution.json", "evals/permission-scoping.json"],
+  "description": "Permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; Frappe remains the only authorization authority. Ported from the production frappe2-openclaw-gateway: identity resolution, customization context (custom fields, property setters, workflows, scripts), semantic data resolution with domain DocType priors validated against the live site index, error-aware fetch diagnostics, and artifact dataset export.",
+  "plannedTools": [
+    "frappe_identity_resolve",
+    "frappe_customization_context",
+    "frappe_semantic_data_resolve",
+    "frappe_records_create",
+    "frappe_records_update",
+    "frappe_permission_check",
+    "frappe_dataset_fetch_for_artifact"
+  ],
+  "status": "scaffold: manifest + contract only. Implementation lands after the capability-pack loader (HC-012) ships; the reference implementation runs in production at frappe2-openclaw-gateway."
+}

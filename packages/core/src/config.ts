@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { profileConfigPath } from "./profiles.js";
+import { findProviderPreset, presetToProviderConfig } from "./providers-catalog.js";
 import type { HybrowClawConfig, ProviderConfig } from "./types.js";
 
 export const CONFIG_DIR = ".hybrowclaw";
@@ -189,4 +190,19 @@ function validateBaseUrl(baseUrl: string): void {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("Provider base URL must use http or https.");
   }
+}
+
+export async function addPresetProvider(
+  presetId: string,
+  overrides: { model?: string; baseUrl?: string; apiKeyEnv?: string } = {},
+  cwd = process.cwd(),
+): Promise<ProviderConfig> {
+  const preset = findProviderPreset(presetId);
+  if (!preset) {
+    throw new Error(`Unknown provider preset: ${presetId}. List presets with: hybrowclaw provider presets`);
+  }
+  const providerConfig = presetToProviderConfig(preset, overrides);
+  const config = await loadConfig(cwd);
+  await saveConfig({ ...config, providers: { ...config.providers, [providerConfig.id]: providerConfig } }, cwd);
+  return providerConfig;
 }

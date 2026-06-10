@@ -36,6 +36,8 @@ import {
   seedEvalFromEpisode,
   searchMemory,
   setRuntimeProvider,
+  addPresetProvider,
+  renderProviderPresets,
   executeRun,
   listTokenRecords,
   renderTokenTable,
@@ -166,6 +168,8 @@ Usage:
   hybrowclaw provider list
   hybrowclaw provider add-openai-compatible <id> <base-url> <model> [--api-key-env OPENAI_API_KEY]
   hybrowclaw provider add-codex-cli <id> <model>
+  hybrowclaw provider presets
+  hybrowclaw provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter, ...)
   hybrowclaw runtime use-provider <runtime-id> <provider-id> [model]
   hybrowclaw pi inspect [--home /path/to/home]
   hybrowclaw pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
@@ -827,6 +831,33 @@ async function runClaudePrompt(
 
 async function provider(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "presets") {
+    console.log(renderProviderPresets());
+    return;
+  }
+  if (subcommand === "add") {
+    const presetId = args[1];
+    if (!presetId) {
+      throw new Error("Usage: hybrowclaw provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]. List presets with: hybrowclaw provider presets");
+    }
+    const added = await addPresetProvider(presetId, {
+      model: readFlag(args, "--model"),
+      apiKeyEnv: readFlag(args, "--api-key-env"),
+      baseUrl: readFlag(args, "--base-url"),
+    });
+    console.log(`provider_added=${added.id}`);
+    console.log(`kind=${added.kind}`);
+    if (added.baseUrl) console.log(`base_url=${added.baseUrl}`);
+    console.log(`default_model=${added.defaultModel}`);
+    if (added.apiKeyEnv) {
+      const keyPresent = Boolean(process.env[added.apiKeyEnv]);
+      console.log(`api_key_env=${added.apiKeyEnv} (${keyPresent ? "set" : "NOT SET - export it before running"})`);
+    } else {
+      console.log("api_key_env=- (no key required)");
+    }
+    console.log(`try: hybrowclaw run "hello" --runtime native --provider ${added.id}`);
+    return;
+  }
   if (subcommand === "list") {
     const config = await loadConfig();
     for (const item of Object.values(config.providers)) {

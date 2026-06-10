@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runClaudeCode } from "./claude.js";
 import { addMemory, searchMemory } from "./memory.js";
 import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from "./pi.js";
 import { completeChat } from "./provider.js";
@@ -83,14 +84,17 @@ export function buildRecalledBlock(recalled: readonly ContextObject[]): string {
   return `Recalled context (scoped memory, provenance-tracked; verify before relying on it):\n${lines.join("\n")}`;
 }
 
-function planForPi(options: RunOptions): RunPlan {
+function planForManagedRuntime(runtimeId: "pi" | "claude-code", options: RunOptions): RunPlan {
+  const defaults = runtimeId === "pi"
+    ? { provider: "pi-default", model: "pi-default" }
+    : { provider: "anthropic", model: "sonnet" };
   return {
     runId: `run_${randomUUID()}`,
     taskKind: classifyTask(options.prompt, options.taskKind),
-    runtimeId: "pi",
+    runtimeId,
     route: {
-      provider: options.provider ?? "pi-default",
-      model: options.model ?? "pi-default",
+      provider: options.provider ?? defaults.provider,
+      model: options.model ?? defaults.model,
     },
     sensitive: options.sensitive ?? false,
     createdAt: new Date().toISOString(),
@@ -112,6 +116,20 @@ async function attemptRoute(
   fullPrompt: string,
   options: RunOptions,
 ): Promise<AttemptResult> {
+  if (plan.runtimeId === "claude-code") {
+    const claudeResult = await runClaudeCode({
+      prompt: fullPrompt,
+      cwd: options.cwd,
+      model: route.model,
+      timeoutMs: options.timeoutMs,
+    });
+    return {
+      responseText: claudeResult.stdout.trim(),
+      status: claudeResult.status,
+      errorMessage: claudeResult.status === "failed" ? (claudeResult.errorMessage || claudeResult.stderr.trim() || "claude command failed") : undefined,
+      route,
+    };
+  }
   if (plan.runtimeId === "pi") {
     const piResult = await runPiEmbeddedAgent({
       prompt: fullPrompt,
@@ -145,8 +163,8 @@ async function attemptRoute(
 
 export async function executeRun(config: HybrowClawConfig, options: RunOptions): Promise<RunOutcome> {
   const cwd = options.cwd ?? process.cwd();
-  const plan = options.runtime === "pi"
-    ? planForPi(options)
+  const plan = options.runtime === "pi" || options.runtime === "claude-code" || options.runtime === "claude"
+    ? planForManagedRuntime(options.runtime === "pi" ? "pi" : "claude-code", options)
     : planRun(config, {
         prompt: options.prompt,
         runtime: options.runtime,
