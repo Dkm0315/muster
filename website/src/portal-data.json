@@ -1,0 +1,170 @@
+{
+  "meta": {
+    "generatedAt": "2026-06-11T12:40:53.442Z",
+    "generator": "scripts/generate-portal-data.mjs",
+    "note": "Captured from a real Muster workspace: actual CLI runs against a deterministic stub LLM (provider id 'stub'). Every value below is verbatim command output.",
+    "stubLlm": true
+  },
+  "runs": [
+    {
+      "prompt": "Summarize what changed on uat-erp since Friday and flag anything blocking the release.",
+      "runId": "ea59ad5f-d0bd-4b7c-be00-4f490bc8dea0",
+      "runtime": "native",
+      "model": "stub/stub-model",
+      "taskKind": "simple_qa",
+      "status": "completed",
+      "tokensLine": "in=54~ out=64~",
+      "recalledMemories": 1,
+      "response": "Since Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates.",
+      "rawOutput": "recalled 1 scoped memories into context\nrun=ea59ad5f-d0bd-4b7c-be00-4f490bc8dea0 runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=54~ out=64~\n\nSince Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates."
+    },
+    {
+      "prompt": "Where do we deploy?",
+      "runId": "1c4be09b-1a91-4d01-8e1f-8c12b300cf45",
+      "runtime": "native",
+      "model": "stub/stub-model",
+      "taskKind": "simple_qa",
+      "status": "completed",
+      "tokensLine": "in=37~ out=64~",
+      "recalledMemories": 1,
+      "response": "Since Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates.",
+      "rawOutput": "recalled 1 scoped memories into context\nrun=1c4be09b-1a91-4d01-8e1f-8c12b300cf45 runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=37~ out=64~\n\nSince Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates."
+    },
+    {
+      "prompt": "What does our token spend look like so far?",
+      "runId": "f93507c8-8dc8-49d1-8e83-939747c364cf",
+      "runtime": "native",
+      "model": "stub/stub-model",
+      "taskKind": "simple_qa",
+      "status": "completed",
+      "tokensLine": "in=11~ out=43~",
+      "recalledMemories": 0,
+      "response": "Across the recorded runs in this workspace the ledger shows estimated input/output tokens per run; no replay-waste flags so far. Run `muster tokens` for the per-run table.",
+      "rawOutput": "run=f93507c8-8dc8-49d1-8e83-939747c364cf runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=11~ out=43~\n\nAcross the recorded runs in this workspace the ledger shows estimated input/output tokens per run; no replay-waste flags so far. Run `muster tokens` for the per-run table."
+    }
+  ],
+  "flow": {
+    "definition": {
+      "id": "deploy-digest",
+      "description": "Summarize deploy changes, gate on human approval, then post.",
+      "steps": [
+        {
+          "id": "fetch",
+          "kind": "tool",
+          "tool": "echo",
+          "args": {
+            "summary": "23 changes since Friday; 2 release blockers"
+          }
+        },
+        {
+          "id": "approve",
+          "kind": "gate",
+          "show": "fetch.summary",
+          "expiresHours": 48
+        },
+        {
+          "id": "post",
+          "kind": "tool",
+          "tool": "echo",
+          "args": {
+            "body": "{{fetch.summary}}"
+          },
+          "when": "approve.granted"
+        }
+      ]
+    },
+    "runId": "flowrun_89e4607c",
+    "saveOutput": "flow=deploy-digest steps=3\nsaved=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/flows/deploy-digest.json\nnext: muster flow check deploy-digest",
+    "checkOutput": "flow=deploy-digest preflight=ok",
+    "runOutput": "run=flowrun_89e4607c flow=deploy-digest\nstep=fetch status=started\nstep=fetch status=completed\nstep=approve status=gate_pending expires=2026-06-13T12:40:52.573Z\nflow_run=flowrun_89e4607c status=awaiting_approval gate=approve\n--- gate shows ---\n23 changes since Friday; 2 release blockers\n------------------\napprove: muster flow approve flowrun_89e4607c\nreject:  muster flow reject flowrun_89e4607c",
+    "approveOutput": "step=approve status=approved\nstep=post status=started\nstep=post status=completed\nrun_status=completed\nflow_run=flowrun_89e4607c status=completed",
+    "showOutput": "flow_run=flowrun_89e4607c flow=deploy-digest status=completed tokens=-\nfile=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/data/flows/flowrun_89e4607c.jsonl\ndefinition=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/flows/deploy-digest.json\nrun=flowrun_89e4607c flow=deploy-digest\nstep=fetch status=started\nstep=fetch status=completed\nstep=approve status=gate_pending expires=2026-06-13T12:40:52.573Z\nstep=approve status=approved\nstep=post status=started\nstep=post status=completed\nrun_status=completed"
+  },
+  "tokens": "run            model                        in       out      est  cost$    waste   session   \n----------------------------------------------------------------------------------------------\nea59ad5f-d0bd- stub/stub-model              54       64       ~    -        -       -         \n1c4be09b-1a91- stub/stub-model              37       64       ~    -        -       -         \nf93507c8-8dc8- stub/stub-model              11       43       ~    -        -       -         \n\ntotals by model              runs   in         out        cost$      waste-runs\n--------------------------------------------------------------------------------\nstub/stub-model              3      102        171        -          0",
+  "verify": "integrity check at 2026-06-11T12:40:53.159Z: OK\n\nstore      lines    corrupt\n---------- -------- --------\nepisodes   3        0       \nfeedback   0        0       \nmemory     4        0       \ntokens     3        0",
+  "status": "muster status — 2026-06-11T12:40:53.297Z\n----------------------------------------------------------------\nprofile              default\nproviders            2 configured (local, stub)\ndefault runtime      native\nepisodes             3 recorded (last: f93507c8-8dc8-49d1-8e83-939747c364cf 2026-06-11T12:40:52.095Z)\ntokens today         273 across 3 runs\nschedules            0 total, 0 due now\nflows pending gate   none\nverify               OK",
+  "episodes": "ea59ad5f-d0bd-4b7c-be00-4f490bc8dea0 2026-06-11T12:40:51.473Z simple_qa native/stub/stub-model Summarize what changed on uat-erp since Friday and flag anything blocking the re\n1c4be09b-1a91-4d01-8e1f-8c12b300cf45 2026-06-11T12:40:51.777Z simple_qa native/stub/stub-model Where do we deploy?\nf93507c8-8dc8-49d1-8e83-939747c364cf 2026-06-11T12:40:52.095Z simple_qa native/stub/stub-model What does our token spend look like so far?",
+  "counts": {
+    "sessions": 3,
+    "flows": 1,
+    "surfaces": [
+      "telegram",
+      "slack",
+      "discord",
+      "whatsapp",
+      "gchat",
+      "teams",
+      "web"
+    ]
+  },
+  "commands": [
+    {
+      "cmd": "muster init",
+      "output": "Created or reused Muster config: /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nDefault provider: local OpenAI-compatible endpoint at http://localhost:11434/v1\nNext: muster doctor"
+    },
+    {
+      "cmd": "muster provider add-openai-compatible stub http://127.0.0.1:53547/v1 stub-model",
+      "output": "provider_added=stub\nkind=openai-compatible\nbase_url=http://127.0.0.1:53547/v1\ndefault_model=stub-model"
+    },
+    {
+      "cmd": "muster runtime use-provider native stub stub-model",
+      "output": "runtime=native\nprovider=stub\nmodel=stub-model"
+    },
+    {
+      "cmd": "muster doctor",
+      "output": "ok  config                       /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nok  one-runtime-per-run          routing policy\nok  default-runtime              native\nok  provider:local               openai-compatible http://localhost:11434/v1\nok  provider:stub                openai-compatible http://127.0.0.1:53547/v1\nerr provider:local:models        http://localhost:11434/v1/models\nok  provider:stub:models         http://127.0.0.1:53547/v1/models"
+    },
+    {
+      "cmd": "muster memory add --summary We deploy to uat-erp.example.com. --scope user:dhairya --provenance manual",
+      "output": "id=mem_d46494ec-7714-47ed-82e2-3975d7a3a5ab\nkind=note\nsummary=We deploy to uat-erp.example.com.\nconfidence=0.7\nredaction=none\nscopes=user:dhairya\nprovenance=manual"
+    },
+    {
+      "cmd": "muster run Summarize what changed on uat-erp since Friday and flag anything blocking the release. --scope user:dhairya",
+      "output": "recalled 1 scoped memories into context\nrun=ea59ad5f-d0bd-4b7c-be00-4f490bc8dea0 runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=54~ out=64~\n\nSince Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates."
+    },
+    {
+      "cmd": "muster run Where do we deploy? --scope user:dhairya",
+      "output": "recalled 1 scoped memories into context\nrun=1c4be09b-1a91-4d01-8e1f-8c12b300cf45 runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=37~ out=64~\n\nSince Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending payroll patch (migration 0412_payroll not applied) and a failing permission test on Leave Application (perm_scope_user). Everything else is documentation and fixture updates."
+    },
+    {
+      "cmd": "muster run What does our token spend look like so far? --scope user:dhairya",
+      "output": "run=f93507c8-8dc8-49d1-8e83-939747c364cf runtime=native model=stub/stub-model task=simple_qa status=completed\ntokens in=11~ out=43~\n\nAcross the recorded runs in this workspace the ledger shows estimated input/output tokens per run; no replay-waste flags so far. Run `muster tokens` for the per-run table."
+    },
+    {
+      "cmd": "muster flow save deploy-digest.json",
+      "output": "flow=deploy-digest steps=3\nsaved=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/flows/deploy-digest.json\nnext: muster flow check deploy-digest"
+    },
+    {
+      "cmd": "muster flow check deploy-digest",
+      "output": "flow=deploy-digest preflight=ok"
+    },
+    {
+      "cmd": "muster flow run deploy-digest",
+      "output": "run=flowrun_89e4607c flow=deploy-digest\nstep=fetch status=started\nstep=fetch status=completed\nstep=approve status=gate_pending expires=2026-06-13T12:40:52.573Z\nflow_run=flowrun_89e4607c status=awaiting_approval gate=approve\n--- gate shows ---\n23 changes since Friday; 2 release blockers\n------------------\napprove: muster flow approve flowrun_89e4607c\nreject:  muster flow reject flowrun_89e4607c"
+    },
+    {
+      "cmd": "muster flow approve flowrun_89e4607c",
+      "output": "step=approve status=approved\nstep=post status=started\nstep=post status=completed\nrun_status=completed\nflow_run=flowrun_89e4607c status=completed"
+    },
+    {
+      "cmd": "muster flow show flowrun_89e4607c",
+      "output": "flow_run=flowrun_89e4607c flow=deploy-digest status=completed tokens=-\nfile=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/data/flows/flowrun_89e4607c.jsonl\ndefinition=/private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/flows/deploy-digest.json\nrun=flowrun_89e4607c flow=deploy-digest\nstep=fetch status=started\nstep=fetch status=completed\nstep=approve status=gate_pending expires=2026-06-13T12:40:52.573Z\nstep=approve status=approved\nstep=post status=started\nstep=post status=completed\nrun_status=completed"
+    },
+    {
+      "cmd": "muster tokens",
+      "output": "run            model                        in       out      est  cost$    waste   session   \n----------------------------------------------------------------------------------------------\nea59ad5f-d0bd- stub/stub-model              54       64       ~    -        -       -         \n1c4be09b-1a91- stub/stub-model              37       64       ~    -        -       -         \nf93507c8-8dc8- stub/stub-model              11       43       ~    -        -       -         \n\ntotals by model              runs   in         out        cost$      waste-runs\n--------------------------------------------------------------------------------\nstub/stub-model              3      102        171        -          0"
+    },
+    {
+      "cmd": "muster verify",
+      "output": "integrity check at 2026-06-11T12:40:53.159Z: OK\n\nstore      lines    corrupt\n---------- -------- --------\nepisodes   3        0       \nfeedback   0        0       \nmemory     4        0       \ntokens     3        0"
+    },
+    {
+      "cmd": "muster status",
+      "output": "muster status — 2026-06-11T12:40:53.297Z\n----------------------------------------------------------------\nprofile              default\nproviders            2 configured (local, stub)\ndefault runtime      native\nepisodes             3 recorded (last: f93507c8-8dc8-49d1-8e83-939747c364cf 2026-06-11T12:40:52.095Z)\ntokens today         273 across 3 runs\nschedules            0 total, 0 due now\nflows pending gate   none\nverify               OK"
+    },
+    {
+      "cmd": "muster episodes",
+      "output": "ea59ad5f-d0bd-4b7c-be00-4f490bc8dea0 2026-06-11T12:40:51.473Z simple_qa native/stub/stub-model Summarize what changed on uat-erp since Friday and flag anything blocking the re\n1c4be09b-1a91-4d01-8e1f-8c12b300cf45 2026-06-11T12:40:51.777Z simple_qa native/stub/stub-model Where do we deploy?\nf93507c8-8dc8-49d1-8e83-939747c364cf 2026-06-11T12:40:52.095Z simple_qa native/stub/stub-model What does our token spend look like so far?"
+    }
+  ]
+}
