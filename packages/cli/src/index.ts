@@ -23,6 +23,10 @@ import {
   loadFlow,
   parseFlow,
   preflightFlow,
+  replayFlowRun,
+  diffFlowRuns,
+  scheduleFlowLoop,
+  executeScheduledJob,
   resumeFlow,
   runFlow,
   saveFlow,
@@ -204,6 +208,9 @@ Usage:
   muster evolve selfcheck
   muster flow save <file.json> | list | check <id> | run <id>
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
+  muster flow replay <run-id> [--live-agents]
+  muster flow diff <run-id-a> <run-id-b>
+  muster flow loop <flow-id> --cron "0 9 * * 1"
   muster verify
 
 Design rule:
@@ -1251,10 +1258,9 @@ async function scheduleCommand(commandArgs: string[]): Promise<void> {
   }
   if (action === "run-due") {
     const config = await loadConfig();
-    const results = await runDueSchedules(async (job) => {
-      const outcome = await executeRun(config, { prompt: job.prompt });
-      return { runId: outcome.plan.runId, status: outcome.episode.outcome?.kind === "completed" ? "completed" : "failed" };
-    });
+    const results = await runDueSchedules(async (job) =>
+      executeScheduledJob(job, { config, registry: builtinFlowRegistry() })
+    );
     if (!results.length) {
       console.log("No jobs due.");
       return;
@@ -1429,7 +1435,41 @@ async function flowCommand(commandArgs: string[]): Promise<void> {
     printFlowRunResult(result);
     return;
   }
-  throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject>");
+  if (action === "replay") {
+    if (!target) throw new Error("Usage: muster flow replay <run-id> [--live-agents]");
+    const result = await replayFlowRun(target, {
+      config: await loadConfig(),
+      registry: builtinFlowRegistry(),
+      cwd: process.cwd(),
+      liveAgents: commandArgs.includes("--live-agents"),
+      onEvent: printFlowEvent
+    });
+    console.log(`replay_of=${target}`);
+    printFlowRunResult(result);
+    return;
+  }
+  if (action === "diff") {
+    const other = commandArgs[2];
+    if (!target || !other) throw new Error("Usage: muster flow diff <run-id-a> <run-id-b>");
+    const diff = await diffFlowRuns(target, other);
+    console.log(`diff a=${diff.runIdA} b=${diff.runIdB} identical=${diff.identical}`);
+    for (const difference of diff.differences) {
+      console.log(`step=${difference.stepId} field=${difference.field}`);
+      console.log(`  a=${typeof difference.a === "string" ? difference.a : JSON.stringify(difference.a)}`);
+      console.log(`  b=${typeof difference.b === "string" ? difference.b : JSON.stringify(difference.b)}`);
+    }
+    if (!diff.identical) process.exitCode = 1;
+    return;
+  }
+  if (action === "loop") {
+    const cron = readFlag(commandArgs, "--cron");
+    if (!target || !cron) throw new Error('Usage: muster flow loop <flow-id> --cron "0 9 * * 1"');
+    const job = await scheduleFlowLoop(target, cron);
+    console.log(`Scheduled ${job.id}: [${job.cron}] flow=${job.flowId}`);
+    console.log("No daemon runs these. Add to external cron: * * * * * cd <repo> && pnpm hc schedule run-due");
+    return;
+  }
+  throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject|replay|diff|loop>");
 }
 
 async function verifyCommand(): Promise<void> {

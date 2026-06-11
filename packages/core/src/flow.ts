@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { executeRun } from "./run.js";
+import { addSchedule, type ScheduleJob } from "./scheduler.js";
 import { dataDir } from "./store.js";
 import { estimateTokens } from "./tokens.js";
 import type { MusterConfig, TaskKind } from "./types.js";
@@ -71,7 +72,7 @@ export type FlowRunStatus =
   | "budget_exceeded";
 
 export type FlowRunEvent =
-  | { readonly type: "run_started"; readonly at: string; readonly runId: string; readonly flowId: string; readonly flow: FlowDefinition }
+  | { readonly type: "run_started"; readonly at: string; readonly runId: string; readonly flowId: string; readonly flow: FlowDefinition; readonly replayOf?: string }
   | { readonly type: "step_started"; readonly at: string; readonly stepId: string }
   | { readonly type: "step_completed"; readonly at: string; readonly stepId: string; readonly output: unknown; readonly tokensUsed?: number }
   | { readonly type: "step_failed"; readonly at: string; readonly stepId: string; readonly error: string }
@@ -94,6 +95,8 @@ export interface FlowRunState {
   readonly runId: string;
   readonly flowId: string;
   readonly flow: FlowDefinition;
+  /** Set when this run was produced by replayFlowRun: the source run id. */
+  readonly replayOf?: string;
   readonly status: FlowRunStatus;
   readonly startedAt: string;
   readonly updatedAt: string;
@@ -409,6 +412,7 @@ export async function getFlowRun(runId: string, cwd = process.cwd()): Promise<Fl
     runId,
     flowId: started.flowId,
     flow: started.flow,
+    replayOf: started.replayOf,
     status,
     startedAt: started.at,
     updatedAt: events[events.length - 1].at,
@@ -441,6 +445,8 @@ interface ExecutionContext {
   readonly cwd: string;
   readonly onEvent?: (event: FlowRunEvent) => void;
   readonly outputs: Record<string, unknown>;
+  /** Set when this execution replays a prior run deterministically. */
+  readonly replay?: { readonly source: FlowRunState; readonly liveAgents: boolean };
   tokensUsed: number;
 }
 
@@ -483,6 +489,19 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
       } catch (error) {
         return failStep(context, step.id, error instanceof Error ? error.message : String(error));
       }
+      if (context.replay) {
+        // Replays never wait for a human: reuse the recorded gate decision.
+        const recorded = context.replay.source.events.find(
+          (event): event is Extract<FlowRunEvent, { type: "gate_resolved" }> => event.type === "gate_resolved" && event.stepId === step.id,
+        );
+        if (!recorded) {
+          return failStep(context, step.id, `Replay source run ${context.replay.source.runId} never resolved gate "${step.id}"; nothing deterministic to replay.`);
+        }
+        await appendEvent(runId, { type: "gate_resolved", at: now(), stepId: step.id, approved: recorded.approved }, cwd, onEvent);
+        if (!recorded.approved) return finishRun(context, "rejected", `Gate "${step.id}" was rejected in the source run.`);
+        context.outputs[step.id] = { granted: true };
+        continue;
+      }
       const expiresAt = step.expiresHours !== undefined ? new Date(Date.now() + step.expiresHours * 3_600_000).toISOString() : undefined;
       await appendEvent(runId, { type: "gate_pending", at: now(), stepId: step.id, show, expiresAt }, cwd, onEvent);
       return { runId, flowId: flow.id, status: "awaiting_approval", outputs: context.outputs, gateId: step.id, show };
@@ -509,6 +528,17 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
     }
 
     // agent step
+    if (context.replay && !context.replay.liveAgents) {
+      // Deterministic replay: agent steps reuse the recorded output instead of hitting a model.
+      if (!(step.id in context.replay.source.outputs)) {
+        return failStep(context, step.id, `Replay source run ${context.replay.source.runId} has no recorded output for agent step "${step.id}"; replay with { liveAgents: true } to re-execute it.`);
+      }
+      const recordedOutput = context.replay.source.outputs[step.id];
+      await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
+      context.outputs[step.id] = recordedOutput;
+      await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output: recordedOutput }, cwd, onEvent);
+      continue;
+    }
     let prompt: string;
     try {
       prompt = String(resolveTemplates(step.prompt, context.outputs));
@@ -592,4 +622,162 @@ export async function resumeFlow(runId: string, options: ResumeFlowOptions): Pro
     return finishRun(context, "failed", `Pending gate "${gate.stepId}" is not present in the stored flow definition.`);
   }
   return executeSteps(context, gateIndex + 1);
+}
+
+// --- replay & diff (HC-034) ---
+
+export interface ReplayFlowOptions extends RunFlowOptions {
+  /** Re-execute agent steps against the live model instead of reusing recorded outputs. */
+  readonly liveAgents?: boolean;
+}
+
+/**
+ * Re-executes the flow definition recorded in a prior run. Tool steps run
+ * again through the supplied registry; agent steps reuse the recorded output
+ * (deterministic, token-free) unless `liveAgents` is set; gates replay the
+ * recorded approve/reject decision and never pause. The new run file links
+ * back to the source via `replayOf`.
+ */
+export async function replayFlowRun(runId: string, options: ReplayFlowOptions): Promise<FlowRunResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const source = await getFlowRun(runId, cwd);
+  const liveAgents = options.liveAgents === true;
+  const issues = validateFlow(source.flow);
+  for (const step of source.flow.steps) {
+    if (step.kind === "tool" && !options.registry[step.tool]) {
+      issues.push({ stepId: step.id, message: `Step "${step.id}": tool "${step.tool}" is not registered.` });
+    }
+  }
+  if (liveAgents && source.flow.steps.some((step) => step.kind === "agent") && !options.config.runtimes[options.config.routing.defaultRuntime]) {
+    issues.push({ message: `Replay with liveAgents needs the default runtime "${options.config.routing.defaultRuntime}" configured.` });
+  }
+  if (issues.length) {
+    throw new Error(`Flow replay preflight failed:\n${issues.map((issue) => `- ${issue.message}`).join("\n")}`);
+  }
+  const newRunId = `flowrun_${randomUUID().slice(0, 8)}`;
+  const context: ExecutionContext = {
+    runId: newRunId,
+    flow: source.flow,
+    config: options.config,
+    registry: options.registry,
+    cwd,
+    onEvent: options.onEvent,
+    outputs: {},
+    replay: { source, liveAgents },
+    tokensUsed: 0,
+  };
+  await appendEvent(newRunId, { type: "run_started", at: now(), runId: newRunId, flowId: source.flowId, flow: source.flow, replayOf: runId }, cwd, options.onEvent);
+  return executeSteps(context, 0);
+}
+
+export interface FlowRunDifference {
+  /** Step id the difference belongs to, or "(flow)" for run-level fields. */
+  readonly stepId: string;
+  readonly field: "flowId" | "presence" | "status" | "output";
+  readonly a: unknown;
+  readonly b: unknown;
+}
+
+export interface FlowRunDiff {
+  readonly runIdA: string;
+  readonly runIdB: string;
+  readonly identical: boolean;
+  readonly differences: readonly FlowRunDifference[];
+}
+
+type StepOutcome = "completed" | "failed" | "skipped" | "gate_approved" | "gate_rejected" | "gate_pending" | "not_run";
+
+function stepOutcome(state: FlowRunState, stepId: string): StepOutcome {
+  let outcome: StepOutcome = "not_run";
+  for (const event of state.events) {
+    if (!("stepId" in event) || event.stepId !== stepId) continue;
+    if (event.type === "step_completed") outcome = "completed";
+    if (event.type === "step_failed") outcome = "failed";
+    if (event.type === "step_skipped") outcome = "skipped";
+    if (event.type === "gate_pending") outcome = "gate_pending";
+    if (event.type === "gate_resolved") outcome = event.approved ? "gate_approved" : "gate_rejected";
+  }
+  return outcome;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+/**
+ * Step-by-step structural diff of two flow runs: same steps, same per-step
+ * outcome, structurally equal outputs. Regression detection for automations —
+ * replay a run after a site/tool change and diff against the original.
+ */
+export async function diffFlowRuns(runIdA: string, runIdB: string, cwd = process.cwd()): Promise<FlowRunDiff> {
+  const [a, b] = await Promise.all([getFlowRun(runIdA, cwd), getFlowRun(runIdB, cwd)]);
+  const differences: FlowRunDifference[] = [];
+  if (a.flowId !== b.flowId) differences.push({ stepId: "(flow)", field: "flowId", a: a.flowId, b: b.flowId });
+
+  const stepIds: string[] = [];
+  for (const step of a.flow.steps) stepIds.push(step.id);
+  for (const step of b.flow.steps) if (!stepIds.includes(step.id)) stepIds.push(step.id);
+
+  for (const stepId of stepIds) {
+    const inA = a.flow.steps.some((step) => step.id === stepId);
+    const inB = b.flow.steps.some((step) => step.id === stepId);
+    if (!inA || !inB) {
+      differences.push({ stepId, field: "presence", a: inA ? "present" : "absent", b: inB ? "present" : "absent" });
+      continue;
+    }
+    const outcomeA = stepOutcome(a, stepId);
+    const outcomeB = stepOutcome(b, stepId);
+    if (outcomeA !== outcomeB) {
+      differences.push({ stepId, field: "status", a: outcomeA, b: outcomeB });
+    }
+    const hasOutputA = stepId in a.outputs;
+    const hasOutputB = stepId in b.outputs;
+    if (hasOutputA && hasOutputB) {
+      if (stableStringify(a.outputs[stepId]) !== stableStringify(b.outputs[stepId])) {
+        differences.push({ stepId, field: "output", a: a.outputs[stepId], b: b.outputs[stepId] });
+      }
+    } else if (hasOutputA !== hasOutputB) {
+      differences.push({ stepId, field: "output", a: hasOutputA ? a.outputs[stepId] : undefined, b: hasOutputB ? b.outputs[stepId] : undefined });
+    }
+  }
+  return { runIdA, runIdB, identical: differences.length === 0, differences };
+}
+
+// --- scheduler binding (HC-035): flow loops via cron ---
+
+/**
+ * Binds a saved flow to the existing scheduler: `muster flow loop <id> --cron`.
+ * The job carries `flowId`, so run-due executes runFlow instead of executeRun.
+ */
+export async function scheduleFlowLoop(flowId: string, cron: string, options: { cwd?: string } = {}): Promise<ScheduleJob> {
+  const cwd = options.cwd ?? process.cwd();
+  const flow = await loadFlow(flowId, cwd); // refuses unknown flows up front
+  return addSchedule(cron, `flow-loop: run flow "${flow.id}"`, { cwd, flowId: flow.id });
+}
+
+/**
+ * Run-due executor shared by the CLI: jobs with a flowId run the flow through
+ * runFlow (a paused gate counts as a successful scheduled kick-off); plain
+ * prompt jobs keep going through executeRun.
+ */
+export async function executeScheduledJob(
+  job: ScheduleJob,
+  options: { readonly config: MusterConfig; readonly registry: FlowToolRegistry; readonly cwd?: string },
+): Promise<{ runId: string; status: "completed" | "failed" }> {
+  const cwd = options.cwd ?? process.cwd();
+  if (job.flowId) {
+    const flow = await loadFlow(job.flowId, cwd);
+    const result = await runFlow(flow, { config: options.config, registry: options.registry, cwd });
+    const ok = result.status === "completed" || result.status === "awaiting_approval";
+    return { runId: result.runId, status: ok ? "completed" : "failed" };
+  }
+  const outcome = await executeRun(options.config, { prompt: job.prompt, cwd });
+  return { runId: outcome.plan.runId, status: outcome.episode.outcome?.kind === "completed" ? "completed" : "failed" };
 }
