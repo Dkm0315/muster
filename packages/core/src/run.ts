@@ -34,6 +34,8 @@ export interface RunOptions {
   readonly timeoutMs?: number;
   readonly skipMemoryWrite?: boolean;
   readonly skipAgentRules?: boolean;
+  /** Surface label for per-surface token accounting (set by the gateway). */
+  readonly surfaceId?: string;
 }
 
 export interface RunOutcome {
@@ -252,6 +254,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     durationMs,
     sessionMode: options.sessionMode,
     sessionId: attempt.piResult?.sessionId,
+    surfaceId: options.surfaceId,
   });
   await appendTokenRecord(tokens, cwd);
 

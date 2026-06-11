@@ -67,6 +67,14 @@ import {
   verifyIntegrity,
   renderIntegrityReport
 } from "@musterhq/core";
+import {
+  approvePairing,
+  DEFAULT_GATEWAY_PORT,
+  initGatewayConfig,
+  loadGatewayConfig,
+  loadPairings,
+  startGatewayServer
+} from "@musterhq/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MigrationSource } from "@musterhq/core";
@@ -153,6 +161,12 @@ async function main(): Promise<void> {
     case "verify":
       await verifyCommand();
       return;
+    case "gateway":
+      await gatewayCommand(args);
+      return;
+    case "pairing":
+      await pairingCommand(args);
+      return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -204,6 +218,9 @@ Usage:
   muster evolve selfcheck
   muster flow save <file.json> | list | check <id> | run <id>
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
+  muster gateway init
+  muster gateway start [--port 7460]
+  muster pairing list | approve <code>
   muster verify
 
 Design rule:
@@ -1436,5 +1453,53 @@ async function verifyCommand(): Promise<void> {
   const report = await verifyIntegrity();
   console.log(renderIntegrityReport(report));
   if (!report.ok) process.exitCode = 1;
+}
+
+async function gatewayCommand(commandArgs: string[]): Promise<void> {
+  const [action] = commandArgs;
+  if (action === "init") {
+    const result = await initGatewayConfig();
+    console.log(`gateway_config=${result.path} (${result.created ? "created" : "already exists"})`);
+    console.log(`token=${result.config.token}`);
+    console.log("Surfaces authenticate with: Authorization: Bearer <token>");
+    console.log(`next: muster gateway start --port ${result.config.port ?? DEFAULT_GATEWAY_PORT}`);
+    return;
+  }
+  if (action === "start") {
+    const gateway = await loadGatewayConfig();
+    const config = await loadConfig();
+    const port = readNumberFlag(commandArgs, "--port") ?? gateway.port ?? DEFAULT_GATEWAY_PORT;
+    await startGatewayServer({ config, gateway, cwd: process.cwd(), log: (line) => console.log(line) }, port);
+    console.log("routes: GET /v1/health | POST /v1/messages | POST /v1/flows/<run>/approve|reject | POST /v1/adapters/telegram|slack");
+    console.log("stop with Ctrl-C");
+    return;
+  }
+  throw new Error("Usage: muster gateway <init|start> [--port 7460]");
+}
+
+async function pairingCommand(commandArgs: string[]): Promise<void> {
+  const [action, code] = commandArgs;
+  if (action === "list") {
+    const store = await loadPairings();
+    if (!store.pending.length && !store.paired.length) {
+      console.log("No pairings yet. Senders appear here after their first gateway message.");
+      return;
+    }
+    for (const pending of store.pending) {
+      console.log(`pending code=${pending.code} surface=${pending.surfaceId} sender=${pending.senderId} requested=${pending.requestedAt}`);
+    }
+    for (const paired of store.paired) {
+      console.log(`paired  id=${paired.pairingId} surface=${paired.surfaceId} sender=${paired.senderId} approved=${paired.approvedAt}`);
+    }
+    return;
+  }
+  if (action === "approve" && code) {
+    const paired = await approvePairing(code);
+    console.log(`paired=${paired.pairingId}`);
+    console.log(`surface=${paired.surfaceId}`);
+    console.log(`sender=${paired.senderId}`);
+    return;
+  }
+  throw new Error("Usage: muster pairing list | approve <code>");
 }
 

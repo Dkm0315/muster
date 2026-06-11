@@ -12,6 +12,7 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@musterhq/core": "workspace:*"
+    "@musterhq/core": "workspace:*",
+    "@musterhq/gateway": "workspace:*"
   }
 }

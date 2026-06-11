@@ -1,0 +1,122 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { dataDir } from "@musterhq/core";
+import type { MemoryScope } from "@musterhq/core";
+
+/**
+ * Pairing lane (docs/SURFACE_GATEWAY_SPEC.md): a surface sender is anonymous
+ * until an operator approves it with `muster pairing approve <code>`. Until
+ * then every message answers with a pairing challenge; after approval the
+ * sender resolves to a pairingId and scoped-memory lanes.
+ */
+
+export interface PendingPairing {
+  readonly code: string;
+  readonly surfaceId: string;
+  readonly senderId: string;
+  readonly requestedAt: string;
+}
+
+export interface PairedSender {
+  readonly pairingId: string;
+  readonly surfaceId: string;
+  readonly senderId: string;
+  readonly approvedAt: string;
+}
+
+export interface PairingStore {
+  readonly pending: PendingPairing[];
+  readonly paired: PairedSender[];
+}
+
+export function pairingsPath(cwd = process.cwd()): string {
+  return join(dataDir(cwd), "pairings.json");
+}
+
+export async function loadPairings(cwd = process.cwd()): Promise<PairingStore> {
+  try {
+    const raw = await readFile(pairingsPath(cwd), "utf8");
+    const parsed = JSON.parse(raw) as Partial<PairingStore>;
+    return { pending: parsed.pending ?? [], paired: parsed.paired ?? [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { pending: [], paired: [] };
+    throw error;
+  }
+}
+
+async function savePairings(store: PairingStore, cwd: string): Promise<void> {
+  const path = pairingsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+}
+
+function senderKey(surfaceId: string, senderId: string): string {
+  return `${surfaceId}:${senderId}`;
+}
+
+function newPairingCode(): string {
+  // 8 chars from an unambiguous alphabet; typed by an operator, so keep it short.
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(8);
+  let code = "";
+  for (const byte of bytes) code += alphabet[byte % alphabet.length];
+  return code;
+}
+
+/** Resolve a sender that has already been approved, if any. */
+export async function resolvePairing(surfaceId: string, senderId: string, cwd = process.cwd()): Promise<PairedSender | undefined> {
+  const store = await loadPairings(cwd);
+  return store.paired.find((entry) => entry.surfaceId === surfaceId && entry.senderId === senderId);
+}
+
+/**
+ * Ensure a pending pairing exists for an unpaired sender and return its code.
+ * Idempotent: repeated messages from the same sender reuse the same code.
+ */
+export async function requestPairing(surfaceId: string, senderId: string, cwd = process.cwd()): Promise<PendingPairing> {
+  const store = await loadPairings(cwd);
+  const existing = store.pending.find((entry) => entry.surfaceId === surfaceId && entry.senderId === senderId);
+  if (existing) return existing;
+  const pending: PendingPairing = {
+    code: newPairingCode(),
+    surfaceId,
+    senderId,
+    requestedAt: new Date().toISOString(),
+  };
+  await savePairings({ pending: [...store.pending, pending], paired: store.paired }, cwd);
+  return pending;
+}
+
+/** Operator approval: move a pending pairing to paired and mint a pairingId. */
+export async function approvePairing(code: string, cwd = process.cwd()): Promise<PairedSender> {
+  const store = await loadPairings(cwd);
+  const pending = store.pending.find((entry) => entry.code === code.trim().toUpperCase());
+  if (!pending) {
+    throw new Error(`No pending pairing with code ${code}. List pending pairings with: muster pairing list`);
+  }
+  const paired: PairedSender = {
+    pairingId: `pair_${randomUUID().slice(0, 8)}`,
+    surfaceId: pending.surfaceId,
+    senderId: pending.senderId,
+    approvedAt: new Date().toISOString(),
+  };
+  await savePairings({
+    pending: store.pending.filter((entry) => entry.code !== pending.code),
+    paired: [...store.paired, paired],
+  }, cwd);
+  return paired;
+}
+
+/**
+ * Memory lanes a paired sender may read/write: the pairing lane
+ * (`pairing:<surfaceId>:<senderId>`, per the spec) and the resolved Muster
+ * identity lane (`user:<pairingId>`). A surface gets NOTHING beyond these
+ * plus the per-conversation session lane added by the server.
+ */
+export function pairingScopes(paired: PairedSender): MemoryScope[] {
+  return [
+    { kind: "pairing", id: senderKey(paired.surfaceId, paired.senderId) },
+    { kind: "user", id: paired.pairingId },
+  ];
+}
