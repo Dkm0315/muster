@@ -304,6 +304,57 @@ test("CLI profile, schedule, tokens, and verify work end to end in a fresh works
   assert.match(selfcheck.stdout, /\[PASS\] store_integrity/);
 });
 
+test("CLI flow save, check, run with gate, approve, and runs work end to end", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-flow-"));
+  await runCli(["init"], cwd);
+  await writeFile(
+    join(cwd, "digest.json"),
+    JSON.stringify({
+      id: "digest",
+      description: "gated echo digest",
+      steps: [
+        { id: "fetch", kind: "tool", tool: "echo", args: { summary: "3 open tickets" } },
+        { id: "approve", kind: "gate", show: "fetch.summary", expiresHours: 48 },
+        { id: "post", kind: "tool", tool: "echo", args: { body: "{{fetch.summary}}" }, when: "approve.granted" }
+      ]
+    }),
+    "utf8"
+  );
+
+  const saved = await runCli(["flow", "save", "digest.json"], cwd);
+  assert.match(saved.stdout, /flow=digest steps=3/);
+
+  const listed = await runCli(["flow", "list"], cwd);
+  assert.match(listed.stdout, /digest\s+3/);
+
+  const checked = await runCli(["flow", "check", "digest"], cwd);
+  assert.match(checked.stdout, /flow=digest preflight=ok/);
+
+  const run = await runCli(["flow", "run", "digest"], cwd);
+  assert.match(run.stdout, /step=fetch status=completed/);
+  assert.match(run.stdout, /status=awaiting_approval gate=approve/);
+  assert.match(run.stdout, /3 open tickets/, "gate shows the actual step output");
+  const runId = run.stdout.match(/flow_run=(flowrun_[a-f0-9]+)/)?.[1];
+  assert.ok(runId, "flow run id printed");
+
+  const runs = await runCli(["flow", "runs"], cwd);
+  assert.match(runs.stdout, /digest/);
+  assert.match(runs.stdout, /awaiting_approval/);
+
+  const approved = await runCli(["flow", "approve", runId!], cwd);
+  assert.match(approved.stdout, /step=approve status=approved/);
+  assert.match(approved.stdout, /step=post status=completed/);
+  assert.match(approved.stdout, /status=completed/);
+
+  const shown = await runCli(["flow", "show", runId!], cwd);
+  assert.match(shown.stdout, /flow_run=flowrun_.* flow=digest status=completed/);
+  assert.match(shown.stdout, /run_status=completed/);
+
+  const badCheck = await runCliAllowFailure(["flow", "check", "missing-flow"], cwd);
+  assert.equal(badCheck.code, 1);
+  assert.match(badCheck.stderr, /Flow not found: missing-flow/);
+});
+
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("tsx", [cliPath, ...args], {
     cwd,

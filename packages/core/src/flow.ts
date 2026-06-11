@@ -159,6 +159,11 @@ export function validateFlow(value: unknown): FlowIssue[] {
 
   const seenIds = new Set<string>();
   const priorIds = new Set<string>();
+  const allIds = new Set<string>(
+    flow.steps
+      .map((step) => (typeof step === "object" && step !== null ? (step as { id?: unknown }).id : undefined))
+      .filter((id): id is string => typeof id === "string"),
+  );
   for (const [index, rawStep] of flow.steps.entries()) {
     const label = `Step ${index + 1}`;
     if (typeof rawStep !== "object" || rawStep === null) {
@@ -187,7 +192,7 @@ export function validateFlow(value: unknown): FlowIssue[] {
       if (!reference) {
         issues.push({ stepId, message: `Step "${name}": "when" must be a "<stepId>.<field>" reference (e.g. "approve.granted"); got ${JSON.stringify(step.when)}.` });
       } else if (!priorIds.has(reference.stepId)) {
-        issues.push({ stepId, message: `Step "${name}": "when" references ${seenIds.has(reference.stepId) ? "a later step" : "nonexistent step"} "${reference.stepId}".` });
+        issues.push({ stepId, message: `Step "${name}": "when" references ${allIds.has(reference.stepId) ? "a later step" : "nonexistent step"} "${reference.stepId}".` });
       }
     }
 
@@ -198,7 +203,7 @@ export function validateFlow(value: unknown): FlowIssue[] {
       if (step.args !== undefined && (typeof step.args !== "object" || step.args === null || Array.isArray(step.args))) {
         issues.push({ stepId, message: `Tool step "${name}": "args" must be an object when present.` });
       } else if (step.args) {
-        issues.push(...validateTemplateRefs(name, stepId, JSON.stringify(step.args), priorIds, seenIds));
+        issues.push(...validateTemplateRefs(name, stepId, JSON.stringify(step.args), priorIds, allIds));
       }
     }
 
@@ -206,7 +211,7 @@ export function validateFlow(value: unknown): FlowIssue[] {
       if (typeof step.prompt !== "string" || !step.prompt.trim()) {
         issues.push({ stepId, message: `Agent step "${name}" requires a non-empty "prompt".` });
       } else {
-        issues.push(...validateTemplateRefs(name, stepId, step.prompt, priorIds, seenIds));
+        issues.push(...validateTemplateRefs(name, stepId, step.prompt, priorIds, allIds));
       }
     }
 
@@ -218,7 +223,7 @@ export function validateFlow(value: unknown): FlowIssue[] {
         if (!reference) {
           issues.push({ stepId, message: `Gate step "${name}": "show" must be a "<stepId>.<field>" reference; got ${JSON.stringify(step.show)}.` });
         } else if (!priorIds.has(reference.stepId)) {
-          issues.push({ stepId, message: `Gate step "${name}": "show" references ${seenIds.has(reference.stepId) ? "a later step" : "nonexistent step"} "${reference.stepId}".` });
+          issues.push({ stepId, message: `Gate step "${name}": "show" references ${allIds.has(reference.stepId) ? "a later step" : "nonexistent step"} "${reference.stepId}".` });
         }
       }
       if (step.expiresHours !== undefined && (typeof step.expiresHours !== "number" || !Number.isFinite(step.expiresHours) || step.expiresHours <= 0)) {
@@ -231,14 +236,14 @@ export function validateFlow(value: unknown): FlowIssue[] {
   return issues;
 }
 
-function validateTemplateRefs(name: string, stepId: string | undefined, text: string, priorIds: ReadonlySet<string>, seenIds: ReadonlySet<string>): FlowIssue[] {
+function validateTemplateRefs(name: string, stepId: string | undefined, text: string, priorIds: ReadonlySet<string>, allIds: ReadonlySet<string>): FlowIssue[] {
   const issues: FlowIssue[] = [];
   for (const reference of collectTemplateRefs(text)) {
     const parsed = parseReference(reference);
     if (!parsed) {
       issues.push({ stepId, message: `Step "${name}": template reference "{{${reference}}}" must be "<stepId>.<field.path>".` });
     } else if (!priorIds.has(parsed.stepId)) {
-      issues.push({ stepId, message: `Step "${name}": template reference "{{${reference}}}" points to ${seenIds.has(parsed.stepId) ? "a later step" : "unknown step"} "${parsed.stepId}".` });
+      issues.push({ stepId, message: `Step "${name}": template reference "{{${reference}}}" points to ${allIds.has(parsed.stepId) ? "a later step" : "unknown step"} "${parsed.stepId}".` });
     }
   }
   return issues;
