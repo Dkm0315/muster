@@ -23,11 +23,16 @@ import {
   loadFlow,
   parseFlow,
   preflightFlow,
+  replayFlowRun,
+  diffFlowRuns,
+  scheduleFlowLoop,
+  executeScheduledJob,
   resumeFlow,
   runFlow,
   saveFlow,
   inspectClaudeCode,
   inspectCapabilityPack,
+  loadCapabilityPack,
   inspectPiCommands,
   inspectPiRuntime,
   inspectPiTools,
@@ -173,6 +178,7 @@ Usage:
   muster eval seed <episode-id> [--expect "..."] [--forbid "..."]
   muster eval run [path-or-dir]
   muster capability inspect <path>
+  muster capability load <path> [--allow-high-risk]
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster memory add --summary "..." --scope user:me --provenance manual
   muster memory search --scope user:me [--query "..."] [--include-global]
@@ -204,6 +210,9 @@ Usage:
   muster evolve selfcheck
   muster flow save <file.json> | list | check <id> | run <id>
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
+  muster flow replay <run-id> [--live-agents]
+  muster flow diff <run-id-a> <run-id-b>
+  muster flow loop <flow-id> --cron "0 9 * * 1"
   muster verify
 
 Design rule:
@@ -346,8 +355,23 @@ async function evalCommand(args: string[]): Promise<void> {
 async function capability(args: string[]): Promise<void> {
   const subcommand = args[0];
   const path = args[1];
+  if (subcommand === "load") {
+    if (!path) throw new Error("Usage: muster capability load <path> [--allow-high-risk]");
+    const registry = builtinFlowRegistry();
+    const loaded = await loadCapabilityPack(resolve(process.cwd(), path), {
+      registry,
+      allowHighRisk: args.includes("--allow-high-risk")
+    });
+    console.log(`pack=${loaded.manifest.id} version=${loaded.manifest.version}`);
+    console.log(`permissions=${loaded.manifest.permissions.join(",") || "none"}`);
+    console.log(`tools_registered=${loaded.toolNames.length} (dry-run: nothing persisted)`);
+    for (const name of loaded.toolNames) console.log(`tool=${name}`);
+    for (const warning of loaded.warnings) console.log(`warning=${warning}`);
+    console.log(`use in flows: { "kind": "tool", "tool": "${loaded.toolNames[0]}" } with: muster flow run <id> --pack ${path}`);
+    return;
+  }
   if (subcommand !== "inspect" || !path) {
-    throw new Error("Usage: muster capability inspect <path>");
+    throw new Error("Usage: muster capability <inspect|load> <path>");
   }
   const report = await inspectCapabilityPack(resolve(process.cwd(), path));
   console.log(`status=${report.status}`);
@@ -1251,10 +1275,9 @@ async function scheduleCommand(commandArgs: string[]): Promise<void> {
   }
   if (action === "run-due") {
     const config = await loadConfig();
-    const results = await runDueSchedules(async (job) => {
-      const outcome = await executeRun(config, { prompt: job.prompt });
-      return { runId: outcome.plan.runId, status: outcome.episode.outcome?.kind === "completed" ? "completed" : "failed" };
-    });
+    const results = await runDueSchedules(async (job) =>
+      executeScheduledJob(job, { config, registry: builtinFlowRegistry() })
+    );
     if (!results.length) {
       console.log("No jobs due.");
       return;
@@ -1302,6 +1325,19 @@ function builtinFlowRegistry(): FlowToolRegistry {
   return {
     echo: async (args) => args
   };
+}
+
+/** Built-in registry plus any capability packs requested via --pack <dir> (repeatable). */
+async function flowRegistryWithPacks(commandArgs: string[]): Promise<FlowToolRegistry> {
+  const registry = builtinFlowRegistry();
+  for (const packDir of readFlags(commandArgs, "--pack")) {
+    const loaded = await loadCapabilityPack(resolve(process.cwd(), packDir), {
+      registry,
+      allowHighRisk: commandArgs.includes("--allow-high-risk")
+    });
+    console.log(`pack_loaded=${loaded.manifest.id} tools=${loaded.toolNames.join(",")}`);
+  }
+  return registry;
 }
 
 function printFlowEvent(event: FlowRunEvent): void {
@@ -1382,7 +1418,7 @@ async function flowCommand(commandArgs: string[]): Promise<void> {
   if (action === "check") {
     if (!target) throw new Error("Usage: muster flow check <id>");
     const flow = await loadFlow(target);
-    const report = preflightFlow(flow, builtinFlowRegistry(), await loadConfig());
+    const report = preflightFlow(flow, await flowRegistryWithPacks(commandArgs), await loadConfig());
     console.log(`flow=${flow.id} preflight=${report.ok ? "ok" : "failed"}`);
     for (const issue of report.issues) console.log(`- ${issue.message}`);
     if (!report.ok) process.exitCode = 1;
@@ -1393,7 +1429,7 @@ async function flowCommand(commandArgs: string[]): Promise<void> {
     const flow = await loadFlow(target);
     const result = await runFlow(flow, {
       config: await loadConfig(),
-      registry: builtinFlowRegistry(),
+      registry: await flowRegistryWithPacks(commandArgs),
       cwd: process.cwd(),
       onEvent: printFlowEvent
     });
@@ -1422,14 +1458,48 @@ async function flowCommand(commandArgs: string[]): Promise<void> {
     const result = await resumeFlow(target, {
       approve: action === "approve",
       config: await loadConfig(),
-      registry: builtinFlowRegistry(),
+      registry: await flowRegistryWithPacks(commandArgs),
       cwd: process.cwd(),
       onEvent: printFlowEvent
     });
     printFlowRunResult(result);
     return;
   }
-  throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject>");
+  if (action === "replay") {
+    if (!target) throw new Error("Usage: muster flow replay <run-id> [--live-agents]");
+    const result = await replayFlowRun(target, {
+      config: await loadConfig(),
+      registry: await flowRegistryWithPacks(commandArgs),
+      cwd: process.cwd(),
+      liveAgents: commandArgs.includes("--live-agents"),
+      onEvent: printFlowEvent
+    });
+    console.log(`replay_of=${target}`);
+    printFlowRunResult(result);
+    return;
+  }
+  if (action === "diff") {
+    const other = commandArgs[2];
+    if (!target || !other) throw new Error("Usage: muster flow diff <run-id-a> <run-id-b>");
+    const diff = await diffFlowRuns(target, other);
+    console.log(`diff a=${diff.runIdA} b=${diff.runIdB} identical=${diff.identical}`);
+    for (const difference of diff.differences) {
+      console.log(`step=${difference.stepId} field=${difference.field}`);
+      console.log(`  a=${typeof difference.a === "string" ? difference.a : JSON.stringify(difference.a)}`);
+      console.log(`  b=${typeof difference.b === "string" ? difference.b : JSON.stringify(difference.b)}`);
+    }
+    if (!diff.identical) process.exitCode = 1;
+    return;
+  }
+  if (action === "loop") {
+    const cron = readFlag(commandArgs, "--cron");
+    if (!target || !cron) throw new Error('Usage: muster flow loop <flow-id> --cron "0 9 * * 1"');
+    const job = await scheduleFlowLoop(target, cron);
+    console.log(`Scheduled ${job.id}: [${job.cron}] flow=${job.flowId}`);
+    console.log("No daemon runs these. Add to external cron: * * * * * cd <repo> && pnpm hc schedule run-due");
+    return;
+  }
+  throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject|replay|diff|loop>");
 }
 
 async function verifyCommand(): Promise<void> {
