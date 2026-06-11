@@ -1,0 +1,21 @@
+{
+  "name": "muster-website",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Muster marketing website + web portal shell (static, Vite + vanilla TS + three).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.182.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.0"
+  }
+}

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muster Portal — preview</title>
+  <meta name="description" content="Preview of the Muster control portal: sessions, flows, surfaces and the token ledger in one auditable mission-control UI. Static design mock — no backend." />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#0a0c10" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0c10'/%3E%3Ccircle cx='9' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='9' cy='23' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='23' r='3' fill='%23ffb000'/%3E%3C/svg%3E" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Muster Portal — preview" />
+  <meta property="og:description" content="Mission control for a federation of agents. Static design preview." />
+  <script type="module" src="/src/portal.ts"></script>
+</head>
+<body class="portal-body">
+  <div class="portal-app">
+    <header class="portal-top">
+      <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+      <span class="chip chip-preview" title="Static design mock — no backend">preview · static mock, no backend</span>
+      <button id="muster-view-toggle" class="mv-toggle" aria-expanded="true">muster view ▾</button>
+      <span class="portal-profile mono">profile: team-a</span>
+    </header>
+
+    <!-- Muster view: mini topology of instances/surfaces with a traveling pulse -->
+    <section class="muster-view" id="muster-view" aria-label="Federation topology (sample data)">
+      <svg viewBox="0 0 1000 150" role="img" aria-label="Topology: muster core linked to pi runtime, claude-code runtime, telegram and web surfaces, and two profiles">
+        <g class="mv-links" stroke="#242938" stroke-width="1.5" fill="none">
+          <path id="mv-p1" d="M500,75 L260,40" /><path id="mv-p2" d="M500,75 L260,112" />
+          <path id="mv-p3" d="M500,75 L740,40" /><path id="mv-p4" d="M500,75 L740,112" />
+          <path d="M260,40 L90,75" /><path d="M740,40 L912,40" /><path d="M740,112 L912,112" />
+        </g>
+        <g class="mv-pulse" fill="#ffb000">
+          <circle r="3.5"><animateMotion dur="3s" repeatCount="indefinite" path="M500,75 L260,40 L90,75" /></circle>
+          <circle r="3.5"><animateMotion dur="4.2s" repeatCount="indefinite" path="M500,75 L740,112 L912,112" /></circle>
+        </g>
+        <g class="mv-node mv-core"><circle cx="500" cy="75" r="17" /><text x="500" y="110" text-anchor="middle">muster core</text></g>
+        <g class="mv-node"><circle cx="260" cy="40" r="11" /><text x="260" y="22" text-anchor="middle">pi runtime</text></g>
+        <g class="mv-node"><circle cx="260" cy="112" r="11" /><text x="260" y="138" text-anchor="middle">claude-code</text></g>
+        <g class="mv-node mv-surface"><circle cx="740" cy="40" r="11" /><text x="740" y="22" text-anchor="middle">telegram</text></g>
+        <g class="mv-node mv-surface"><circle cx="740" cy="112" r="11" /><text x="740" y="138" text-anchor="middle">web</text></g>
+        <g class="mv-node mv-dim"><circle cx="90" cy="75" r="9" /><text x="90" y="100" text-anchor="middle">ollama/qwen3</text></g>
+        <g class="mv-node mv-dim"><circle cx="912" cy="40" r="9" /><text x="912" y="22" text-anchor="middle">#ops-room</text></g>
+        <g class="mv-node mv-dim"><circle cx="912" cy="112" r="9" /><text x="912" y="138" text-anchor="middle">portal</text></g>
+      </svg>
+    </section>
+
+    <div class="portal-grid">
+      <!-- left rail -->
+      <nav class="rail" aria-label="Portal navigation">
+        <p class="rail-head">control</p>
+        <a class="rail-item active" href="#"><span class="rail-glyph">»</span> Sessions <span class="rail-count">12</span></a>
+        <a class="rail-item" href="#"><span class="rail-glyph">⇄</span> Flows <span class="rail-count">3</span></a>
+        <a class="rail-item" href="#"><span class="rail-glyph">◍</span> Surfaces <span class="rail-count">2</span></a>
+        <a class="rail-item" href="#"><span class="rail-glyph">Σ</span> Tokens</a>
+        <p class="rail-head">governance</p>
+        <a class="rail-item" href="#"><span class="rail-glyph">▣</span> Memory lanes</a>
+        <a class="rail-item" href="#"><span class="rail-glyph">✓</span> Verify <span class="rail-ok">OK</span></a>
+        <a class="rail-item" href="#"><span class="rail-glyph">↻</span> Evolve</a>
+        <div class="rail-foot mono">
+          <p>ledger today</p>
+          <p class="rail-big">$0.41 <span class="rail-warn">1 waste flag</span></p>
+        </div>
+      </nav>
+
+      <!-- center: run log -->
+      <main class="runlog" aria-label="Run log">
+        <div class="runlog-head">
+          <h1>run_77c01a9f <span class="chip ok-chip">completed</span></h1>
+          <p class="mono dim">flow=deploy-digest · runtime=claude-code · anthropic/claude-sonnet · session=continue</p>
+        </div>
+
+        <article class="block user-block">
+          <header><span class="who">prompt</span></header>
+          <p>Summarize what changed on uat-erp since Friday and flag anything blocking the release.</p>
+        </article>
+
+        <article class="block sys-block">
+          <header><span class="who">harness</span><span class="chip dim-chip">memory</span></header>
+          <p class="mono">recalled 3 scoped memories → <span class="scope">workspace:erp</span> <span class="scope">user:dhairya</span> <span class="scope">session</span></p>
+        </article>
+
+        <details class="block tool-block" open>
+          <summary>
+            <span class="tool-name mono">tool: frappe.get_doc_list</span>
+            <span class="chip ok-chip">✓ ok</span>
+            <span class="chip dur-chip">412ms</span>
+          </summary>
+          <pre class="mono">{ "doctype": "Version", "filters": {"creation": [">", "2026-06-06"]}, "limit": 50 }
+→ 23 rows · executed as user dhairya@hybrowlabs.com (permission-scoped)</pre>
+        </details>
+
+        <details class="block tool-block">
+          <summary>
+            <span class="tool-name mono">tool: ledger.estimate</span>
+            <span class="chip ok-chip">✓ ok</span>
+            <span class="chip dur-chip">38ms</span>
+          </summary>
+          <pre class="mono">{ "budget_left_usd": 1.84, "run_so_far_usd": 0.0612, "waste_ratio": null }</pre>
+        </details>
+
+        <details class="block tool-block">
+          <summary>
+            <span class="tool-name mono">tool: frappe.run_report "Release Blockers"</span>
+            <span class="chip warn-chip">⚠ retried</span>
+            <span class="chip dur-chip">2.1s</span>
+          </summary>
+          <pre class="mono">attempt 1: timeout after 1500ms
+attempt 2: ok · 2 blockers found
+fallback NOT used — same model, recorded on episode as evidence</pre>
+        </details>
+
+        <article class="block agent-block">
+          <header><span class="who who-agent">agent</span><span class="chip dur-chip">tokens in=12.4K out=1.2K · $0.0612</span></header>
+          <p>Since Friday, 23 changes landed on uat-erp. Two are release-blocking: the pending HR payroll patch (migration not applied) and a failing permission test on <code>Leave Application</code>. Everything else is documentation and fixture updates. Full diff list attached as artifact.</p>
+        </article>
+      </main>
+
+      <!-- right: artifact theater -->
+      <aside class="theater" aria-label="Artifact theater">
+        <p class="theater-head">artifact theater</p>
+        <div class="artifact">
+          <p class="artifact-title mono">release-blockers.md</p>
+          <pre class="mono"># Release blockers — uat-erp
+
+1. payroll patch v2026-06
+   migration `0412_payroll` not applied
+   owner: hr-eng
+
+2. Leave Application perms
+   test perm_scope_user FAILS
+   leak class: role→user</pre>
+        </div>
+        <div class="artifact">
+          <p class="artifact-title mono">episode evidence</p>
+          <pre class="mono">episode=ep_91xd0
+fallback_used: none
+retries: 1 (recorded)
+memory_writes: 0
+promotion_gates: n/a</pre>
+        </div>
+        <div class="artifact artifact-ledger">
+          <p class="artifact-title mono">run ledger</p>
+          <pre class="mono">in      12.4K
+out     1.2K
+cost$   0.0612
+waste   -</pre>
+        </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muster — the AI agent harness you can audit</title>
+  <meta name="description" content="Muster is an open-source AI agent harness with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and session integrity verification. Works with Claude, OpenAI, Gemini, Ollama and 20+ providers. TypeScript, MIT, self-hosted." />
+  <meta name="keywords" content="AI agent framework, LLM agent harness, agent memory, token cost tracking, agent observability, eval-driven development, self-hosted AI agent, AI governance, agent audit trail, multi-provider LLM routing" />
+  <link rel="canonical" href="https://muster.hybrowlabs.com/" />
+  <meta name="theme-color" content="#0a0c10" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0c10'/%3E%3Ccircle cx='9' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='9' cy='23' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='23' r='3' fill='%23ffb000'/%3E%3C/svg%3E" />
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Muster" />
+  <meta property="og:title" content="Muster — the AI agent harness you can audit" />
+  <meta property="og:description" content="Every memory scoped. Every skill eval-gated. Every token on a ledger. Open-source, TypeScript, MIT, self-hosted. Does your agent pass muster?" />
+  <meta property="og:url" content="https://muster.hybrowlabs.com/" />
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Muster — the AI agent harness you can audit" />
+  <meta name="twitter:description" content="Token-waste ledger, leak-proof scoped memory, eval-gated learning, integrity verification. 20+ LLM providers. MIT." />
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <!-- Constellation layer: poster gradient is pure CSS; canvas + ascii pre lazy-init after first paint -->
+  <div id="stage" aria-hidden="true">
+    <canvas id="constellation"></canvas>
+    <pre id="ascii"></pre>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+    <nav aria-label="Main">
+      <a href="#why">Why</a>
+      <a href="#compare">Compare</a>
+      <a href="#surfaces">Surfaces</a>
+      <a href="/portal.html">Portal <span class="chip chip-preview">preview</span></a>
+      <a href="https://github.com/musterhq/muster" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="hero">
+      <p class="kicker">mission control for a federation of agents</p>
+      <h1>Muster — the AI agent <em>harness you can audit</em></h1>
+      <p class="sub">Every memory scoped. Every skill eval-gated. Every token on a ledger.<br />Does your agent <em>pass muster</em>?</p>
+      <div class="hero-cta">
+        <div class="install" role="group" aria-label="Install command">
+          <code id="install-cmd">pnpm dlx @musterhq/cli init</code>
+          <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init" aria-label="Copy install command">copy</button>
+        </div>
+        <a class="btn-ghost" href="https://github.com/musterhq/muster" rel="noopener">Read the source →</a>
+      </div>
+      <button id="ascii-toggle" class="ascii-toggle" aria-pressed="false" title="Render the constellation as ASCII">mode: <span>3d</span></button>
+      <p class="hero-footnote">muster <span class="muted">(v.)</span> — to assemble troops into formation.</p>
+    </section>
+
+    <section class="terminal-section" id="demo" aria-label="Terminal demo">
+      <h2><span class="sec-num">01</span> Plain-text tables. No dashboard required.</h2>
+      <p class="sec-sub">A faithful replay of three real commands — scoped recall, the token ledger, and store verification.</p>
+      <div class="terminal" id="terminal">
+        <div class="terminal-titlebar">
+          <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
+          <span class="terminal-title">muster — zsh</span>
+        </div>
+        <div class="terminal-body" id="terminal-body"></div>
+      </div>
+      <noscript><pre class="terminal-fallback">$ muster run "Where do we deploy?" --runtime claude-code --model haiku
+recalled 1 scoped memories into context
+run=run_8f3ka2c1 runtime=claude-code model=anthropic/claude-haiku task=qa status=completed
+tokens in=1842~ out=96~ cost=$0.0021
+
+We deploy to uat-erp.example.com.
+
+$ muster tokens
+$ muster verify
+integrity check: OK</pre></noscript>
+    </section>
+
+    <section class="why" id="why">
+      <h2><span class="sec-num">02</span> Every agent framework demos beautifully. Then production happens.</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>Token burn you can't see</h3>
+          <p>Agents replay megatokens of stale context; field reports show 60–89% of spend wasted.</p>
+          <p class="answer"><code>muster tokens</code> — every run on a ledger, replay waste flagged with the exact ratio.</p>
+        </article>
+        <article class="card">
+          <h3>Memory that leaks</h3>
+          <p>Most harnesses have one memory pool. Cross-user leakage is discovered by your customers.</p>
+          <p class="answer">Scoped lanes — tenant / workspace / user / role / session — with promotion gates. Leakage is a failing CI check, not a hope.</p>
+        </article>
+        <article class="card">
+          <h3>Silent model drift</h3>
+          <p>Fallbacks that quietly swap your model mid-session and never tell anyone.</p>
+          <p class="answer">Governed fallback: recorded as evidence on the episode, verified by <code>muster verify</code>, never silent.</p>
+        </article>
+        <article class="card">
+          <h3>Learning on vibes</h3>
+          <p>"Self-improving" agents that promote skills nobody validated.</p>
+          <p class="answer">Eval-gated learning: feedback → adjudication against evidence → replayable fixture → promotion only when the suite passes.</p>
+        </article>
+        <article class="card">
+          <h3>Sessions that rot</h3>
+          <p>Corrupt transcripts, duplicate runs, poisoned context replaying old failures.</p>
+          <p class="answer"><code>muster verify</code> detects all four classes; <code>muster evolve</code> re-tests the harness itself against them.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="compare" id="compare">
+      <h2><span class="sec-num">03</span> How it compares</h2>
+      <p class="sec-sub">Honest table: they have breadth and ecosystems we don't (yet). We have the governance core they demonstrably lack — each ✕ links to their own issue tracker.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col"></th><th scope="col" class="us">Muster</th><th scope="col">OpenClaw</th><th scope="col">Hermes</th><th scope="col">crewAI</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Token ledger + waste detection</th><td class="us yes">✓</td><td class="no">✕</td><td class="no">✕</td><td class="no">✕</td></tr>
+            <tr><th scope="row">Scoped memory (leak = CI failure)</th><td class="us yes">✓</td><td class="partial">partial</td><td class="no">✕ <span class="note">single MEMORY.md</span></td><td class="no">✕</td></tr>
+            <tr><th scope="row">Eval-gated learning</th><td class="us yes">✓</td><td class="no">✕</td><td class="no">✕ <span class="note">promotes on use</span></td><td class="no">✕</td></tr>
+            <tr><th scope="row">Governed fallback (evidence, never silent)</th><td class="us yes">✓</td><td class="no">✕ <a href="https://github.com/openclaw/openclaw/issues/65646" rel="noopener">#65646</a></td><td class="no">✕</td><td class="no">✕</td></tr>
+            <tr><th scope="row">Session integrity verification</th><td class="us yes">✓</td><td class="no">✕ <a href="https://github.com/openclaw/openclaw/issues/75235" rel="noopener">#75235</a></td><td class="no">✕ <a href="https://github.com/NousResearch/hermes-agent/issues/5563" rel="noopener">#5563</a></td><td class="no">✕</td></tr>
+            <tr><th scope="row">Channels (Telegram/WhatsApp/…)</th><td class="us soon">soon</td><td class="yes">✓ 20+</td><td class="yes">✓</td><td class="no">✕</td></tr>
+            <tr><th scope="row">Maturity / ecosystem</th><td class="us">v0</td><td>huge</td><td>large</td><td>large</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="surfaces" id="surfaces">
+      <h2><span class="sec-num">04</span> One envelope. Every surface.</h2>
+      <p class="sec-sub">A single governed message envelope fans out to wherever your people already are. Channels ship next — the governance core is already underneath.</p>
+      <div class="surfaces-figure">
+        <svg viewBox="0 0 720 420" role="img" aria-label="Diagram: a central Muster node radiating to Slack, Discord, Telegram, WhatsApp, Teams, Google Chat and Web">
+          <g class="rays" stroke="#2a2f3a" stroke-width="1.5">
+            <line x1="360" y1="210" x2="120" y2="70" /><line x1="360" y1="210" x2="360" y2="52" />
+            <line x1="360" y1="210" x2="600" y2="70" /><line x1="360" y1="210" x2="96" y2="210" />
+            <line x1="360" y1="210" x2="624" y2="210" /><line x1="360" y1="210" x2="170" y2="352" />
+            <line x1="360" y1="210" x2="550" y2="352" />
+          </g>
+          <g class="ray-pulses" fill="#ffb000">
+            <circle r="3"><animateMotion dur="2.8s" repeatCount="indefinite" path="M360,210 L120,70" /></circle>
+            <circle r="3"><animateMotion dur="3.4s" repeatCount="indefinite" path="M360,210 L600,70" /></circle>
+            <circle r="3"><animateMotion dur="2.4s" repeatCount="indefinite" path="M360,210 L624,210" /></circle>
+            <circle r="3"><animateMotion dur="3.1s" repeatCount="indefinite" path="M360,210 L170,352" /></circle>
+          </g>
+          <g class="hub">
+            <circle cx="360" cy="210" r="34" fill="#0a0c10" stroke="#ffb000" stroke-width="2" />
+            <circle cx="360" cy="210" r="6" fill="#ffb000" />
+            <text x="360" y="266" text-anchor="middle" class="svg-label hub-label">muster</text>
+          </g>
+          <g class="surface-nodes">
+            <g transform="translate(120,70)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">#</text><text y="42" text-anchor="middle" class="svg-label">Slack</text></g>
+            <g transform="translate(360,52)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">@</text><text y="42" text-anchor="middle" class="svg-label">Discord</text></g>
+            <g transform="translate(600,70)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">✈</text><text y="42" text-anchor="middle" class="svg-label">Telegram</text></g>
+            <g transform="translate(96,210)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">✆</text><text y="42" text-anchor="middle" class="svg-label">WhatsApp</text></g>
+            <g transform="translate(624,210)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">T</text><text y="42" text-anchor="middle" class="svg-label">Teams</text></g>
+            <g transform="translate(170,352)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">G</text><text y="42" text-anchor="middle" class="svg-label">GChat</text></g>
+            <g transform="translate(550,352)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">⌘</text><text y="42" text-anchor="middle" class="svg-label">Web</text></g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <section class="closer">
+      <h2>Provably governed, or it doesn't ship.</h2>
+      <div class="install install-lg" role="group" aria-label="Install command">
+        <code>pnpm dlx @musterhq/cli init &amp;&amp; muster doctor</code>
+        <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init && muster doctor" aria-label="Copy install command">copy</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>© <span id="year">2026</span> <a href="https://github.com/hybrowlabs" rel="noopener">Hybrowlabs</a></span>
+      <span class="footer-sep">·</span>
+      <a href="https://github.com/musterhq/muster" rel="noopener">GitHub</a>
+      <span class="footer-sep">·</span>
+      <span>MIT License</span>
+      <span class="footer-sep">·</span>
+      <a href="/portal.html">Portal preview</a>
+    </div>
+  </footer>
+</body>
+</html>
