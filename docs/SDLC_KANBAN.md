@@ -93,3 +93,12 @@ For v0, a red provider connectivity check is acceptable when no local Ollama/Ope
 | HC-032 | Frappe capability pack manifest scaffold (implementation lands with pack loader HC-012) | Scaffold |
 
 Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (init -> profile -> provider add -> run via claude-code with memory recall -> tokens -> verify -> evolve) all passing.
+
+## 2026-06-11 flow engine (feature/flow-engine)
+
+| Card | Outcome | Status |
+| --- | --- | --- |
+| HC-033 | Flow engine slice 1: `packages/core/src/flow.ts` (tool/agent/gate steps, parse + preflight validation, `{{stepId.field}}` templates, durable JSONL run store at `.muster/data/flows/<runId>.jsonl`, resumable gates with expiry, `budgetTokens` ceiling) + `muster flow save/list/check/run/runs/show/approve/reject` CLI with built-in `echo` tool | Done |
+| HC-034 | Flow replay & diff (`flow replay <run> --against <run>`) + eval seeding from good runs | Ready |
+| HC-035 | Scheduler binding (`flow loop <id> --cron`) + per-iteration budgets in the token ledger | Ready |
+| HC-036 | Channel approvals (Telegram/CLI parity) and dry-run previews in gate payloads | Ready |

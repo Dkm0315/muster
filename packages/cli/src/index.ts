@@ -15,6 +15,17 @@ import {
   ensureDefaultConfig,
   evalPath,
   findEpisode,
+  flowPath,
+  flowRunPath,
+  getFlowRun,
+  listFlowRuns,
+  listFlows,
+  loadFlow,
+  parseFlow,
+  preflightFlow,
+  resumeFlow,
+  runFlow,
+  saveFlow,
   inspectClaudeCode,
   inspectCapabilityPack,
   inspectPiCommands,
@@ -56,9 +67,9 @@ import {
   verifyIntegrity,
   renderIntegrityReport
 } from "@musterhq/core";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ChatMessage, EvidenceRecord, FeedbackValue, MigrationSource } from "@musterhq/core";
+import type { ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MigrationSource } from "@musterhq/core";
 
 const [, , command, ...args] = process.argv;
 
@@ -136,6 +147,9 @@ async function main(): Promise<void> {
     case "evolve":
       await evolveCommand(args);
       return;
+    case "flow":
+      await flowCommand(args);
+      return;
     case "verify":
       await verifyCommand();
       return;
@@ -188,6 +202,8 @@ Usage:
   muster schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
   muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
   muster evolve selfcheck
+  muster flow save <file.json> | list | check <id> | run <id>
+  muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
   muster verify
 
 Design rule:
@@ -1275,6 +1291,145 @@ async function evolveCommand(commandArgs: string[]): Promise<void> {
   });
   console.log(renderEvolveReport(report));
   if (!report.converged || report.harnessChecks.some((check) => check.status === "failed")) process.exitCode = 1;
+}
+
+/**
+ * v1 built-in deterministic tool registry for flows. `echo` returns its
+ * resolved args, which is enough to demo template resolution and gates.
+ * Real tool wiring (capability packs, Pi tools) lands in a later slice.
+ */
+function builtinFlowRegistry(): FlowToolRegistry {
+  return {
+    echo: async (args) => args
+  };
+}
+
+function printFlowEvent(event: FlowRunEvent): void {
+  if (event.type === "run_started") console.log(`run=${event.runId} flow=${event.flowId}`);
+  if (event.type === "step_started") console.log(`step=${event.stepId} status=started`);
+  if (event.type === "step_completed") console.log(`step=${event.stepId} status=completed${event.tokensUsed ? ` tokens=~${event.tokensUsed}` : ""}`);
+  if (event.type === "step_failed") console.log(`step=${event.stepId} status=failed error=${event.error}`);
+  if (event.type === "step_skipped") console.log(`step=${event.stepId} status=skipped reason=${event.reason}`);
+  if (event.type === "gate_pending") console.log(`step=${event.stepId} status=gate_pending${event.expiresAt ? ` expires=${event.expiresAt}` : ""}`);
+  if (event.type === "gate_resolved") console.log(`step=${event.stepId} status=${event.approved ? "approved" : "rejected"}`);
+  if (event.type === "run_finished") console.log(`run_status=${event.status}`);
+}
+
+function printFlowRunResult(result: Awaited<ReturnType<typeof runFlow>>): void {
+  if (result.status === "awaiting_approval") {
+    console.log(`flow_run=${result.runId} status=awaiting_approval gate=${result.gateId}`);
+    console.log("--- gate shows ---");
+    console.log(typeof result.show === "string" ? result.show : JSON.stringify(result.show, null, 2));
+    console.log("------------------");
+    console.log(`approve: muster flow approve ${result.runId}`);
+    console.log(`reject:  muster flow reject ${result.runId}`);
+    return;
+  }
+  console.log(`flow_run=${result.runId} status=${result.status}`);
+  if (result.error) console.log(`error=${result.error}`);
+  if (result.status === "failed" || result.status === "budget_exceeded" || result.status === "expired") process.exitCode = 1;
+}
+
+function padCell(value: string, width: number): string {
+  return value.length >= width ? value.slice(0, width) : value + " ".repeat(width - value.length);
+}
+
+function renderFlowRunsTable(runs: readonly FlowRunState[]): string {
+  if (!runs.length) return "No flow runs yet. Start one with: muster flow run <id>";
+  const lines: string[] = [];
+  const header = `${padCell("run", 18)} ${padCell("flow", 24)} ${padCell("status", 18)} ${padCell("steps", 6)} ${padCell("tokens", 8)} ${padCell("started", 24)}`;
+  lines.push(header);
+  lines.push("-".repeat(header.length));
+  for (const run of runs) {
+    const completedSteps = run.events.filter((event) => event.type === "step_completed").length;
+    lines.push([
+      padCell(run.runId, 18),
+      padCell(run.flowId, 24),
+      padCell(run.status, 18),
+      padCell(`${completedSteps}/${run.flow.steps.length}`, 6),
+      padCell(run.tokensUsed ? `~${run.tokensUsed}` : "-", 8),
+      padCell(run.startedAt, 24)
+    ].join(" "));
+  }
+  return lines.join("\n");
+}
+
+async function flowCommand(commandArgs: string[]): Promise<void> {
+  const [action, target] = commandArgs;
+  if (action === "save") {
+    if (!target) throw new Error("Usage: muster flow save <file.json>");
+    const flow = parseFlow(await readFile(resolve(process.cwd(), target), "utf8"));
+    const saved = await saveFlow(flow);
+    console.log(`flow=${flow.id} steps=${flow.steps.length}`);
+    console.log(`saved=${saved}`);
+    console.log(`next: muster flow check ${flow.id}`);
+    return;
+  }
+  if (action === "list") {
+    const flows = await listFlows();
+    if (!flows.length) {
+      console.log("No flows saved yet. Add one with: muster flow save <file.json>");
+      return;
+    }
+    const header = `${padCell("flow", 28)} ${padCell("steps", 6)} ${padCell("budget", 8)} description`;
+    console.log(header);
+    console.log("-".repeat(Math.max(header.length, 60)));
+    for (const flow of flows) {
+      console.log(`${padCell(flow.id, 28)} ${padCell(String(flow.steps.length), 6)} ${padCell(flow.budgetTokens ? String(flow.budgetTokens) : "-", 8)} ${flow.description ?? "-"}`);
+    }
+    return;
+  }
+  if (action === "check") {
+    if (!target) throw new Error("Usage: muster flow check <id>");
+    const flow = await loadFlow(target);
+    const report = preflightFlow(flow, builtinFlowRegistry(), await loadConfig());
+    console.log(`flow=${flow.id} preflight=${report.ok ? "ok" : "failed"}`);
+    for (const issue of report.issues) console.log(`- ${issue.message}`);
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
+  if (action === "run") {
+    if (!target) throw new Error("Usage: muster flow run <id>");
+    const flow = await loadFlow(target);
+    const result = await runFlow(flow, {
+      config: await loadConfig(),
+      registry: builtinFlowRegistry(),
+      cwd: process.cwd(),
+      onEvent: printFlowEvent
+    });
+    printFlowRunResult(result);
+    return;
+  }
+  if (action === "runs") {
+    console.log(renderFlowRunsTable(await listFlowRuns()));
+    return;
+  }
+  if (action === "show") {
+    if (!target) throw new Error("Usage: muster flow show <run-id>");
+    const run = await getFlowRun(target);
+    console.log(`flow_run=${run.runId} flow=${run.flowId} status=${run.status} tokens=${run.tokensUsed ? `~${run.tokensUsed}` : "-"}`);
+    console.log(`file=${flowRunPath(run.runId)}`);
+    console.log(`definition=${flowPath(run.flowId)}`);
+    for (const event of run.events) printFlowEvent(event);
+    if (run.pendingGate) {
+      console.log("--- pending gate shows ---");
+      console.log(typeof run.pendingGate.show === "string" ? run.pendingGate.show : JSON.stringify(run.pendingGate.show, null, 2));
+    }
+    return;
+  }
+  if (action === "approve" || action === "reject") {
+    if (!target) throw new Error(`Usage: muster flow ${action} <run-id>`);
+    const result = await resumeFlow(target, {
+      approve: action === "approve",
+      config: await loadConfig(),
+      registry: builtinFlowRegistry(),
+      cwd: process.cwd(),
+      onEvent: printFlowEvent
+    });
+    printFlowRunResult(result);
+    return;
+  }
+  throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject>");
 }
 
 async function verifyCommand(): Promise<void> {
