@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { FlowToolRegistry } from "./flow.js";
 
 export type CapabilityPackKind = "tool" | "skill" | "agent" | "workflow" | "channel";
 export type CapabilityPermission = "filesystem:read" | "filesystem:write" | "network" | "shell" | "browser" | "secrets" | "messages" | "git";
@@ -30,8 +32,15 @@ export interface CapabilityPackInspection {
 }
 
 export async function inspectCapabilityPack(path: string): Promise<CapabilityPackInspection> {
-  const manifestPath = join(path, "muster.capability.json");
-  const raw = await readFile(manifestPath, "utf8");
+  // Canonical manifest name first; "manifest.json" is accepted as a fallback
+  // (capability-packs/* in this repo use it).
+  let raw: string;
+  try {
+    raw = await readFile(join(path, "muster.capability.json"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    raw = await readFile(join(path, "manifest.json"), "utf8");
+  }
   const parsed = JSON.parse(raw) as unknown;
   return inspectCapabilityManifest(path, parsed);
 }
@@ -138,4 +147,100 @@ function isSandbox(value: unknown): value is CapabilitySandbox {
 
 function isEnvName(value: unknown): value is string {
   return typeof value === "string" && /^[A-Z_][A-Z0-9_]*$/.test(value);
+}
+
+// --- capability-pack loader (HC-012) ---
+
+/**
+ * Execution context handed to every pack tool. Packs receive capabilities
+ * explicitly through this object instead of reaching for ambient globals:
+ * `fetch` is present only when the manifest declares the `network`
+ * permission, and `config` exposes only the env vars declared in
+ * `manifest.secrets`.
+ *
+ * v1 enforcement is CONTRACTUAL, not a sandbox: a malicious pack could still
+ * import `node:http` or read `process.env` directly. The contract makes
+ * well-behaved packs reviewable and testable; process-level sandboxing is a
+ * later slice.
+ */
+export interface CapabilityToolContext {
+  readonly fetch?: typeof globalThis.fetch;
+  readonly config: Readonly<Record<string, string | undefined>>;
+}
+
+export type CapabilityPackTool = (args: Record<string, unknown>, context: CapabilityToolContext) => Promise<unknown>;
+
+export interface LoadedCapabilityPack {
+  readonly manifest: CapabilityPackManifest;
+  /** Namespaced tool names registered into the flow registry: `<packId>__<tool>`. */
+  readonly toolNames: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface LoadCapabilityPackOptions {
+  /** Flow tool registry the pack tools are registered into. */
+  readonly registry: FlowToolRegistry;
+  /** High-risk packs (secrets/shell/full_trust) refuse to load without this. */
+  readonly allowHighRisk?: boolean;
+  /** Env source for `manifest.secrets`; defaults to process.env (injectable for tests). */
+  readonly env?: Record<string, string | undefined>;
+}
+
+const PACK_TOOL_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+
+/**
+ * Validates the pack manifest (inspectCapabilityPack), refuses invalid or
+ * high-risk-without-flag packs, dynamically imports the entrypoint module
+ * (must export `tools: Record<string, (args, context) => Promise<unknown>>`),
+ * and registers each tool into the flow registry as `<packId>__<tool>` with a
+ * frozen, permission-scoped context bound in.
+ *
+ * The entrypoint must be importable by the current runtime: plain JS always
+ * works; TS entrypoints work when running under tsx (tests, `pnpm hc`).
+ */
+export async function loadCapabilityPack(dir: string, options: LoadCapabilityPackOptions): Promise<LoadedCapabilityPack> {
+  const inspection = await inspectCapabilityPack(dir);
+  if (inspection.status === "blocked" || !inspection.manifest) {
+    throw new Error(`Capability pack at ${dir} is blocked:\n${inspection.blockers.map((blocker) => `- ${blocker}`).join("\n")}`);
+  }
+  if (inspection.risk === "high" && !options.allowHighRisk) {
+    throw new Error(
+      `Capability pack "${inspection.manifest.id}" is high-risk (permissions: ${inspection.manifest.permissions.join(", ") || "none"}; sandbox: ${inspection.manifest.sandbox}). Pass allowHighRisk (CLI: --allow-high-risk) to load it.`,
+    );
+  }
+  const manifest = inspection.manifest;
+  const entrypoint = isAbsolute(manifest.entrypoint) ? manifest.entrypoint : join(dir, manifest.entrypoint);
+  let module: Record<string, unknown>;
+  try {
+    module = (await import(pathToFileURL(entrypoint).href)) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`Capability pack "${manifest.id}": failed to import entrypoint ${entrypoint}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const tools = module.tools;
+  if (typeof tools !== "object" || tools === null || Array.isArray(tools) || !Object.keys(tools).length) {
+    throw new Error(`Capability pack "${manifest.id}": entrypoint must export a non-empty \`tools\` record.`);
+  }
+  for (const [name, fn] of Object.entries(tools as Record<string, unknown>)) {
+    if (!PACK_TOOL_NAME_PATTERN.test(name)) {
+      throw new Error(`Capability pack "${manifest.id}": tool name "${name}" must match ${PACK_TOOL_NAME_PATTERN}.`);
+    }
+    if (typeof fn !== "function") {
+      throw new Error(`Capability pack "${manifest.id}": tool "${name}" must be a function.`);
+    }
+  }
+
+  const env = options.env ?? process.env;
+  const context: CapabilityToolContext = Object.freeze({
+    // Permission gate: packs that do not declare `network` get no fetch.
+    fetch: manifest.permissions.includes("network") ? globalThis.fetch.bind(globalThis) : undefined,
+    config: Object.freeze(Object.fromEntries((manifest.secrets ?? []).map((name) => [name, env[name]]))),
+  });
+
+  const toolNames: string[] = [];
+  for (const [name, fn] of Object.entries(tools as Record<string, CapabilityPackTool>)) {
+    const namespaced = `${manifest.id}__${name}`;
+    options.registry[namespaced] = (args) => fn(args, context);
+    toolNames.push(namespaced);
+  }
+  return { manifest, toolNames, warnings: inspection.warnings };
 }
