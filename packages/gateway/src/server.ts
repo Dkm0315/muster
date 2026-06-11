@@ -7,6 +7,8 @@ import { conversationSessionId, parseSurfaceMessage } from "./envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.js";
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
+import { surfaceReplyToTelegramSend, telegramUpdateToSurfaceMessage } from "./adapters/telegram.js";
+import { slackEventToSurfaceMessage, surfaceReplyToSlackPost } from "./adapters/slack.js";
 
 /**
  * Slice 1 gateway: HTTP-only (node:http, no ws). Surfaces that need streaming
@@ -87,10 +89,64 @@ function bearerTokenMatches(request: IncomingMessage, expected: string): boolean
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-type AdapterHandler = (body: string, options: Required<Pick<GatewayServerOptions, "config" | "cwd" | "gateway" | "fetcher" | "log">>) => Promise<unknown>;
+interface AdapterContext {
+  readonly config: MusterConfig;
+  readonly gateway: GatewayConfig;
+  readonly cwd: string;
+  readonly fetcher: typeof fetch;
+  readonly log: (line: string) => void;
+}
 
-/** Registered by adapters (commit 2); keyed by adapter name in the URL. */
-export const adapterRoutes: Record<string, AdapterHandler> = {};
+/**
+ * Telegram webhook: update JSON in, sendMessage out. The adapter module is a
+ * pure mapper; only this thin handler touches the network. Processing is
+ * synchronous (reply is sent before the webhook is acked) — Telegram retries
+ * on timeout, which is acceptable for slice 1.
+ */
+async function handleTelegramWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  const botToken = context.gateway.telegram?.botToken;
+  if (!botToken) throw new Error("Telegram adapter not configured. Add telegram.botToken to .muster/gateway.json.");
+  const message = telegramUpdateToSurfaceMessage(JSON.parse(body));
+  if (!message) return { ok: true, ignored: "not a text message update" };
+  const reply = await handleSurfaceMessage(message, context);
+  const payload = surfaceReplyToTelegramSend(reply, message.conversationId);
+  const response = await context.fetcher(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) context.log(`telegram sendMessage failed: HTTP ${response.status}`);
+  return { ok: true };
+}
+
+/**
+ * Slack Events API webhook: handles url_verification challenges, ignores bot
+ * echoes, and posts replies via chat.postMessage (approval requests render as
+ * Block Kit buttons). Synchronous processing; see slice-1 caveat above.
+ */
+async function handleSlackWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  const botToken = context.gateway.slack?.botToken;
+  if (!botToken) throw new Error("Slack adapter not configured. Add slack.botToken to .muster/gateway.json.");
+  const inbound = slackEventToSurfaceMessage(JSON.parse(body));
+  if (inbound.kind === "url_verification") return { challenge: inbound.challenge };
+  if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
+  const reply = await handleSurfaceMessage(inbound.message, context);
+  const payload = surfaceReplyToSlackPost(reply, inbound.message.conversationId, inbound.message.replyTo);
+  const response = await context.fetcher("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${botToken}` },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) context.log(`slack chat.postMessage failed: HTTP ${response.status}`);
+  return { ok: true };
+}
+
+type AdapterHandler = (body: string, context: AdapterContext) => Promise<unknown>;
+
+const adapterRoutes: Record<string, AdapterHandler> = {
+  telegram: handleTelegramWebhook,
+  slack: handleSlackWebhook,
+};
 
 async function route(request: IncomingMessage, response: ServerResponse, options: GatewayServerOptions): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
