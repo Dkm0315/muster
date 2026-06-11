@@ -9,6 +9,10 @@ import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
 import { surfaceReplyToTelegramSend, telegramUpdateToSurfaceMessage } from "./adapters/telegram.js";
 import { slackEventToSurfaceMessage, surfaceReplyToSlackPost } from "./adapters/slack.js";
+import { DISCORD_PONG, discordInteractionToInbound, surfaceReplyToDiscordInteractionResponse } from "./adapters/discord.js";
+import { surfaceReplyToWhatsAppSend, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
+import { gchatEventToken, gchatEventToSurfaceMessage, surfaceReplyToGchatResponse } from "./adapters/gchat.js";
+import { surfaceReplyToTeamsActivity, teamsActivityToSurfaceMessage, teamsHmacIsValid } from "./adapters/teams.js";
 
 /**
  * Slice 1 gateway: HTTP-only (node:http, no ws). Surfaces that need streaming
@@ -95,6 +99,8 @@ interface AdapterContext {
   readonly cwd: string;
   readonly fetcher: typeof fetch;
   readonly log: (line: string) => void;
+  /** Inbound request headers (lowercased), for adapters that verify signatures. */
+  readonly headers: Record<string, string | string[] | undefined>;
 }
 
 /**
@@ -141,11 +147,103 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
   return { ok: true };
 }
 
+/**
+ * Discord interactions webhook: PING (type 1) is answered with PONG (type 1)
+ * for endpoint verification; slash commands run through the governed entry
+ * point and the reply goes back synchronously as the interaction response
+ * (approvals render as button components). Note: ed25519 signature
+ * verification of interactions is not yet implemented in slice 1.
+ */
+async function handleDiscordWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  if (!context.gateway.discord?.botToken) {
+    throw new Error("Discord adapter not configured. Add discord.botToken to .muster/gateway.json.");
+  }
+  const inbound = discordInteractionToInbound(JSON.parse(body));
+  if (inbound.kind === "pong") return DISCORD_PONG;
+  if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
+  const reply = await handleSurfaceMessage(inbound.message, context);
+  return surfaceReplyToDiscordInteractionResponse(reply);
+}
+
+/**
+ * WhatsApp Cloud API webhook: notification batches in (entry[].changes[]),
+ * outbound replies via POST graph.facebook.com/<ver>/<phoneNumberId>/messages.
+ * The GET hub.challenge verification handshake is handled separately in route().
+ */
+async function handleWhatsAppWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  const whatsapp = context.gateway.whatsapp;
+  if (!whatsapp?.accessToken || !whatsapp.phoneNumberId) {
+    throw new Error("WhatsApp adapter not configured. Add whatsapp.{accessToken,verifyToken,phoneNumberId} to .muster/gateway.json.");
+  }
+  const messages = whatsAppWebhookToSurfaceMessages(JSON.parse(body));
+  if (messages.length === 0) return { ok: true, ignored: "no text messages in notification" };
+  for (const message of messages) {
+    const reply = await handleSurfaceMessage(message, context);
+    const payload = surfaceReplyToWhatsAppSend(reply, message.conversationId);
+    const version = whatsapp.apiVersion ?? "v19.0";
+    const response = await context.fetcher(`https://graph.facebook.com/${version}/${whatsapp.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${whatsapp.accessToken}` },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) context.log(`whatsapp send failed: HTTP ${response.status}`);
+  }
+  return { ok: true };
+}
+
+/**
+ * Google Chat webhook: MESSAGE events run through the governed entry point;
+ * the reply is returned synchronously (Chat renders the response body), with
+ * cardsV2 buttons for approvals. If gchat.verificationToken is configured the
+ * legacy event token is checked.
+ */
+async function handleGchatWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  if (!context.gateway.gchat) {
+    throw new Error("Google Chat adapter not configured. Add a gchat section to .muster/gateway.json.");
+  }
+  const payload = JSON.parse(body);
+  const expectedToken = context.gateway.gchat.verificationToken;
+  if (expectedToken && gchatEventToken(payload) !== expectedToken) {
+    throw new Error("Google Chat verification token mismatch.");
+  }
+  const inbound = gchatEventToSurfaceMessage(payload);
+  if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
+  const reply = await handleSurfaceMessage(inbound.message, context);
+  return surfaceReplyToGchatResponse(reply, inbound.message.replyTo);
+}
+
+/**
+ * Teams outgoing webhook: message activities run through the governed entry
+ * point; the reply is returned synchronously (text, or an Adaptive Card for
+ * approvals). If teams.hmacSecret is configured the Authorization HMAC is
+ * validated against the raw body.
+ */
+async function handleTeamsWebhook(body: string, context: AdapterContext): Promise<unknown> {
+  if (!context.gateway.teams) {
+    throw new Error("Teams adapter not configured. Add a teams section to .muster/gateway.json.");
+  }
+  const secret = context.gateway.teams.hmacSecret;
+  if (secret) {
+    const header = context.headers.authorization;
+    if (!teamsHmacIsValid(body, typeof header === "string" ? header : undefined, secret)) {
+      throw new Error("Teams HMAC signature mismatch.");
+    }
+  }
+  const inbound = teamsActivityToSurfaceMessage(JSON.parse(body));
+  if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
+  const reply = await handleSurfaceMessage(inbound.message, context);
+  return surfaceReplyToTeamsActivity(reply);
+}
+
 type AdapterHandler = (body: string, context: AdapterContext) => Promise<unknown>;
 
 const adapterRoutes: Record<string, AdapterHandler> = {
   telegram: handleTelegramWebhook,
   slack: handleSlackWebhook,
+  discord: handleDiscordWebhook,
+  whatsapp: handleWhatsAppWebhook,
+  gchat: handleGchatWebhook,
+  teams: handleTeamsWebhook,
 };
 
 async function route(request: IncomingMessage, response: ServerResponse, options: GatewayServerOptions): Promise<void> {
@@ -154,6 +252,27 @@ async function route(request: IncomingMessage, response: ServerResponse, options
 
   if (request.method === "GET" && url.pathname === "/v1/health") {
     sendJson(response, 200, { ok: true, service: "muster-gateway" });
+    return;
+  }
+
+  // WhatsApp Cloud API GET verification handshake (hub.challenge echo).
+  if (request.method === "GET" && url.pathname === "/v1/adapters/whatsapp") {
+    const verifyToken = options.gateway.whatsapp?.verifyToken;
+    if (!verifyToken) {
+      sendJson(response, 500, { error: "WhatsApp adapter not configured. Add whatsapp.verifyToken to .muster/gateway.json." });
+      return;
+    }
+    const challenge = whatsAppVerifyChallenge({
+      mode: url.searchParams.get("hub.mode") ?? undefined,
+      verifyToken: url.searchParams.get("hub.verify_token") ?? undefined,
+      challenge: url.searchParams.get("hub.challenge") ?? undefined,
+    }, verifyToken);
+    if (challenge === undefined) {
+      sendJson(response, 403, { error: "WhatsApp verification failed: mode or verify token mismatch." });
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end(challenge);
     return;
   }
 
@@ -171,6 +290,7 @@ async function route(request: IncomingMessage, response: ServerResponse, options
       cwd,
       fetcher: options.fetcher ?? fetch,
       log: options.log ?? (() => {}),
+      headers: request.headers,
     });
     sendJson(response, 200, result ?? { ok: true });
     return;
