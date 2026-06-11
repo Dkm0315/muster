@@ -7,6 +7,8 @@ export interface ScheduleJob {
   readonly id: string;
   readonly cron: string;
   readonly prompt: string;
+  /** When set, run-due executes runFlow on this saved flow instead of executeRun on the prompt. */
+  readonly flowId?: string;
   readonly profile?: string;
   readonly createdAt: string;
   readonly lastRunAt?: string;
@@ -87,13 +89,14 @@ async function writeJobs(jobs: ScheduleJob[], cwd: string): Promise<void> {
   await writeFile(path, JSON.stringify(jobs, null, 2));
 }
 
-export async function addSchedule(cron: string, prompt: string, options: { profile?: string; cwd?: string } = {}): Promise<ScheduleJob> {
+export async function addSchedule(cron: string, prompt: string, options: { profile?: string; cwd?: string; flowId?: string } = {}): Promise<ScheduleJob> {
   parseCron(cron);
   const cwd = options.cwd ?? process.cwd();
   const job: ScheduleJob = {
     id: `sched_${randomUUID().slice(0, 8)}`,
     cron,
     prompt,
+    flowId: options.flowId,
     profile: options.profile,
     createdAt: new Date().toISOString(),
   };

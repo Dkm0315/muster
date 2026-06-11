@@ -86,4 +86,4 @@ v0, moving fast with PR-sized slices and 93 tests. Shipped: run loop, scoped mem
 
 ## License
 
-MIT. Built by [Hybrowlabs](https://github.com/hybrowlabs). Contributions welcome — start with `good first issue`.
+MIT. Open source, community-driven. Contributions welcome — start with `good first issue`.
