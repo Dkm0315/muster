@@ -8,7 +8,11 @@ export interface GatewayConfig {
   readonly port?: number;
   readonly telegram?: { readonly botToken: string };
   readonly slack?: { readonly botToken: string };
-  readonly discord?: { readonly botToken: string };
+  readonly discord?: {
+    readonly botToken: string;
+    /** Application public key (hex, developer portal) for ed25519 interaction verification. */
+    readonly publicKey?: string;
+  };
   readonly whatsapp?: {
     readonly accessToken: string;
     readonly verifyToken: string;

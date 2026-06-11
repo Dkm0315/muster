@@ -9,7 +9,7 @@ import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
 import { surfaceReplyToTelegramSend, telegramUpdateToSurfaceMessage } from "./adapters/telegram.js";
 import { slackEventToSurfaceMessage, surfaceReplyToSlackPost } from "./adapters/slack.js";
-import { DISCORD_PONG, discordInteractionToInbound, surfaceReplyToDiscordInteractionResponse } from "./adapters/discord.js";
+import { DISCORD_PONG, discordInteractionToInbound, discordSignatureIsValid, surfaceReplyToDiscordInteractionResponse } from "./adapters/discord.js";
 import { surfaceReplyToWhatsAppSend, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
 import { gchatEventToken, gchatEventToSurfaceMessage, surfaceReplyToGchatResponse } from "./adapters/gchat.js";
 import { surfaceReplyToTeamsActivity, teamsActivityToSurfaceMessage, teamsHmacIsValid } from "./adapters/teams.js";
@@ -34,6 +34,14 @@ export interface RunningGateway {
   readonly port: number;
   readonly server: Server;
   close(): Promise<void>;
+}
+
+/** Error that carries an HTTP status so adapter handlers can reject with e.g. 401. */
+export class GatewayHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "GatewayHttpError";
+  }
 }
 
 function defaultRegistry(): FlowToolRegistry {
@@ -151,12 +159,26 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
  * Discord interactions webhook: PING (type 1) is answered with PONG (type 1)
  * for endpoint verification; slash commands run through the governed entry
  * point and the reply goes back synchronously as the interaction response
- * (approvals render as button components). Note: ed25519 signature
- * verification of interactions is not yet implemented in slice 1.
+ * (approvals render as button components). When discord.publicKey is
+ * configured, the X-Signature-Ed25519/X-Signature-Timestamp headers are
+ * verified against the RAW body (before any JSON parsing) and a mismatch is
+ * rejected with 401, as Discord's endpoint validation requires.
  */
 async function handleDiscordWebhook(body: string, context: AdapterContext): Promise<unknown> {
   if (!context.gateway.discord?.botToken) {
     throw new Error("Discord adapter not configured. Add discord.botToken to .muster/gateway.json.");
+  }
+  const publicKey = context.gateway.discord.publicKey;
+  if (publicKey) {
+    const signature = context.headers["x-signature-ed25519"];
+    const timestamp = context.headers["x-signature-timestamp"];
+    const valid = discordSignatureIsValid(
+      body,
+      typeof signature === "string" ? signature : undefined,
+      typeof timestamp === "string" ? timestamp : undefined,
+      publicKey,
+    );
+    if (!valid) throw new GatewayHttpError(401, "Discord ed25519 signature verification failed.");
   }
   const inbound = discordInteractionToInbound(JSON.parse(body));
   if (inbound.kind === "pong") return DISCORD_PONG;
@@ -344,8 +366,9 @@ export function startGatewayServer(options: GatewayServerOptions, port = 0): Pro
   const server = createServer((request, response) => {
     route(request, response, options).catch((error) => {
       const detail = error instanceof Error ? error.message : String(error);
+      const status = error instanceof GatewayHttpError ? error.status : 500;
       log(`error ${request.method} ${request.url}: ${detail}`);
-      if (!response.headersSent) sendJson(response, 500, { error: detail });
+      if (!response.headersSent) sendJson(response, status, { error: detail });
       else response.end();
     });
   });
