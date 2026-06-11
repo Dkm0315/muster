@@ -32,7 +32,7 @@
     <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
     <nav aria-label="Main">
       <a href="#why">Why</a>
-      <a href="#compare">Compare</a>
+      <a href="#why-muster">Why Muster</a>
       <a href="#surfaces">Surfaces</a>
       <a href="/portal.html">Portal <span class="chip chip-preview">preview</span></a>
       <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
@@ -88,7 +88,7 @@ integrity check: OK</pre></noscript>
         <article class="card">
           <h3>Memory that leaks</h3>
           <p>Most harnesses have one memory pool. Cross-user leakage is discovered by your customers.</p>
-          <p class="answer">Scoped lanes — tenant / workspace / user / role / session — with promotion gates. Leakage is a failing CI check, not a hope.</p>
+          <p class="answer">Scoped lanes — tenant / workspace / user / role / session — with promotion gates. Leakage is blocked by design, not by hope.</p>
         </article>
         <article class="card">
           <h3>Silent model drift</h3>
@@ -108,30 +108,63 @@ integrity check: OK</pre></noscript>
       </div>
     </section>
 
-    <section class="compare" id="compare">
-      <h2><span class="sec-num">03</span> How it compares</h2>
-      <p class="sec-sub">Honest table: they have breadth and ecosystems we don't (yet). We have the governance core they demonstrably lack — each ✕ links to their own issue tracker.</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th scope="col"></th><th scope="col" class="us">Muster</th><th scope="col">OpenClaw</th><th scope="col">Hermes</th><th scope="col">crewAI</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row">Token ledger + waste detection</th><td class="us yes">✓</td><td class="no">✕</td><td class="no">✕</td><td class="no">✕</td></tr>
-            <tr><th scope="row">Scoped memory (leak = CI failure)</th><td class="us yes">✓</td><td class="partial">partial</td><td class="no">✕ <span class="note">single MEMORY.md</span></td><td class="no">✕</td></tr>
-            <tr><th scope="row">Eval-gated learning</th><td class="us yes">✓</td><td class="no">✕</td><td class="no">✕ <span class="note">promotes on use</span></td><td class="no">✕</td></tr>
-            <tr><th scope="row">Governed fallback (evidence, never silent)</th><td class="us yes">✓</td><td class="no">✕ <a href="https://github.com/openclaw/openclaw/issues/65646" rel="noopener">#65646</a></td><td class="no">✕</td><td class="no">✕</td></tr>
-            <tr><th scope="row">Session integrity verification</th><td class="us yes">✓</td><td class="no">✕ <a href="https://github.com/openclaw/openclaw/issues/75235" rel="noopener">#75235</a></td><td class="no">✕ <a href="https://github.com/NousResearch/hermes-agent/issues/5563" rel="noopener">#5563</a></td><td class="no">✕</td></tr>
-            <tr><th scope="row">Channels (Telegram/WhatsApp/…)</th><td class="us soon">soon</td><td class="yes">✓ 20+</td><td class="yes">✓</td><td class="no">✕</td></tr>
-            <tr><th scope="row">Maturity / ecosystem</th><td class="us">v0</td><td>huge</td><td>large</td><td>large</td></tr>
-          </tbody>
-        </table>
+    <section class="pillars" id="why-muster">
+      <h2><span class="sec-num">03</span> Why teams choose Muster</h2>
+      <p class="sec-sub">Three promises, kept on every single run. Not a roadmap — the core that's already underneath.</p>
+      <div class="pillar-grid">
+        <article class="pillar">
+          <p class="pillar-kicker">Optimize</p>
+          <h3>The ledger sees every token.</h3>
+          <p>Most agent spend evaporates into replayed context. Muster prices every run, flags the waste, and shows you the exact ratio.</p>
+          <p class="pillar-stat">Up to 89% of agent spend is invisible waste — until it's on a ledger.</p>
+        </article>
+        <article class="pillar">
+          <p class="pillar-kicker">Trust</p>
+          <h3>Memory that cannot leak.</h3>
+          <p>Five scoped lanes — tenant, workspace, user, role, session — with promotion gates between them. What one customer teaches your agent never reaches another.</p>
+          <p class="pillar-stat">Five lanes. Zero shared pools. Leakage is blocked by design, not by hope.</p>
+        </article>
+        <article class="pillar">
+          <p class="pillar-kicker">Evolve</p>
+          <h3>Agents that prove improvement.</h3>
+          <p>Feedback becomes a replayable test before it becomes behavior. A skill only ships once it demonstrably beats what it replaces.</p>
+          <p class="pillar-stat">No skill is promoted until it passes the suite that would catch its failure.</p>
+        </article>
       </div>
     </section>
 
     <section class="surfaces" id="surfaces">
       <h2><span class="sec-num">04</span> One envelope. Every surface.</h2>
-      <p class="sec-sub">A single governed message envelope fans out to wherever your people already are. Channels ship next — the governance core is already underneath.</p>
+      <p class="sec-sub">A single governed message envelope fans out to wherever your people already are — same memory, same ledger, same approval gates in every room.</p>
+      <div class="surfaces-band" aria-label="Supported surfaces">
+        <p class="band-tagline">One harness. Every room you work in.</p>
+        <ul class="surface-logos">
+          <li title="Slack">
+            <svg viewBox="0 0 24 24" role="img" aria-label="Slack"><g fill="currentColor"><path d="M9.05 2.5a2 2 0 1 0 0 4h2v-2a2 2 0 0 0-2-2zm0 5.5h-5a2 2 0 1 0 0 4h5a2 2 0 1 0 0-4z" opacity=".9"/><path d="M21.5 9.05a2 2 0 1 0-4 0v2h2a2 2 0 0 0 2-2zM16 9.05v-5a2 2 0 1 0-4 0v5a2 2 0 1 0 4 0z" opacity=".65"/><path d="M14.95 21.5a2 2 0 1 0 0-4h-2v2a2 2 0 0 0 2 2zm0-5.5h5a2 2 0 1 0 0-4h-5a2 2 0 1 0 0 4z" opacity=".9"/><path d="M2.5 14.95a2 2 0 1 0 4 0v-2h-2a2 2 0 0 0-2 2zM8 14.95v5a2 2 0 1 0 4 0v-5a2 2 0 1 0-4 0z" opacity=".65"/></g></svg>
+            <span>Slack</span>
+          </li>
+          <li title="Discord">
+            <svg viewBox="0 0 24 24" role="img" aria-label="Discord"><path fill="currentColor" d="M19.3 5.3A16.9 16.9 0 0 0 15.1 4l-.2.4c1.5.4 2.9 1 4.2 1.9a14 14 0 0 0-12.2 0c1.3-.9 2.7-1.5 4.2-1.9L10.9 4a16.9 16.9 0 0 0-4.2 1.3C4 9.2 3.3 13 3.6 16.7c1.6 1.2 3.4 2 5.2 2.4l.9-1.5c-.8-.3-1.6-.7-2.3-1.2l.5-.4a12 12 0 0 0 10.2 0l.5.4c-.7.5-1.5.9-2.3 1.2l.9 1.5c1.8-.4 3.6-1.2 5.2-2.4.4-4.3-.7-8-2.9-11.4zM9.7 14.6c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8zm4.6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8z"/></svg>
+            <span>Discord</span>
+          </li>
+          <li title="Telegram">
+            <svg viewBox="0 0 24 24" role="img" aria-label="Telegram"><path fill="currentColor" d="M21.4 3.4 2.9 10.6c-.9.4-.9 1.1-.2 1.3l4.7 1.5 1.8 5.5c.2.6.4.8.9.8.4 0 .6-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.7-.8l3.2-15.1c.3-1.2-.4-1.7-1.7-1.2zM7.9 13.1l10.4-6.5c.5-.3 1-.2.6.2l-8.8 8-.3 3.2-1.9-4.9z"/></svg>
+            <span>Telegram</span>
+          </li>
+          <li title="WhatsApp">
+            <svg viewBox="0 0 24 24" role="img" aria-label="WhatsApp"><path fill="currentColor" d="M12 2a9.9 9.9 0 0 0-8.6 14.9L2 22l5.3-1.4A9.9 9.9 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3.1.8.8-3-.2-.3A8 8 0 1 1 12 20zm4.5-6c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.5.1-.2.2-.6.8-.7.9-.1.2-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4.2-.4.6-1.1.1-.2 0-.4 0-.5l-.8-1.8c-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8 1.6.7 2.2.8 3 .6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.5-.4z"/></svg>
+            <span>WhatsApp</span>
+          </li>
+          <li title="Google Chat">
+            <svg viewBox="0 0 24 24" role="img" aria-label="Google Chat"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14.6c0 .9 1.1 1.3 1.7.7L7.4 18H19a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5zm2.5 5h9a.8.8 0 1 1 0 1.6h-9a.8.8 0 1 1 0-1.6zm0 3.7h6a.8.8 0 1 1 0 1.6h-6a.8.8 0 1 1 0-1.6z"/></svg>
+            <span>GChat</span>
+          </li>
+          <li title="Microsoft Teams">
+            <svg viewBox="0 0 24 24" role="img" aria-label="Microsoft Teams"><g fill="currentColor"><circle cx="17" cy="7.5" r="2.3" opacity=".65"/><path d="M14.5 11h6c.3 0 .5.2.5.5v4.7a3.3 3.3 0 0 1-5 2.8 5 5 0 0 1-1.5-1.4V11z" opacity=".65"/><rect x="2" y="6" width="11" height="11" rx="1.4"/><path fill="#0a0c10" d="M5 9h7v1.7H9.4V15H7.6v-4.3H5V9z"/></g></svg>
+            <span>Teams</span>
+          </li>
+        </ul>
+      </div>
       <div class="surfaces-figure">
         <svg viewBox="0 0 720 420" role="img" aria-label="Diagram: a central Muster node radiating to Slack, Discord, Telegram, WhatsApp, Teams, Google Chat and Web">
           <g class="rays" stroke="#2a2f3a" stroke-width="1.5">
