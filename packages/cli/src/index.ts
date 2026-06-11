@@ -58,6 +58,8 @@ import {
   listTokenRecords,
   renderTokenTable,
   activeProfile,
+  dataDir,
+  parseCron,
   createProfile,
   listProfiles,
   useProfile,
@@ -98,7 +100,10 @@ async function main(): Promise<void> {
       await init();
       return;
     case "doctor":
-      await doctor();
+      await doctor(args);
+      return;
+    case "status":
+      await statusCommand();
       return;
     case "chat":
       await chat(args.join(" ").trim());
@@ -182,7 +187,8 @@ function printHelp(): void {
 
 Usage:
   muster init
-  muster doctor
+  muster doctor [--fix]
+  muster status
   muster chat "your prompt"
   muster claude inspect
   muster claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
@@ -244,7 +250,14 @@ async function init(): Promise<void> {
   console.log("Next: muster doctor");
 }
 
-async function doctor(): Promise<void> {
+async function doctor(commandArgs: string[] = []): Promise<void> {
+  if (commandArgs.includes("--fix")) {
+    const configTarget = await ensureDefaultConfig();
+    console.log(`fix config            ${configTarget}`);
+    const data = dataDir();
+    await mkdir(data, { recursive: true });
+    console.log(`fix data-dir          ${data}`);
+  }
   const checks: Array<[string, boolean, string]> = [];
   let configLoaded = false;
   try {
@@ -1519,6 +1532,73 @@ async function flowCommand(commandArgs: string[]): Promise<void> {
   throw new Error("Usage: muster flow <save|list|check|run|runs|show|approve|reject|replay|diff|loop>");
 }
 
+/**
+ * `muster status`: one-screen mission-control overview of the fleet —
+ * active profile, providers, episodes, tokens spent today, schedules due,
+ * flows pending approval gates, and store integrity. All local reads.
+ */
+async function statusCommand(): Promise<void> {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  let providersLine = "no config (run: muster doctor --fix)";
+  let runtimeLine = "-";
+  try {
+    const config = await loadConfig();
+    const providers = Object.values(config.providers);
+    providersLine = `${providers.length} configured (${providers.map((provider) => provider.id).join(", ") || "none"})`;
+    runtimeLine = config.routing.defaultRuntime;
+  } catch {
+    // keep the hint; status must never crash on a fresh workspace
+  }
+
+  const episodes = await listEpisodes();
+  const lastEpisode = episodes.at(-1);
+
+  const tokenRecords = await listTokenRecords();
+  const todayRecords = tokenRecords.filter((record) => record.createdAt.startsWith(today));
+  const tokensToday = todayRecords.reduce((sum, record) => sum + record.inputTokens + record.outputTokens, 0);
+  const costToday = todayRecords.reduce((sum, record) => sum + (record.costUsd ?? 0), 0);
+
+  const schedules = await listSchedules();
+  const currentMinute = new Date(now);
+  currentMinute.setSeconds(0, 0);
+  const dueSchedules = schedules.filter((job) => {
+    if (job.disabled) return false;
+    if (!parseCron(job.cron).matches(now)) return false;
+    return !(job.lastRunAt && new Date(job.lastRunAt) >= currentMinute);
+  });
+
+  const flowRuns = await listFlowRuns();
+  const pendingGates = flowRuns.filter((run) => run.status === "awaiting_approval");
+
+  const integrity = await verifyIntegrity();
+
+  const rows: Array<[string, string]> = [
+    ["profile", activeProfile()],
+    ["providers", providersLine],
+    ["default runtime", runtimeLine],
+    ["episodes", `${episodes.length} recorded${lastEpisode ? ` (last: ${lastEpisode.id} ${lastEpisode.createdAt})` : ""}`],
+    ["tokens today", `${tokensToday} across ${todayRecords.length} runs${costToday ? ` (~$${costToday.toFixed(4)})` : ""}`],
+    ["schedules", `${schedules.length} total, ${dueSchedules.length} due now`],
+    ["flows pending gate", pendingGates.length ? pendingGates.map((run) => run.runId).join(", ") : "none"],
+    ["verify", integrity.ok ? "OK" : `${integrity.issues.length} issue(s) — run: muster verify`],
+  ];
+
+  const labelWidth = Math.max(...rows.map(([label]) => label.length)) + 2;
+  console.log(`muster status — ${now.toISOString()}`);
+  console.log("-".repeat(64));
+  for (const [label, value] of rows) {
+    console.log(`${padCell(label, labelWidth)} ${value}`);
+  }
+  if (pendingGates.length) {
+    console.log("-".repeat(64));
+    for (const run of pendingGates) {
+      console.log(`approve: muster flow approve ${run.runId}   reject: muster flow reject ${run.runId}`);
+    }
+  }
+}
+
 async function verifyCommand(): Promise<void> {
   const report = await verifyIntegrity();
   console.log(renderIntegrityReport(report));
@@ -1540,7 +1620,7 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     const config = await loadConfig();
     const port = readNumberFlag(commandArgs, "--port") ?? gateway.port ?? DEFAULT_GATEWAY_PORT;
     await startGatewayServer({ config, gateway, cwd: process.cwd(), log: (line) => console.log(line) }, port);
-    console.log("routes: GET /v1/health | POST /v1/messages | POST /v1/flows/<run>/approve|reject | POST /v1/adapters/telegram|slack");
+    console.log("routes: GET /v1/health | POST /v1/messages | POST /v1/flows/<run>/approve|reject | POST /v1/adapters/telegram|slack|discord|whatsapp|gchat|teams");
     console.log("stop with Ctrl-C");
     return;
   }
