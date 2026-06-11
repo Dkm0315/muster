@@ -90,7 +90,7 @@ For v0, a red provider connectivity check is acceptable when no local Ollama/Ope
 | HC-029 | `hc verify`: store integrity, duplicate run ids, silent model drift, stale-narrative poisoning | Done |
 | HC-030 | `hc evolve`: recursive suite runner + harness self-checks from OpenClaw/Hermes failure modes; live-converged 6/6 with Claude (haiku) | Done |
 | HC-031 | Provider preset catalog (20 presets: OpenAI, Anthropic API, xAI, Kimi, DeepSeek, Groq, Ollama, OpenRouter, vLLM, ...) + native Anthropic Messages API + claude-code runtime | Done |
-| HC-032 | Frappe capability pack manifest scaffold (implementation lands with pack loader HC-012) | Scaffold |
+| HC-032 | Frappe capability pack v0: identity/data/create tools, loader-enforced permissions | Done |
 
 Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (init -> profile -> provider add -> run via claude-code with memory recall -> tokens -> verify -> evolve) all passing.
 
@@ -99,6 +99,8 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | Card | Outcome | Status |
 | --- | --- | --- |
 | HC-033 | Flow engine slice 1: `packages/core/src/flow.ts` (tool/agent/gate steps, parse + preflight validation, `{{stepId.field}}` templates, durable JSONL run store at `.muster/data/flows/<runId>.jsonl`, resumable gates with expiry, `budgetTokens` ceiling) + `muster flow save/list/check/run/runs/show/approve/reject` CLI with built-in `echo` tool | Done |
-| HC-034 | Flow replay & diff (`flow replay <run> --against <run>`) + eval seeding from good runs | Ready |
-| HC-035 | Scheduler binding (`flow loop <id> --cron`) + per-iteration budgets in the token ledger | Ready |
+| HC-034 | Flow replay & diff (`flow replay <run> --against <run>`) | Done |
+| HC-035 | Scheduler binding (`flow loop <id> --cron`) | Done |
 | HC-036 | Channel approvals (Telegram/CLI parity) and dry-run previews in gate payloads | Ready |
+
+| HC-040 | Capability-pack loader with contractual permission enforcement | Done |
