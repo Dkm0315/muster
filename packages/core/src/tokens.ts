@@ -19,6 +19,8 @@ export interface TokenRecord {
   readonly durationMs: number;
   readonly wasteRatio?: number;
   readonly costUsd?: number;
+  /** Surface that originated the run (gateway runs only); enables per-surface budgets. */
+  readonly surfaceId?: string;
 }
 
 // Rough public list prices per 1M tokens (input, output). Used only for the
@@ -65,6 +67,7 @@ export interface BuildTokenRecordInput {
   readonly sessionId?: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly surfaceId?: string;
 }
 
 export function buildTokenRecord(input: BuildTokenRecordInput): TokenRecord {
@@ -94,6 +97,7 @@ export function buildTokenRecord(input: BuildTokenRecordInput): TokenRecord {
     durationMs: input.durationMs,
     wasteRatio,
     costUsd: estimateCostUsd(input.model, inputTokens, outputTokens),
+    surfaceId: input.surfaceId,
   };
 }
 

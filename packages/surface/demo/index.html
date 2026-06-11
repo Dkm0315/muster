@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Muster Surface Demo</title>
+<style>
+  body{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0a0c10;color:#e6e6e6;max-width:640px;margin:40px auto;padding:0 16px}
+  h1{font-size:18px}h1 b{color:#ffb000}
+  #log{border:1px solid #2a2e36;border-radius:8px;padding:12px;min-height:240px;margin:16px 0;white-space:pre-wrap}
+  .me{color:#ffb000}.bot{color:#9fe8a8}.sys{color:#7a8190}
+  form{display:flex;gap:8px}
+  input{flex:1;background:#12151b;color:#e6e6e6;border:1px solid #2a2e36;border-radius:6px;padding:10px}
+  button{background:#ffb000;color:#0a0c10;border:0;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer}
+</style>
+</head>
+<body>
+<h1><b>muster</b> surface demo — one envelope, any frontend</h1>
+<div id="log"><span class="sys">Start the gateway: muster gateway init && muster gateway start --port 7460
+Then set token below (from .muster/gateway.json) and chat.</span>
+</div>
+<form id="f">
+  <input id="t" placeholder="gateway token" style="max-width:160px">
+  <input id="m" placeholder="say something…" autocomplete="off">
+  <button>send</button>
+</form>
+<script type="module">
+const log = (cls, text) => { const d = document.getElementById("log"); d.innerHTML += `\n<span class="${cls}">${text.replace(/</g,"&lt;")}</span>`; d.scrollTop = d.scrollHeight; };
+// Inlined minimal client (mirrors @musterhq/surface createSurface)
+const surface = (url, token) => ({
+  async send(text) {
+    const r = await fetch(url + "/v1/messages", { method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + token },
+      body: JSON.stringify({ surfaceId: "web:demo", conversationId: "demo", senderId: "demo-user", text }) });
+    return r.json();
+  }
+});
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = document.getElementById("t").value.trim();
+  const text = document.getElementById("m").value.trim();
+  if (!text) return;
+  document.getElementById("m").value = "";
+  log("me", "> " + text);
+  try {
+    const reply = await surface("http://localhost:7460", token).send(text);
+    if (reply.status === "pairing_required") log("sys", `pairing required — run: muster pairing approve ${reply.code}`);
+    else log("bot", reply.text ?? JSON.stringify(reply));
+  } catch (err) { log("sys", "error: " + err.message); }
+});
+</script>
+</body>
+</html>

@@ -23,6 +23,9 @@ importers:
       '@musterhq/core':
         specifier: workspace:*
         version: link:../core
+      '@musterhq/gateway':
+        specifier: workspace:*
+        version: link:../gateway
 
   packages/core:
     dependencies:
@@ -38,6 +41,12 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.79.1
         version: 0.79.1
+
+  packages/gateway:
+    dependencies:
+      '@musterhq/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/ui:
     devDependencies:

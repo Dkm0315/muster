@@ -103,4 +103,7 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-035 | Scheduler binding (`flow loop <id> --cron`) | Done |
 | HC-036 | Channel approvals (Telegram/CLI parity) and dry-run previews in gate payloads | Ready |
 
+| HC-037 | Surface gateway slice 1: envelope, pairing lane, governed dispatch, per-surface tokens | Done |
+| HC-038 | Telegram + Slack adapters (pure mappers + webhook routes) | Done |
+| HC-039 | @musterhq/surface zero-dep web client + HTML demo | Done |
 | HC-040 | Capability-pack loader with contractual permission enforcement | Done |
