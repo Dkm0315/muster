@@ -8,6 +8,16 @@ export interface GatewayConfig {
   readonly port?: number;
   readonly telegram?: { readonly botToken: string };
   readonly slack?: { readonly botToken: string };
+  readonly discord?: { readonly botToken: string };
+  readonly whatsapp?: {
+    readonly accessToken: string;
+    readonly verifyToken: string;
+    readonly phoneNumberId: string;
+    /** Graph API version segment; defaults to v19.0. */
+    readonly apiVersion?: string;
+  };
+  readonly gchat?: { readonly verificationToken?: string };
+  readonly teams?: { readonly hmacSecret?: string };
 }
 
 export const DEFAULT_GATEWAY_PORT = 7460;

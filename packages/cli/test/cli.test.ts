@@ -355,6 +355,31 @@ test("CLI flow save, check, run with gate, approve, and runs work end to end", a
   assert.match(badCheck.stderr, /Flow not found: missing-flow/);
 });
 
+test("CLI doctor --fix bootstraps a fresh workspace and status renders mission control", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-status-"));
+
+  // status must never crash on an empty workspace
+  const fresh = await runCli(["status"], cwd);
+  assert.match(fresh.stdout, /muster status —/);
+  assert.match(fresh.stdout, /providers\s+no config \(run: muster doctor --fix\)/);
+
+  const fixed = await runCli(["doctor", "--fix"], cwd);
+  assert.match(fixed.stdout, /fix config/);
+  assert.match(fixed.stdout, /fix data-dir/);
+  assert.match(fixed.stdout, /ok  config/);
+
+  await runCli(["schedule", "add", "* * * * *", "daily digest"], cwd);
+
+  const { stdout } = await runCli(["status"], cwd);
+  assert.match(stdout, /profile\s+default/);
+  assert.match(stdout, /providers\s+1 configured \(local\)/);
+  assert.match(stdout, /episodes\s+0 recorded/);
+  assert.match(stdout, /tokens today\s+0 across 0 runs/);
+  assert.match(stdout, /schedules\s+1 total, 1 due now/);
+  assert.match(stdout, /flows pending gate\s+none/);
+  assert.match(stdout, /verify\s+OK/);
+});
+
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", "..")): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("tsx", [cliPath, ...args], {
     cwd,

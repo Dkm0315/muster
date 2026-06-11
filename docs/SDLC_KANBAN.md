@@ -107,3 +107,5 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-038 | Telegram + Slack adapters (pure mappers + webhook routes) | Done |
 | HC-039 | @musterhq/surface zero-dep web client + HTML demo | Done |
 | HC-040 | Capability-pack loader with contractual permission enforcement | Done |
+| HC-041 | Discord + WhatsApp + Google Chat + Teams adapters (pure mappers, verification handshakes, webhook routes) | Done |
+| HC-042 | `muster status` mission-control overview + `muster doctor --fix` workspace bootstrap | Done |
