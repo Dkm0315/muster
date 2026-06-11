@@ -64,7 +64,7 @@ Built on the [pi.dev](https://pi.dev) coding-agent SDK as bedrock — embedded s
 | Eval-gated learning | ✅ | ❌ | ❌ (promotes on use) | ❌ |
 | Governed fallback (evidence, never silent) | ✅ | ❌ ([#65646](https://github.com/openclaw/openclaw/issues/65646)) | ❌ | ❌ |
 | Session integrity verification | ✅ | ❌ ([#75235](https://github.com/openclaw/openclaw/issues/75235)) | ❌ ([#5563](https://github.com/NousResearch/hermes-agent/issues/5563)) | ❌ |
-| Channels (Telegram/WhatsApp/...) | 🔜 | ✅ 20+ | ✅ | ❌ |
+| Channels & web embeds (one governed envelope) | ✅ Telegram, Slack, any web app | ✅ 20+ bespoke | ✅ | ❌ |
 | Maturity / ecosystem | v0 | huge | large | large |
 
 Honest table: they have breadth and ecosystems we don't (yet). We have the governance core they demonstrably lack — each ❌ above links to their own issue tracker.
