@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import {
   approvePairing,
   DISCORD_PONG,
   discordInteractionToInbound,
+  discordSignatureIsValid,
   gatewayConfigPath,
   gchatEventToSurfaceMessage,
   loadGatewayConfig,
@@ -149,6 +150,43 @@ test("discord reply maps to interaction response; approvals render button compon
     approvalRequest: { runId: "flowrun_1a2b3c4d", gateId: "publish", show: "ship it?", options: ["approve", "reject"] },
   });
   assert.equal(channelMessage.components![0].components[0].custom_id, "muster:approve:flowrun_1a2b3c4d");
+});
+
+// --- Discord ed25519 signature verification (real keypair, no mocks) ---
+
+/** Real ed25519 keypair; raw 32-byte public key is the SPKI DER minus its 12-byte prefix. */
+function discordTestKeys(): { publicKeyHex: string; signFor: (timestamp: string, body: string) => string } {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const rawPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32);
+  return {
+    publicKeyHex: Buffer.from(rawPublicKey).toString("hex"),
+    signFor: (timestamp, body) => cryptoSign(null, Buffer.from(timestamp + body, "utf8"), privateKey).toString("hex"),
+  };
+}
+
+test("discord ed25519 signature: valid passes; tampered body/timestamp/signature fail", () => {
+  const keys = discordTestKeys();
+  const body = JSON.stringify(discordCommand);
+  const timestamp = "1765432100";
+  const signature = keys.signFor(timestamp, body);
+
+  assert.equal(discordSignatureIsValid(body, signature, timestamp, keys.publicKeyHex), true);
+
+  // Tampered body, timestamp, or signature must all be rejected.
+  assert.equal(discordSignatureIsValid(`${body} `, signature, timestamp, keys.publicKeyHex), false);
+  assert.equal(discordSignatureIsValid(body, signature, "1765432101", keys.publicKeyHex), false);
+  const flipped = (signature[0] === "0" ? "1" : "0") + signature.slice(1);
+  assert.equal(discordSignatureIsValid(body, flipped, timestamp, keys.publicKeyHex), false);
+
+  // Signature from a different key must be rejected.
+  const otherKeys = discordTestKeys();
+  assert.equal(discordSignatureIsValid(body, otherKeys.signFor(timestamp, body), timestamp, keys.publicKeyHex), false);
+
+  // Missing or malformed inputs return false instead of throwing.
+  assert.equal(discordSignatureIsValid(body, undefined, timestamp, keys.publicKeyHex), false);
+  assert.equal(discordSignatureIsValid(body, signature, undefined, keys.publicKeyHex), false);
+  assert.equal(discordSignatureIsValid(body, "not-hex", timestamp, keys.publicKeyHex), false);
+  assert.equal(discordSignatureIsValid(body, signature, timestamp, "deadbeef"), false);
 });
 
 // --- WhatsApp mapper ---
@@ -341,6 +379,50 @@ test("discord webhook answers PING with PONG and commands with a sync interactio
     });
     assert.equal(command.status, 200);
     assert.deepEqual(await command.json(), { type: 4, data: { content: "deploy v42 shipped" } });
+  } finally {
+    await gw.close();
+    gw.llmClose();
+  }
+});
+
+test("discord webhook with publicKey configured verifies signed requests and 401s unsigned/tampered ones", async () => {
+  const keys = discordTestKeys();
+  const gw = await startGatewayWith({ discord: { botToken: "discord-bot-token", publicKey: keys.publicKeyHex } }, "deploy v42 shipped");
+  try {
+    const body = JSON.stringify(discordPing);
+    const timestamp = String(Math.floor(Date.now() / 1000));
+
+    const signed = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/discord`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-ed25519": keys.signFor(timestamp, body),
+        "x-signature-timestamp": timestamp,
+      },
+      body,
+    });
+    assert.equal(signed.status, 200);
+    assert.deepEqual(await signed.json(), { type: 1 });
+
+    // No signature headers -> 401.
+    const unsigned = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/discord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    assert.equal(unsigned.status, 401);
+
+    // Signature over a different body -> 401 (raw-body tamper detection).
+    const tampered = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/discord`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-ed25519": keys.signFor(timestamp, body),
+        "x-signature-timestamp": timestamp,
+      },
+      body: JSON.stringify({ ...discordPing, type: 2 }),
+    });
+    assert.equal(tampered.status, 401);
   } finally {
     await gw.close();
     gw.llmClose();

@@ -1,13 +1,58 @@
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { isPairingChallenge } from "../envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "../envelope.js";
 
 /**
- * Discord Interactions adapter: PURE mappers only (no network). The gateway
- * server receives interaction webhooks on POST /v1/adapters/discord and
- * answers synchronously with an interaction response (Discord delivers the
- * response body of the webhook back to the channel). PING (type 1) must be
- * answered with PONG (type 1) for endpoint verification.
+ * Discord Interactions adapter: PURE mappers (no network) plus the ed25519
+ * signature check Discord requires for interaction endpoints. The gateway
+ * server receives interaction webhooks on POST /v1/adapters/discord, verifies
+ * X-Signature-Ed25519/X-Signature-Timestamp against the raw body, and answers
+ * synchronously with an interaction response (Discord delivers the response
+ * body of the webhook back to the channel). PING (type 1) must be answered
+ * with PONG (type 1) for endpoint verification.
  */
+
+/**
+ * SPKI DER prefix for an ed25519 public key: SEQUENCE(SEQUENCE(OID 1.3.101.112),
+ * BIT STRING(0 unused bits, 32-byte raw key)). Concatenating the 32 raw key
+ * bytes after this prefix yields a DER document node:crypto can import, which
+ * lets us verify Discord signatures with zero dependencies (Node supports
+ * ed25519 natively via crypto.verify since v12).
+ */
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+function hexToBuffer(hex: string, expectedBytes: number): Buffer | undefined {
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== expectedBytes * 2) return undefined;
+  return Buffer.from(hex, "hex");
+}
+
+/**
+ * Verify a Discord interaction request: ed25519 signature (X-Signature-Ed25519,
+ * hex) over `timestamp + rawBody` (X-Signature-Timestamp) against the
+ * application's public key (hex, from the Discord developer portal). Returns
+ * false (never throws) on any malformed input.
+ */
+export function discordSignatureIsValid(
+  rawBody: string,
+  signatureHex: string | undefined,
+  timestamp: string | undefined,
+  publicKeyHex: string,
+): boolean {
+  if (!signatureHex || !timestamp) return false;
+  const publicKeyRaw = hexToBuffer(publicKeyHex, 32);
+  const signature = hexToBuffer(signatureHex, 64);
+  if (!publicKeyRaw || !signature) return false;
+  try {
+    const key = createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, publicKeyRaw]),
+      format: "der",
+      type: "spki",
+    });
+    return cryptoVerify(null, Buffer.from(timestamp + rawBody, "utf8"), key, signature);
+  } catch {
+    return false;
+  }
+}
 
 // Interaction types (https://discord.com/developers/docs/interactions)
 const INTERACTION_PING = 1;
