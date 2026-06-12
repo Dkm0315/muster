@@ -1,6 +1,7 @@
 export * from "./agent-rules.js";
 export * from "./capability.js";
 export * from "./claude.js";
+export * from "./compactor.js";
 export * from "./config.js";
 export * from "./context-graph.js";
 export * from "./context-renderer.js";
