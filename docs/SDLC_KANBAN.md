@@ -114,3 +114,5 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-046 | Streaming core: StreamEvent, fence-aware coalescer, finalize FSM | Done |
 | HC-047 | Gateway draft streaming (Telegram/Slack) + retry_after queues | Done |
 | HC-048 | Typed hook bus (8 hooks, block-terminal, timeout-pass) wired into run loop | Done |
+
+| HC-044 | Context renderer: immutable transcript, progressive tool-result stubbing, result_fetch | Done |
