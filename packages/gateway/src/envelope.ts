@@ -24,6 +24,12 @@ export interface SurfaceMessage {
   readonly text: string;
   readonly attachments?: readonly SurfaceAttachment[];
   readonly replyTo?: string;
+  /**
+   * Delivery mode for the reply: "off" (default) answers with one buffered
+   * message; "draft" streams a live-edited draft via the surface's DraftSink
+   * (packages/core/src/stream.ts runDraftLoop) where the adapter supports it.
+   */
+  readonly stream?: "off" | "draft";
   /** original payload; never parsed by core */
   readonly raw?: unknown;
 }
@@ -78,6 +84,9 @@ export function parseSurfaceMessage(value: unknown): SurfaceMessage {
   if (message.replyTo !== undefined && typeof message.replyTo !== "string") {
     throw new Error('Surface message "replyTo" must be a string when present.');
   }
+  if (message.stream !== undefined && message.stream !== "off" && message.stream !== "draft") {
+    throw new Error('Surface message "stream" must be "off" or "draft" when present.');
+  }
   if (message.attachments !== undefined) {
     if (!Array.isArray(message.attachments)) {
       throw new Error('Surface message "attachments" must be an array when present.');
@@ -100,6 +109,7 @@ export function parseSurfaceMessage(value: unknown): SurfaceMessage {
     text: message.text as string,
     attachments: message.attachments as SurfaceAttachment[] | undefined,
     replyTo: message.replyTo,
+    stream: message.stream,
     raw: message.raw,
   };
 }

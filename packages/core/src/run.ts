@@ -6,6 +6,7 @@ import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from ".
 import { completeChat } from "./provider.js";
 import { classifyTask, planRun } from "./router.js";
 import { appendEpisode } from "./store.js";
+import { synthesizeDeltas } from "./stream.js";
 import { appendTokenRecord, buildTokenRecord, type TokenRecord } from "./tokens.js";
 import type {
   ContextObject,
@@ -36,6 +37,13 @@ export interface RunOptions {
   readonly skipAgentRules?: boolean;
   /** Surface label for per-surface token accounting (set by the gateway). */
   readonly surfaceId?: string;
+  /**
+   * Optional streaming hook (packages/core/src/stream.ts). For the pi runtime
+   * this receives live assistant deltas from the embedded session; for
+   * claude-code/native runtimes the buffered response is chunked into
+   * synthetic deltas so the same coalescer/draft pipeline runs everywhere.
+   */
+  readonly onDelta?: (text: string) => void;
 }
 
 export interface RunOutcome {
@@ -127,8 +135,12 @@ async function attemptRoute(
       model: route.model,
       timeoutMs: options.timeoutMs,
     });
+    const responseText = claudeResult.stdout.trim();
+    if (options.onDelta && claudeResult.status === "completed") {
+      for (const chunk of synthesizeDeltas(responseText)) options.onDelta(chunk);
+    }
     return {
-      responseText: claudeResult.stdout.trim(),
+      responseText,
       status: claudeResult.status,
       errorMessage: claudeResult.status === "failed" ? (claudeResult.errorMessage || claudeResult.stderr.trim() || "claude command failed") : undefined,
       route,
@@ -144,6 +156,7 @@ async function attemptRoute(
       sessionMode: options.sessionMode,
       sessionDir: options.sessionDir,
       timeoutMs: options.timeoutMs,
+      onDelta: options.onDelta,
     });
     return {
       responseText: piResult.stdout.trim(),
@@ -159,6 +172,9 @@ async function attemptRoute(
   }
   try {
     const text = await completeChat({ provider, route, messages: [{ role: "user", content: fullPrompt }] });
+    if (options.onDelta && text) {
+      for (const chunk of synthesizeDeltas(text)) options.onDelta(chunk);
+    }
     return { responseText: text, status: text ? "completed" : "failed", errorMessage: text ? undefined : "Empty response", route };
   } catch (error) {
     return { responseText: "", status: "failed", errorMessage: error instanceof Error ? error.message : String(error), route };

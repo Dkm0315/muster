@@ -18,6 +18,7 @@ export * from "./router.js";
 export * from "./run.js";
 export * from "./scheduler.js";
 export * from "./store.js";
+export * from "./stream.js";
 export * from "./tokens.js";
 export * from "./trust.js";
 export * from "./types.js";

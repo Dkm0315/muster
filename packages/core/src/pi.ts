@@ -54,6 +54,12 @@ export interface PiAgentRunInput {
   readonly sessionMode?: PiSessionMode;
   readonly sessionDir?: string;
   readonly agentDir?: string;
+  /**
+   * Optional live streaming hook: called with each assistant text delta as
+   * message_update events arrive from the embedded Pi session. Cheap — it is
+   * derived from the subscription runPiEmbeddedAgent already holds.
+   */
+  readonly onDelta?: (text: string) => void;
 }
 
 export interface PiCliDiagnosticRunInput extends PiAgentRunInput {
@@ -474,10 +480,22 @@ export async function runPiEmbeddedAgent(input: PiAgentRunInput): Promise<PiAgen
         eventCounts
       })
     });
+    let emittedAssistantChars = 0;
     const unsubscribe = session.subscribe((event) => {
       eventTypes.push(event.type);
       eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
       eventTrace.push(normalizePiEvent(event, ++traceIndex));
+      if (input.onDelta && (event.type === "message_update" || event.type === "message_end")) {
+        const text = extractAssistantTextFromEvent(event);
+        if (text !== undefined) {
+          if (text.length < emittedAssistantChars) emittedAssistantChars = 0; // new assistant message started
+          const delta = text.slice(emittedAssistantChars);
+          if (delta) {
+            emittedAssistantChars = text.length;
+            input.onDelta(delta);
+          }
+        }
+      }
     });
     try {
       let responseText = "";
@@ -842,6 +860,23 @@ function extractParameterKeys(schema: unknown): string[] {
   const properties = schema.properties;
   if (!isRecord(properties)) return [];
   return Object.keys(properties).sort();
+}
+
+/** Pull the assistant text out of a message_update/message_end event, if it carries one. */
+function extractAssistantTextFromEvent(event: unknown): string | undefined {
+  if (!isRecord(event)) return undefined;
+  const message = event.message;
+  if (!isRecord(message) || message.role !== "assistant") return undefined;
+  if (typeof message.content === "string") return message.content;
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) => {
+        const item = part as { readonly type?: string; readonly text?: string };
+        return item.type === "text" && item.text ? item.text : "";
+      })
+      .join("");
+  }
+  return undefined;
 }
 
 function extractLatestAssistantText(messages: readonly unknown[]): string {
