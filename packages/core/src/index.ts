@@ -12,6 +12,7 @@ export * from "./hooks.js";
 export * from "./flow.js";
 export * from "./integrity.js";
 export * from "./mcp.js";
+export * from "./media.js";
 export * from "./memory.js";
 export * from "./migration.js";
 export * from "./profiles.js";

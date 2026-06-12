@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { createStreamEventChannel, executeRun, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
+import { createStreamEventChannel, executeRun, extractMediaTags, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
 import type { DraftSink, FlowToolRegistry, MusterConfig } from "@musterhq/core";
 import { conversationSessionId, isPairingChallenge, parseSurfaceMessage } from "./envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.js";
@@ -56,6 +56,28 @@ function defaultRegistry(): FlowToolRegistry {
  * -> per-surface token accounting. Exported so adapters and tests can call
  * it without HTTP.
  */
+const idempotencyCache = new Map<string, { at: number; reply: SurfaceReply | PairingChallenge }>();
+const IDEMPOTENCY_TTL_MS = 10 * 60_000;
+
+/** Duplicate deliveries (webhook retries) with the same key return the cached reply. */
+export function idempotencyLookup(key: string | undefined): (SurfaceReply | PairingChallenge) | undefined {
+  if (!key) return undefined;
+  const hit = idempotencyCache.get(key);
+  if (!hit || Date.now() - hit.at > IDEMPOTENCY_TTL_MS) return undefined;
+  return hit.reply;
+}
+
+export function idempotencyStore(key: string | undefined, reply: SurfaceReply | PairingChallenge): void {
+  if (!key) return;
+  if (idempotencyCache.size > 1000) {
+    const cutoff = Date.now() - IDEMPOTENCY_TTL_MS;
+    for (const [cachedKey, value] of idempotencyCache) {
+      if (value.at < cutoff) idempotencyCache.delete(cachedKey);
+    }
+  }
+  idempotencyCache.set(key, { at: Date.now(), reply });
+}
+
 export async function handleSurfaceMessage(
   message: SurfaceMessage,
   options: Pick<GatewayServerOptions, "config" | "cwd"> & {
@@ -96,9 +118,15 @@ export async function handleSurfaceMessage(
     if (outcome.episode.outcome?.kind !== "completed") {
       throw new Error(outcome.episode.outcome?.detail ?? "Run failed");
     }
+    const extracted = extractMediaTags(outcome.episode.responseText);
     // finalize() is the only emitter of the final event (OpenClaw #33492).
-    streamRun?.finalize(outcome.episode.responseText);
-    return { text: outcome.episode.responseText };
+    streamRun?.finalize(extracted.text);
+    return {
+      text: extracted.text,
+      ...(extracted.media.length
+        ? { artifacts: extracted.media.map((item) => ({ name: item.name, mime: "application/octet-stream", path: item.ref })) }
+        : {}),
+    };
   } finally {
     channel?.close();
     if (draftLoop) await draftLoop;
