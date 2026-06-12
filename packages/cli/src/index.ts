@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { printBanner } from "./banner.js";
 import {
   openSessionStore,
   listSkills,
@@ -107,6 +108,7 @@ async function main(): Promise<void> {
     case "help":
     case "--help":
     case "-h":
+      printBanner();
       printHelp();
       return;
     case "init":
@@ -281,6 +283,7 @@ Design rule:
 }
 
 async function init(): Promise<void> {
+  printBanner();
   const target = await ensureDefaultConfig();
   console.log(`Created or reused Muster config: ${target}`);
   console.log("Default provider: local OpenAI-compatible endpoint at http://localhost:11434/v1");
