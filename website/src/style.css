@@ -262,21 +262,73 @@ main::before {
   justify-content: space-between;
   gap: 24px;
   padding: 16px clamp(18px, 4vw, 44px);
-  /* Liquid Glass bar: a tinted frost so text on the bar stays legible, plus a
-     specular bottom rim instead of a flat hairline. */
+  /* ---- FALLBACK (Safari / Firefox: no SVG-in-backdrop-filter) ----
+     Read as a distinct physical glass strip without refraction: a tinted frost,
+     heavier blur, a 1.5px lavender-tinted bottom border (the glass lip), a bright
+     specular top rim and a faint inner shadow so it lifts off the page below. */
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
     rgba(240, 238, 233, 0.58);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border-bottom: 1px solid var(--line-soft);
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(22px) saturate(185%);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  border-bottom: 1.5px solid rgba(167, 139, 250, 0.30);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.18),
+    0 8px 22px -14px rgba(76, 56, 130, 0.5);
 }
 [data-theme="dark"] .topbar {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
     rgba(14, 11, 26, 0.62);
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  border-bottom: 1.5px solid rgba(167, 139, 250, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.05),
+    0 8px 22px -14px rgba(0, 0, 0, 0.7);
+}
+
+/* A refractive bottom "lip": a 1px gradient line that catches light like the
+   bottom edge of a real glass strip. Sits just below the bar, full-bleed. */
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(167, 139, 250, 0.55) 18%,
+    rgba(6, 182, 212, 0.5) 50%,
+    rgba(167, 139, 250, 0.55) 82%,
+    transparent
+  );
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ---- CHROMIUM: true Liquid Glass refraction ----
+   When the JS probe confirms SVG-in-backdrop-filter actually paints, run the
+   nav's backdrop through the displacement filter so content scrolling beneath
+   visibly bends at the glass edge. Stronger specular top rim reinforces the lit
+   upper lip of the glass. */
+@supports (backdrop-filter: url(#liquid-glass)) {
+  html.supports-lg-refract .topbar {
+    backdrop-filter: url(#liquid-glass-nav) blur(12px) saturate(180%);
+    -webkit-backdrop-filter: url(#liquid-glass-nav) blur(12px) saturate(180%);
+    box-shadow:
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.7),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.2),
+      0 10px 26px -16px rgba(76, 56, 130, 0.55);
+  }
+  html.supports-lg-refract [data-theme="dark"] .topbar {
+    box-shadow:
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.06),
+      0 10px 26px -16px rgba(0, 0, 0, 0.7);
+  }
 }
 .brand {
   font-family: var(--display);

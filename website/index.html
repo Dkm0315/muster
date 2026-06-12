@@ -45,10 +45,19 @@
        .lg-refract class which is itself feature-gated in CSS + JS. The plain
        blur+specular glass below is the default and stands on its own. -->
   <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <!-- Subtle refraction for resting glass surfaces (cards, pills). -->
     <filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
       <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise" />
       <feGaussianBlur in="noise" stdDeviation="1.4" result="softNoise" />
       <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="14" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+    <!-- Stronger refraction for the sticky nav: content scrolling underneath
+         visibly warps at the glass edge. Higher scale + lower-frequency, gently
+         blurred noise = a smooth lens-like bend rather than a jittery shimmer. -->
+    <filter id="liquid-glass-nav" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.006 0.013" numOctaves="2" seed="11" result="navNoise" />
+      <feGaussianBlur in="navNoise" stdDeviation="2.0" result="navSoft" />
+      <feDisplacementMap in="SourceGraphic" in2="navSoft" scale="28" xChannelSelector="R" yChannelSelector="G" />
     </filter>
   </svg>
   <!-- Scroll-progress bar: lavender→cyan, fixed to the top edge -->
