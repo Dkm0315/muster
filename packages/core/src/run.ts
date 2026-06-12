@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { loadAgentRules } from "./agent-rules.js";
 import { defaultHookBus, type HookBus } from "./hooks.js";
 import { runClaudeCode } from "./claude.js";
+import { recordSkillUse, selectSkills } from "./skills.js";
 import { addMemory, searchMemory } from "./memory.js";
 import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from "./pi.js";
 import { completeChat } from "./provider.js";
@@ -200,7 +201,9 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const recalled = await recallMemory(options.prompt, scopes, options.recallLimit ?? 5, cwd);
   const recalledBlock = buildRecalledBlock(recalled);
   const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
-  const preamble = [rules?.text, recalledBlock].filter(Boolean).join("\n\n");
+  const skills = await selectSkills(options.prompt, 500, cwd);
+  if (skills.included.length) await recordSkillUse(skills.included, cwd);
+  const preamble = [rules?.text, skills.block, recalledBlock].filter(Boolean).join("\n\n");
   let fullPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
   const hooks = options.hooks ?? defaultHookBus;
   if (hooks.count("prompt.build")) {
