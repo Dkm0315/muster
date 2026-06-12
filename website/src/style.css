@@ -749,10 +749,9 @@ html.supports-lg-refract .glass-card {
 .proof-table::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  height: 60px;
-  background: linear-gradient(180deg, var(--lg-sheen), transparent 70%);
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent);
   pointer-events: none;
   z-index: 1;
 }
