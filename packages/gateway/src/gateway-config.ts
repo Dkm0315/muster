@@ -6,8 +6,16 @@ import { dirname, join } from "node:path";
 export interface GatewayConfig {
   readonly token: string;
   readonly port?: number;
-  readonly telegram?: { readonly botToken: string };
-  readonly slack?: { readonly botToken: string };
+  readonly telegram?: {
+    readonly botToken: string;
+    /** "draft" streams replies as live-edited drafts (sendMessage + editMessageText). */
+    readonly stream?: "off" | "draft";
+  };
+  readonly slack?: {
+    readonly botToken: string;
+    /** "draft" streams replies as live-edited drafts (chat.postMessage + chat.update). */
+    readonly stream?: "off" | "draft";
+  };
   readonly discord?: {
     readonly botToken: string;
     /** Application public key (hex, developer portal) for ed25519 interaction verification. */

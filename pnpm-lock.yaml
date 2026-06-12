@@ -48,6 +48,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/surface: {}
+
   packages/ui:
     devDependencies:
       vite:

@@ -1,9 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { executeRun, resumeFlow } from "@musterhq/core";
-import type { FlowToolRegistry, MusterConfig } from "@musterhq/core";
-import { conversationSessionId, parseSurfaceMessage } from "./envelope.js";
+import { createStreamEventChannel, executeRun, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
+import type { DraftSink, FlowToolRegistry, MusterConfig } from "@musterhq/core";
+import { conversationSessionId, isPairingChallenge, parseSurfaceMessage } from "./envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.js";
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
@@ -13,6 +13,8 @@ import { DISCORD_PONG, discordInteractionToInbound, discordSignatureIsValid, sur
 import { surfaceReplyToWhatsAppSend, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
 import { gchatEventToken, gchatEventToSurfaceMessage, surfaceReplyToGchatResponse } from "./adapters/gchat.js";
 import { surfaceReplyToTeamsActivity, teamsActivityToSurfaceMessage, teamsHmacIsValid } from "./adapters/teams.js";
+import { createOutboundQueue, createSlackDraftSink, createTelegramDraftSink } from "./streaming.js";
+import type { OutboundQueue } from "./streaming.js";
 
 /**
  * Slice 1 gateway: HTTP-only (node:http, no ws). Surfaces that need streaming
@@ -56,7 +58,15 @@ function defaultRegistry(): FlowToolRegistry {
  */
 export async function handleSurfaceMessage(
   message: SurfaceMessage,
-  options: Pick<GatewayServerOptions, "config" | "cwd">,
+  options: Pick<GatewayServerOptions, "config" | "cwd"> & {
+    /**
+     * Channel draft sink. When provided AND message.stream === "draft", the
+     * reply is streamed as a live-edited draft through the core draft loop;
+     * the returned SurfaceReply still carries the final text so callers can
+     * log it, but it has already been delivered by the sink.
+     */
+    readonly sink?: DraftSink;
+  },
 ): Promise<SurfaceReply | PairingChallenge> {
   const cwd = options.cwd ?? process.cwd();
   const paired = await resolvePairing(message.surfaceId, message.senderId, cwd);
@@ -64,19 +74,35 @@ export async function handleSurfaceMessage(
     const pending = await requestPairing(message.surfaceId, message.senderId, cwd);
     return { status: "pairing_required", code: pending.code };
   }
-  const outcome = await executeRun(options.config, {
-    prompt: message.text,
-    cwd,
-    surfaceId: message.surfaceId,
-    scopes: [
-      ...pairingScopes(paired),
-      { kind: "session", id: conversationSessionId(message) },
-    ],
-  });
-  if (outcome.episode.outcome?.kind !== "completed") {
-    throw new Error(outcome.episode.outcome?.detail ?? "Run failed");
+  const streaming = options.sink !== undefined && message.stream === "draft";
+  const channel = streaming ? createStreamEventChannel() : undefined;
+  const streamRun = channel ? new StreamRun({ onEvent: channel.push }) : undefined;
+  const draftLoop = streaming && channel && options.sink
+    ? runDraftLoop(channel.events, options.sink)
+    : undefined;
+  try {
+    const outcome = await executeRun(options.config, {
+      prompt: message.text,
+      cwd,
+      surfaceId: message.surfaceId,
+      scopes: [
+        ...pairingScopes(paired),
+        { kind: "session", id: conversationSessionId(message) },
+      ],
+      onDelta: streamRun ? (text) => {
+        if (streamRun.state === "streaming") streamRun.pushDelta(text);
+      } : undefined,
+    });
+    if (outcome.episode.outcome?.kind !== "completed") {
+      throw new Error(outcome.episode.outcome?.detail ?? "Run failed");
+    }
+    // finalize() is the only emitter of the final event (OpenClaw #33492).
+    streamRun?.finalize(outcome.episode.responseText);
+    return { text: outcome.episode.responseText };
+  } finally {
+    channel?.close();
+    if (draftLoop) await draftLoop;
   }
-  return { text: outcome.episode.responseText };
 }
 
 async function readBody(request: IncomingMessage, limitBytes = 1_000_000): Promise<string> {
@@ -109,6 +135,8 @@ interface AdapterContext {
   readonly log: (line: string) => void;
   /** Inbound request headers (lowercased), for adapters that verify signatures. */
   readonly headers: Record<string, string | string[] | undefined>;
+  /** Shared per-chat outbound queue (retry_after backoff) for draft streaming. */
+  readonly queue: OutboundQueue;
 }
 
 /**
@@ -120,8 +148,30 @@ interface AdapterContext {
 async function handleTelegramWebhook(body: string, context: AdapterContext): Promise<unknown> {
   const botToken = context.gateway.telegram?.botToken;
   if (!botToken) throw new Error("Telegram adapter not configured. Add telegram.botToken to .muster/gateway.json.");
-  const message = telegramUpdateToSurfaceMessage(JSON.parse(body));
-  if (!message) return { ok: true, ignored: "not a text message update" };
+  const mapped = telegramUpdateToSurfaceMessage(JSON.parse(body));
+  if (!mapped) return { ok: true, ignored: "not a text message update" };
+  if (context.gateway.telegram?.stream === "draft") {
+    const message: SurfaceMessage = { ...mapped, stream: "draft" };
+    const sink = createTelegramDraftSink({
+      botToken,
+      chatId: message.conversationId,
+      fetcher: context.fetcher,
+      queue: context.queue,
+    });
+    const reply = await handleSurfaceMessage(message, { ...context, sink });
+    // A streamed reply was already delivered draft-by-draft by the sink;
+    // pairing challenges fall through to the normal buffered send below.
+    if (!isPairingChallenge(reply)) return { ok: true, streamed: true };
+    const challengePayload = surfaceReplyToTelegramSend(reply, message.conversationId);
+    const challengeResponse = await context.fetcher(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(challengePayload),
+    });
+    if (!challengeResponse.ok) context.log(`telegram sendMessage failed: HTTP ${challengeResponse.status}`);
+    return { ok: true };
+  }
+  const message = mapped;
   const reply = await handleSurfaceMessage(message, context);
   const payload = surfaceReplyToTelegramSend(reply, message.conversationId);
   const response = await context.fetcher(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -144,6 +194,26 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
   const inbound = slackEventToSurfaceMessage(JSON.parse(body));
   if (inbound.kind === "url_verification") return { challenge: inbound.challenge };
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
+  if (context.gateway.slack?.stream === "draft") {
+    const message: SurfaceMessage = { ...inbound.message, stream: "draft" };
+    const sink = createSlackDraftSink({
+      botToken,
+      channel: message.conversationId,
+      threadTs: message.replyTo,
+      fetcher: context.fetcher,
+      queue: context.queue,
+    });
+    const reply = await handleSurfaceMessage(message, { ...context, sink });
+    if (!isPairingChallenge(reply)) return { ok: true, streamed: true };
+    const challengePayload = surfaceReplyToSlackPost(reply, message.conversationId, message.replyTo);
+    const challengeResponse = await context.fetcher("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${botToken}` },
+      body: JSON.stringify(challengePayload),
+    });
+    if (!challengeResponse.ok) context.log(`slack chat.postMessage failed: HTTP ${challengeResponse.status}`);
+    return { ok: true };
+  }
   const reply = await handleSurfaceMessage(inbound.message, context);
   const payload = surfaceReplyToSlackPost(reply, inbound.message.conversationId, inbound.message.replyTo);
   const response = await context.fetcher("https://slack.com/api/chat.postMessage", {
@@ -268,7 +338,7 @@ const adapterRoutes: Record<string, AdapterHandler> = {
   teams: handleTeamsWebhook,
 };
 
-async function route(request: IncomingMessage, response: ServerResponse, options: GatewayServerOptions): Promise<void> {
+async function route(request: IncomingMessage, response: ServerResponse, options: GatewayServerOptions, queue: OutboundQueue): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
   const url = new URL(request.url ?? "/", "http://gateway.local");
 
@@ -313,6 +383,7 @@ async function route(request: IncomingMessage, response: ServerResponse, options
       fetcher: options.fetcher ?? fetch,
       log: options.log ?? (() => {}),
       headers: request.headers,
+      queue,
     });
     sendJson(response, 200, result ?? { ok: true });
     return;
@@ -363,8 +434,10 @@ async function route(request: IncomingMessage, response: ServerResponse, options
 
 export function startGatewayServer(options: GatewayServerOptions, port = 0): Promise<RunningGateway> {
   const log = options.log ?? (() => {});
+  // One outbound queue per gateway: chat keys share retry_after backoff state.
+  const queue = createOutboundQueue();
   const server = createServer((request, response) => {
-    route(request, response, options).catch((error) => {
+    route(request, response, options, queue).catch((error) => {
       const detail = error instanceof Error ? error.message : String(error);
       const status = error instanceof GatewayHttpError ? error.status : 500;
       log(`error ${request.method} ${request.url}: ${detail}`);
