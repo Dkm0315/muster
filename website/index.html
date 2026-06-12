@@ -4,213 +4,262 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Muster — the AI agent harness you can audit</title>
-  <meta name="description" content="Muster is an open-source AI agent harness with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and session integrity verification. Works with Claude, OpenAI, Gemini, Ollama and 20+ providers. TypeScript, MIT, self-hosted." />
-  <meta name="keywords" content="AI agent framework, LLM agent harness, agent memory, token cost tracking, agent observability, eval-driven development, self-hosted AI agent, AI governance, agent audit trail, multi-provider LLM routing" />
+  <meta name="description" content="Muster is an open-source AI agent harness you can audit: a token-waste ledger, leak-proof scoped memory, eval-gated skills, and session verification. One governed envelope across Telegram, Slack, Discord, WhatsApp and more. 20+ providers, any MCP server. TypeScript, MIT, self-hosted." />
+  <meta name="keywords" content="AI agent framework, LLM agent harness, agent memory, token cost tracking, agent observability, eval-driven development, self-hosted AI agent, AI governance, agent audit trail, MCP, multi-provider LLM routing" />
   <link rel="canonical" href="https://mustered.dev/" />
-  <meta name="theme-color" content="#0a0c10" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0c10'/%3E%3Ccircle cx='9' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='9' r='3' fill='%23ffb000'/%3E%3Ccircle cx='9' cy='23' r='3' fill='%23ffb000'/%3E%3Ccircle cx='23' cy='23' r='3' fill='%23ffb000'/%3E%3C/svg%3E" />
+  <meta name="theme-color" content="#F0EEE9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Muster" />
   <meta property="og:title" content="Muster — the AI agent harness you can audit" />
-  <meta property="og:description" content="Every memory scoped. Every skill eval-gated. Every token on a ledger. Open-source, TypeScript, MIT, self-hosted. Does your agent pass muster?" />
+  <meta property="og:description" content="Every memory scoped. Every skill eval-gated. Every token on a ledger. One governed envelope across every chat surface, 20+ providers and any MCP server. Open-source, TypeScript, MIT." />
   <meta property="og:url" content="https://mustered.dev/" />
   <!-- Twitter -->
-  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Muster — the AI agent harness you can audit" />
-  <meta name="twitter:description" content="Token-waste ledger, leak-proof scoped memory, eval-gated learning, integrity verification. 20+ LLM providers. MIT." />
-  <!-- One webfont: JetBrains Mono for the machine-text identity. preconnect + display=swap so it never blocks LCP text. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <meta name="twitter:description" content="Token-waste ledger, leak-proof scoped memory, eval-gated learning, integrity verification. One envelope across every surface. 20+ providers, any MCP server. MIT." />
+  <!-- Fonts: Clash Display (headings) + Hanken Grotesk (body) via Fontshare; JetBrains Mono for code only. -->
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <!-- Scroll-progress bar: amber, fixed to the top edge, scaleX driven by motion.ts -->
+  <!-- Scroll-progress bar: lavender→cyan, fixed to the top edge -->
   <div id="scroll-progress" aria-hidden="true"></div>
-  <!-- Fine film-grain overlay: tiny inline-SVG fractal noise, very subtle, never intercepts clicks -->
-  <div id="grain" aria-hidden="true"></div>
-  <!-- Constellation layer: poster gradient is pure CSS; canvas + ascii pre lazy-init after first paint -->
-  <div id="stage" aria-hidden="true">
-    <canvas id="constellation"></canvas>
-    <pre id="ascii"></pre>
+  <!-- Liquid-lavender hero shader. CSS poster gradient paints immediately; canvas
+       fades in after first paint and sits BEHIND content, never intercepting clicks. -->
+  <div id="hero-stage" aria-hidden="true">
+    <canvas id="hero-canvas"></canvas>
   </div>
 
   <header class="topbar">
-    <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+    <a class="brand" href="/">muster<span class="brand-dot">.</span></a>
     <nav aria-label="Main">
-      <a href="#why">Why</a>
-      <a href="#why-muster">Why Muster</a>
-      <a href="#surfaces">Surfaces</a>
-      <a href="/portal.html">Portal <span class="chip chip-preview">preview</span></a>
+      <a href="#connect">Connect</a>
+      <a href="#models">Models</a>
+      <a href="#tools">Tools</a>
+      <a href="#governance">Governance</a>
+      <a href="#proof">Proof</a>
+      <a href="#ecosystem">Ecosystem</a>
       <a href="/docs.html">Docs</a>
-      <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+      <a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
     </nav>
   </header>
 
   <main>
+    <!-- ============================ HERO ============================ -->
     <section class="hero" id="hero">
-      <p class="kicker hero-step">mission control for a federation of agents</p>
-      <h1 class="hero-step">Muster — the AI agent <em>harness you can audit</em></h1>
-      <p class="sub hero-step">Agents waste 60&ndash;89% of what you spend on them. Muster puts every token on a ledger,<br />every memory in a scoped lane, every learned skill behind an eval gate.<br />Optimize first. Then ask: does your agent <em>pass muster</em>?</p>
-      <div class="hero-cta hero-step">
-        <div class="install" role="group" aria-label="Install command">
-          <code id="install-cmd">pnpm dlx @musterhq/cli init</code>
-          <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init" aria-label="Copy install command">copy</button>
+      <div class="hero-inner">
+        <p class="kicker hero-step">mission control for a federation of agents</p>
+        <h1 class="hero-step">The AI agent harness <em>you can audit.</em></h1>
+        <p class="sub hero-step">
+          Agents waste 60&ndash;89% of what you spend on them. Muster puts every token on a
+          ledger, every memory in a scoped lane, every learned skill behind an eval gate —
+          across every chat surface, every model, any MCP server.
+        </p>
+        <div class="hero-cta hero-step">
+          <div class="install" role="group" aria-label="Install command">
+            <code id="install-cmd">pnpm dlx @musterhq/cli init &amp;&amp; muster demo</code>
+            <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init && muster demo" aria-label="Copy install command">copy</button>
+          </div>
         </div>
-        <a class="btn-ghost" href="https://github.com/Dkm0315/muster" rel="noopener">Read the source →</a>
-      </div>
-      <button id="ascii-toggle" class="ascii-toggle" aria-pressed="false" title="Render the constellation as ASCII">mode: <span>3d</span></button>
-      <p class="hero-footnote hero-step">muster <span class="muted">(v.)</span> — to assemble troops into formation.</p>
-    </section>
-
-    <section class="terminal-section" id="demo" aria-label="Terminal demo" data-reveal>
-      <h2 class="reveal-child"><span class="sec-num">01</span> Plain-text tables. No dashboard required.</h2>
-      <p class="sec-sub reveal-child">A faithful replay of three real commands — scoped recall, the token ledger, and store verification.</p>
-      <div class="terminal reveal-child" id="terminal">
-        <div class="terminal-titlebar">
-          <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
-          <span class="terminal-title">muster — zsh</span>
+        <div class="hero-actions hero-step">
+          <a class="btn-cta" href="https://github.com/Dkm0315/muster" rel="noopener">Get started</a>
+          <a class="btn-ghost" href="https://github.com/Dkm0315/muster" rel="noopener">View on GitHub →</a>
         </div>
-        <div class="terminal-body" id="terminal-body"></div>
+        <p class="hero-footnote hero-step">muster <span class="muted">(v.)</span> — to assemble troops into formation.</p>
       </div>
-      <noscript><pre class="terminal-fallback">$ muster run "Where do we deploy?" --runtime claude-code --model haiku
-recalled 1 scoped memories into context
-run=run_8f3ka2c1 runtime=claude-code model=anthropic/claude-haiku task=qa status=completed
-tokens in=1842~ out=96~ cost=$0.0021
 
-We deploy to uat-erp.example.com.
-
-$ muster tokens
-$ muster verify
-integrity check: OK</pre></noscript>
-    </section>
-
-    <section class="why" id="why" data-reveal>
-      <h2 class="reveal-child"><span class="sec-num">02</span> Every agent framework demos beautifully. Then production happens.</h2>
-      <div class="cards">
-        <article class="card reveal-child">
-          <h3>Token burn you can't see</h3>
-          <p>Agents replay megatokens of stale context; field reports show 60–89% of spend wasted.</p>
-          <p class="answer"><code>muster tokens</code> — every run on a ledger, replay waste flagged with the exact ratio.</p>
-        </article>
-        <article class="card reveal-child">
-          <h3>Memory that leaks</h3>
-          <p>Most harnesses have one memory pool. Cross-user leakage is discovered by your customers.</p>
-          <p class="answer">Scoped lanes — tenant / workspace / user / role / session — with promotion gates. Leakage is blocked by design, not by hope.</p>
-        </article>
-        <article class="card reveal-child">
-          <h3>Silent model drift</h3>
-          <p>Fallbacks that quietly swap your model mid-session and never tell anyone.</p>
-          <p class="answer">Governed fallback: recorded as evidence on the episode, verified by <code>muster verify</code>, never silent.</p>
-        </article>
-        <article class="card reveal-child">
-          <h3>Learning on vibes</h3>
-          <p>"Self-improving" agents that promote skills nobody validated.</p>
-          <p class="answer">Eval-gated learning: feedback → adjudication against evidence → replayable fixture → promotion only when the suite passes.</p>
-        </article>
-        <article class="card reveal-child">
-          <h3>Sessions that rot</h3>
-          <p>Corrupt transcripts, duplicate runs, poisoned context replaying old failures.</p>
-          <p class="answer"><code>muster verify</code> detects all four classes; <code>muster evolve</code> re-tests the harness itself against them.</p>
-        </article>
+      <!-- Floating glassmorphism cards drifting over the shader -->
+      <div class="hero-cards hero-step" aria-hidden="true">
+        <div class="glass-card card-ledger">
+          <span class="gc-label">token ledger</span>
+          <code class="gc-row">gpt-5-mini  48.1K in  <span class="gc-flag">6.2&times; waste</span></code>
+          <code class="gc-row dim">claude-haiku  1.8K in  ledgered ✓</code>
+        </div>
+        <div class="glass-card card-savings">
+          <span class="gc-big">61%</span>
+          <span class="gc-sub">fewer tokens on long sessions</span>
+        </div>
+        <div class="glass-card card-verify">
+          <span class="gc-label">muster verify</span>
+          <code class="gc-row">integrity check: <span class="gc-ok">OK</span></code>
+        </div>
       </div>
     </section>
 
-    <section class="pillars" id="why-muster" data-reveal>
-      <h2 class="reveal-child"><span class="sec-num">03</span> Why teams choose Muster</h2>
-      <p class="sec-sub reveal-child">Three promises, kept on every single run. Not a roadmap — the core that's already underneath.</p>
-      <div class="pillar-grid">
-        <article class="pillar reveal-child">
-          <p class="pillar-kicker">Optimize</p>
-          <h3>The ledger sees every token.</h3>
-          <p>Most agent spend evaporates into replayed context. Muster prices every run, flags the waste, and shows you the exact ratio.</p>
-          <p class="pillar-stat">Up to 89% of agent spend is invisible waste — until it's on a ledger.</p>
+    <!-- ===================== CONNECT ANYWHERE ===================== -->
+    <section class="band" id="connect" data-reveal>
+      <p class="sec-kicker reveal-child">Connect anywhere</p>
+      <h2 class="reveal-child"><span class="sec-num">01</span> One governed envelope. Every room.</h2>
+      <p class="sec-sub reveal-child">A single message envelope fans out to wherever your people already are — same memory, same ledger, same approval gates in every surface. Add any channel in ~40 lines.</p>
+      <ul class="chip-grid reveal-child" aria-label="Supported channels">
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.4 3.4 2.9 10.6c-.9.4-.9 1.1-.2 1.3l4.7 1.5 1.8 5.5c.2.6.4.8.9.8.4 0 .6-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.7-.8l3.2-15.1c.3-1.2-.4-1.7-1.7-1.2zM7.9 13.1l10.4-6.5c.5-.3 1-.2.6.2l-8.8 8-.3 3.2-1.9-4.9z"/></svg><span>Telegram</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><path d="M9.05 2.5a2 2 0 1 0 0 4h2v-2a2 2 0 0 0-2-2zm0 5.5h-5a2 2 0 1 0 0 4h5a2 2 0 1 0 0-4z"/><path d="M21.5 9.05a2 2 0 1 0-4 0v2h2a2 2 0 0 0 2-2zM16 9.05v-5a2 2 0 1 0-4 0v5a2 2 0 1 0 4 0z" opacity=".7"/><path d="M14.95 21.5a2 2 0 1 0 0-4h-2v2a2 2 0 0 0 2 2zm0-5.5h5a2 2 0 1 0 0-4h-5a2 2 0 1 0 0 4z"/><path d="M2.5 14.95a2 2 0 1 0 4 0v-2h-2a2 2 0 0 0-2 2zM8 14.95v5a2 2 0 1 0 4 0v-5a2 2 0 1 0-4 0z" opacity=".7"/></g></svg><span>Slack</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.3 5.3A16.9 16.9 0 0 0 15.1 4l-.2.4c1.5.4 2.9 1 4.2 1.9a14 14 0 0 0-12.2 0c1.3-.9 2.7-1.5 4.2-1.9L10.9 4a16.9 16.9 0 0 0-4.2 1.3C4 9.2 3.3 13 3.6 16.7c1.6 1.2 3.4 2 5.2 2.4l.9-1.5c-.8-.3-1.6-.7-2.3-1.2l.5-.4a12 12 0 0 0 10.2 0l.5.4c-.7.5-1.5.9-2.3 1.2l.9 1.5c1.8-.4 3.6-1.2 5.2-2.4.4-4.3-.7-8-2.9-11.4zM9.7 14.6c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8zm4.6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8z"/></svg><span>Discord</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a9.9 9.9 0 0 0-8.6 14.9L2 22l5.3-1.4A9.9 9.9 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3.1.8.8-3-.2-.3A8 8 0 1 1 12 20zm4.5-6c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.5.1-.2.2-.6.8-.7.9-.1.2-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4.2-.4.6-1.1.1-.2 0-.4 0-.5l-.8-1.8c-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8 1.6.7 2.2.8 3 .6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.5-.4z"/></svg><span>WhatsApp</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14.6c0 .9 1.1 1.3 1.7.7L7.4 18H19a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5zm2.5 5h9a.8.8 0 1 1 0 1.6h-9a.8.8 0 1 1 0-1.6zm0 3.7h6a.8.8 0 1 1 0 1.6h-6a.8.8 0 1 1 0-1.6z"/></svg><span>Google Chat</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><circle cx="17" cy="7.5" r="2.3" opacity=".7"/><path d="M14.5 11h6c.3 0 .5.2.5.5v4.7a3.3 3.3 0 0 1-5 2.8 5 5 0 0 1-1.5-1.4V11z" opacity=".7"/><rect x="2" y="6" width="11" height="11" rx="1.4"/></g></svg><span>MS Teams</span></li>
+        <li class="chip-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 3.4h7V14H7v-1.6z"/></svg><span>WebChat</span></li>
+      </ul>
+    </section>
+
+    <!-- ===================== ANY MODEL, YOUR KEYS ===================== -->
+    <section class="band band-alt" id="models" data-reveal>
+      <p class="sec-kicker reveal-child">Any model, your keys</p>
+      <h2 class="reveal-child"><span class="sec-num">02</span> Cloud or local. Zero lock-in.</h2>
+      <p class="sec-sub reveal-child">One routing layer over 20+ providers — bring your own keys, swap models per task, run fully offline. Governed fallback is recorded as evidence, never silent.</p>
+      <ul class="model-grid reveal-child" aria-label="Supported model providers">
+        <li>Claude (Fable 5)</li><li>OpenAI</li><li>Gemini</li><li>Grok</li>
+        <li>Kimi</li><li>DeepSeek</li><li>Mistral</li><li>GLM</li>
+        <li>Perplexity</li><li>Qwen</li><li>Groq</li><li>Cerebras</li>
+        <li>OpenRouter</li><li>Together</li><li>Fireworks</li><li>Ollama</li>
+        <li>LM Studio</li><li>vLLM</li><li>SGLang</li><li>Codex CLI</li>
+      </ul>
+    </section>
+
+    <!-- ===================== CONNECT ANY TOOL ===================== -->
+    <section class="band" id="tools" data-reveal>
+      <p class="sec-kicker reveal-child">Connect any tool</p>
+      <h2 class="reveal-child"><span class="sec-num">03</span> The honest breadth multiplier.</h2>
+      <p class="sec-sub reveal-child">Muster doesn't fake a hundred first-party integrations. Its reach is MCP — thousands of servers — plus typed capability packs and durable flows.</p>
+      <div class="cards three">
+        <article class="card reveal-child">
+          <h3>Any MCP server</h3>
+          <p>Connect any of the thousands of MCP servers with <strong>per-server isolation</strong> — each gets its own scoped lane and approval gate. No shared blast radius.</p>
         </article>
-        <article class="pillar reveal-child">
-          <p class="pillar-kicker">Trust</p>
-          <h3>Memory that cannot leak.</h3>
-          <p>Five scoped lanes — tenant, workspace, user, role, session — with promotion gates between them. What one customer teaches your agent never reaches another.</p>
-          <p class="pillar-stat">Five lanes. Zero shared pools. Leakage is blocked by design, not by hope.</p>
+        <article class="card reveal-child">
+          <h3>Capability packs</h3>
+          <p>Typed, versioned tool bundles. The <strong>Frappe / ERPNext pack ships today</strong>; the pack format is the community surface for everything next.</p>
         </article>
-        <article class="pillar reveal-child">
-          <p class="pillar-kicker">Evolve</p>
-          <h3>Agents that prove improvement.</h3>
-          <p>Feedback becomes a replayable test before it becomes behavior. A skill only ships once it demonstrably beats what it replaces.</p>
-          <p class="pillar-stat">No skill is promoted until it passes the suite that would catch its failure.</p>
+        <article class="card reveal-child">
+          <h3>Flows</h3>
+          <p>Durable, <strong>replayable</strong> automations with approval gates between steps. A run that fails mid-flight resumes from where it stopped — not from zero.</p>
         </article>
       </div>
     </section>
 
-    <section class="surfaces" id="surfaces" data-reveal>
-      <h2 class="reveal-child"><span class="sec-num">04</span> One envelope. Every surface.</h2>
-      <p class="sec-sub reveal-child">A single governed message envelope fans out to wherever your people already are — same memory, same ledger, same approval gates in every room.</p>
-      <div class="surfaces-band reveal-child" aria-label="Supported surfaces">
-        <p class="band-tagline">One harness. Every room you work in.</p>
-        <ul class="surface-logos">
-          <li title="Slack">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Slack"><g fill="currentColor"><path d="M9.05 2.5a2 2 0 1 0 0 4h2v-2a2 2 0 0 0-2-2zm0 5.5h-5a2 2 0 1 0 0 4h5a2 2 0 1 0 0-4z" opacity=".9"/><path d="M21.5 9.05a2 2 0 1 0-4 0v2h2a2 2 0 0 0 2-2zM16 9.05v-5a2 2 0 1 0-4 0v5a2 2 0 1 0 4 0z" opacity=".65"/><path d="M14.95 21.5a2 2 0 1 0 0-4h-2v2a2 2 0 0 0 2 2zm0-5.5h5a2 2 0 1 0 0-4h-5a2 2 0 1 0 0 4z" opacity=".9"/><path d="M2.5 14.95a2 2 0 1 0 4 0v-2h-2a2 2 0 0 0-2 2zM8 14.95v5a2 2 0 1 0 4 0v-5a2 2 0 1 0-4 0z" opacity=".65"/></g></svg>
-            <span>Slack</span>
-          </li>
-          <li title="Discord">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Discord"><path fill="currentColor" d="M19.3 5.3A16.9 16.9 0 0 0 15.1 4l-.2.4c1.5.4 2.9 1 4.2 1.9a14 14 0 0 0-12.2 0c1.3-.9 2.7-1.5 4.2-1.9L10.9 4a16.9 16.9 0 0 0-4.2 1.3C4 9.2 3.3 13 3.6 16.7c1.6 1.2 3.4 2 5.2 2.4l.9-1.5c-.8-.3-1.6-.7-2.3-1.2l.5-.4a12 12 0 0 0 10.2 0l.5.4c-.7.5-1.5.9-2.3 1.2l.9 1.5c1.8-.4 3.6-1.2 5.2-2.4.4-4.3-.7-8-2.9-11.4zM9.7 14.6c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8zm4.6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8z"/></svg>
-            <span>Discord</span>
-          </li>
-          <li title="Telegram">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Telegram"><path fill="currentColor" d="M21.4 3.4 2.9 10.6c-.9.4-.9 1.1-.2 1.3l4.7 1.5 1.8 5.5c.2.6.4.8.9.8.4 0 .6-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.7-.8l3.2-15.1c.3-1.2-.4-1.7-1.7-1.2zM7.9 13.1l10.4-6.5c.5-.3 1-.2.6.2l-8.8 8-.3 3.2-1.9-4.9z"/></svg>
-            <span>Telegram</span>
-          </li>
-          <li title="WhatsApp">
-            <svg viewBox="0 0 24 24" role="img" aria-label="WhatsApp"><path fill="currentColor" d="M12 2a9.9 9.9 0 0 0-8.6 14.9L2 22l5.3-1.4A9.9 9.9 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3.1.8.8-3-.2-.3A8 8 0 1 1 12 20zm4.5-6c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.5.1-.2.2-.6.8-.7.9-.1.2-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4.2-.4.6-1.1.1-.2 0-.4 0-.5l-.8-1.8c-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8 1.6.7 2.2.8 3 .6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.5-.4z"/></svg>
-            <span>WhatsApp</span>
-          </li>
-          <li title="Google Chat">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Google Chat"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14.6c0 .9 1.1 1.3 1.7.7L7.4 18H19a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5zm2.5 5h9a.8.8 0 1 1 0 1.6h-9a.8.8 0 1 1 0-1.6zm0 3.7h6a.8.8 0 1 1 0 1.6h-6a.8.8 0 1 1 0-1.6z"/></svg>
-            <span>GChat</span>
-          </li>
-          <li title="Microsoft Teams">
-            <svg viewBox="0 0 24 24" role="img" aria-label="Microsoft Teams"><g fill="currentColor"><circle cx="17" cy="7.5" r="2.3" opacity=".65"/><path d="M14.5 11h6c.3 0 .5.2.5.5v4.7a3.3 3.3 0 0 1-5 2.8 5 5 0 0 1-1.5-1.4V11z" opacity=".65"/><rect x="2" y="6" width="11" height="11" rx="1.4"/><path fill="#0a0c10" d="M5 9h7v1.7H9.4V15H7.6v-4.3H5V9z"/></g></svg>
-            <span>Teams</span>
-          </li>
-        </ul>
-      </div>
-      <div class="surfaces-figure reveal-child">
-        <svg viewBox="0 0 720 420" role="img" aria-label="Diagram: a central Muster node radiating to Slack, Discord, Telegram, WhatsApp, Teams, Google Chat and Web">
-          <g class="rays" stroke="#2a2f3a" stroke-width="1.5">
-            <line x1="360" y1="210" x2="120" y2="70" /><line x1="360" y1="210" x2="360" y2="52" />
-            <line x1="360" y1="210" x2="600" y2="70" /><line x1="360" y1="210" x2="96" y2="210" />
-            <line x1="360" y1="210" x2="624" y2="210" /><line x1="360" y1="210" x2="170" y2="352" />
-            <line x1="360" y1="210" x2="550" y2="352" />
-          </g>
-          <g class="ray-pulses" fill="#ffb000">
-            <circle r="3"><animateMotion dur="2.8s" repeatCount="indefinite" path="M360,210 L120,70" /></circle>
-            <circle r="3"><animateMotion dur="3.4s" repeatCount="indefinite" path="M360,210 L600,70" /></circle>
-            <circle r="3"><animateMotion dur="2.4s" repeatCount="indefinite" path="M360,210 L624,210" /></circle>
-            <circle r="3"><animateMotion dur="3.1s" repeatCount="indefinite" path="M360,210 L170,352" /></circle>
-          </g>
-          <g class="hub">
-            <circle cx="360" cy="210" r="34" fill="#0a0c10" stroke="#ffb000" stroke-width="2" />
-            <circle cx="360" cy="210" r="6" fill="#ffb000" />
-            <text x="360" y="266" text-anchor="middle" class="svg-label hub-label">muster</text>
-          </g>
-          <g class="surface-nodes">
-            <g transform="translate(120,70)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">#</text><text y="42" text-anchor="middle" class="svg-label">Slack</text></g>
-            <g transform="translate(360,52)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">@</text><text y="42" text-anchor="middle" class="svg-label">Discord</text></g>
-            <g transform="translate(600,70)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">✈</text><text y="42" text-anchor="middle" class="svg-label">Telegram</text></g>
-            <g transform="translate(96,210)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">✆</text><text y="42" text-anchor="middle" class="svg-label">WhatsApp</text></g>
-            <g transform="translate(624,210)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">T</text><text y="42" text-anchor="middle" class="svg-label">Teams</text></g>
-            <g transform="translate(170,352)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">G</text><text y="42" text-anchor="middle" class="svg-label">GChat</text></g>
-            <g transform="translate(550,352)"><circle r="22" /><text y="4" text-anchor="middle" class="svg-glyph">⌘</text><text y="42" text-anchor="middle" class="svg-label">Web</text></g>
-          </g>
-        </svg>
+    <!-- ===================== WHY IT'S DIFFERENT ===================== -->
+    <section class="band band-alt" id="governance" data-reveal>
+      <p class="sec-kicker reveal-child">Why it's different</p>
+      <h2 class="reveal-child"><span class="sec-num">04</span> Every framework demos beautifully. Then production happens.</h2>
+      <p class="sec-sub reveal-child">Governance is the moat — five promises kept on every single run, not a roadmap.</p>
+      <div class="cards five">
+        <article class="card reveal-child">
+          <h3>Token ledger</h3>
+          <p>Every run priced and recorded. Replay waste flagged with the exact ratio. <code>muster tokens</code>.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Scoped memory</h3>
+          <p>Five lanes — tenant, workspace, user, role, session — with promotion gates. Leakage is blocked by design.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Eval-gated skills</h3>
+          <p>Feedback becomes a replayable test before it becomes behaviour. A skill ships only when the suite passes.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>muster verify</h3>
+          <p>Detects corrupt transcripts, duplicate runs, drift and poisoned context — four failure classes, every store.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Never-wedge compactor</h3>
+          <p>Fits every turn to budget without losing the thread. The harness can't paint itself into a corner.</p>
+        </article>
       </div>
     </section>
 
+    <!-- ===================== PROOF: TOKEN WASTE INDEX ===================== -->
+    <section class="band" id="proof" data-reveal>
+      <p class="sec-kicker reveal-child">Proof</p>
+      <h2 class="reveal-child"><span class="sec-num">05</span> The Token Waste Index.</h2>
+      <p class="sec-sub reveal-child">Deterministic measurement — no model is called. Across 5 realistic agent tasks (170 turns), a naive replay-everything harness sends <strong>876k tokens</strong>; Muster sends <strong>355k</strong> — a <strong>59.4% reduction</strong>, up to 62.7% on the longest threads. Reproduce with <code>muster benchmark</code>.</p>
+      <div class="proof-table reveal-child" role="region" aria-label="Token Waste Index results">
+        <table>
+          <thead>
+            <tr><th>scenario</th><th>turns</th><th>naive</th><th>muster</th><th>reduction</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>codebase-refactor-20</td><td>21</td><td>84.6k</td><td>42.7k</td><td><span class="pct">49.6%</span></td></tr>
+            <tr><td>incident-triage-30</td><td>31</td><td>144.9k</td><td>60.5k</td><td><span class="pct">58.2%</span></td></tr>
+            <tr><td>erp-data-audit-40</td><td>41</td><td>205.5k</td><td>79.5k</td><td><span class="pct">61.3%</span></td></tr>
+            <tr><td>research-synthesis-25</td><td>26</td><td>160.0k</td><td>67.7k</td><td><span class="pct">57.7%</span></td></tr>
+            <tr><td>long-support-thread-50</td><td>51</td><td>280.8k</td><td>104.9k</td><td><span class="pct">62.7%</span></td></tr>
+            <tr class="agg"><td>AGGREGATE</td><td>170</td><td>875.8k</td><td>355.2k</td><td><span class="pct">59.4%</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="proof-link reveal-child"><a href="https://github.com/Dkm0315/muster/blob/main/benchmark/RESULTS.md" rel="noopener">Read the full methodology &amp; reproduce →</a></p>
+    </section>
+
+    <!-- ===================== ECOSYSTEM ===================== -->
+    <section class="band band-alt" id="ecosystem" data-reveal>
+      <p class="sec-kicker reveal-child">Ecosystem</p>
+      <h2 class="reveal-child"><span class="sec-num">06</span> A platform, not a CLI.</h2>
+      <p class="sec-sub reveal-child">One monorepo, one version — presented as the products it already is, plus themed satellites we're building. Military-assembly naming throughout.</p>
+      <div class="eco-grid reveal-child">
+        <article class="eco-card shipped">
+          <span class="eco-status">shipped</span>
+          <h3>Muster</h3>
+          <p>The governed agent harness — core &amp; CLI.</p>
+        </article>
+        <article class="eco-card shipped">
+          <span class="eco-status">shipped</span>
+          <h3>Garrison</h3>
+          <p>One governed envelope for seven chat surfaces. <code>@musterhq/gateway</code></p>
+        </article>
+        <article class="eco-card shipped">
+          <span class="eco-status">shipped</span>
+          <h3>Dispatch</h3>
+          <p>Zero-dependency web client for any frontend. <code>@musterhq/surface</code></p>
+        </article>
+        <article class="eco-card shipped">
+          <span class="eco-status">shipped</span>
+          <h3>Tally</h3>
+          <p>The Token Waste Index — prove the savings. <code>muster benchmark</code></p>
+        </article>
+        <article class="eco-card shipped">
+          <span class="eco-status">v0</span>
+          <h3>Frappe pack</h3>
+          <p>ERPNext / Frappe capability pack — shipped.</p>
+        </article>
+        <article class="eco-card planned">
+          <span class="eco-status">planned</span>
+          <h3>Roster</h3>
+          <p>Capability-pack registry — <code>roster install &lt;pack&gt;</code>.</p>
+        </article>
+        <article class="eco-card planned">
+          <span class="eco-status">planned</span>
+          <h3>Defector</h3>
+          <p>Migrate from OpenClaw / Hermes into Muster, with verification.</p>
+        </article>
+        <article class="eco-card planned">
+          <span class="eco-status">planned</span>
+          <h3>Recon</h3>
+          <p>Standalone eval-suite runner — harness + config + model, not just the LLM.</p>
+        </article>
+        <article class="eco-card planned">
+          <span class="eco-status">planned</span>
+          <h3>Picket</h3>
+          <p>Local monitor / TUI over the gateway RPC — watch runs and the ledger live.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== CLOSER ===================== -->
     <section class="closer" data-reveal>
-      <h2 class="reveal-child">Provably governed, or it doesn't ship.</h2>
+      <h2 class="reveal-child">Build with us.</h2>
+      <p class="sec-sub reveal-child">Everything is open source, MIT. Ship a capability pack and grow the surface.</p>
       <div class="install install-lg reveal-child" role="group" aria-label="Install command">
         <code>pnpm dlx @musterhq/cli init &amp;&amp; muster doctor</code>
         <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init && muster doctor" aria-label="Copy install command">copy</button>
+      </div>
+      <div class="hero-actions reveal-child">
+        <a class="btn-cta" href="https://github.com/Dkm0315/muster" rel="noopener">Get started</a>
+        <a class="btn-ghost" href="/docs.html">Read the docs →</a>
       </div>
     </section>
   </main>
@@ -223,9 +272,9 @@ integrity check: OK</pre></noscript>
       <span class="footer-sep">·</span>
       <span>MIT License</span>
       <span class="footer-sep">·</span>
-      <a href="/portal.html">Portal preview</a>
-      <span class="footer-sep">·</span>
       <a href="/docs.html">Docs</a>
+      <span class="footer-sep">·</span>
+      <a href="/portal.html">Portal preview</a>
     </div>
   </footer>
 </body>
