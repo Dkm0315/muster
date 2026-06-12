@@ -19,6 +19,7 @@ export * from "./pi.js";
 export * from "./router.js";
 export * from "./run.js";
 export * from "./scheduler.js";
+export * from "./sessions.js";
 export * from "./store.js";
 export * from "./stream.js";
 export * from "./tokens.js";
