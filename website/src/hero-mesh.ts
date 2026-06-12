@@ -19,6 +19,29 @@ export interface HeroMeshHandle {
   setDark(dark: boolean): void;
 }
 
+// A few floating glass orbs that drift in front of the aurora. Each has its own
+// base position (z = depth), drift phase/speed, spin axis, parallax factor (closer
+// orbs react more to the cursor) and tint. Tuned to read as a handful of frosted
+// lavender/cyan lenses, never a crowd.
+interface OrbSpec {
+  pos: [number, number, number];
+  radius: number;
+  detail: number;        // icosahedron subdivisions (0 = facetted, 2 = smooth-ish)
+  parallax: number;      // mouse/scroll response; ~ proportional to nearness
+  bob: number;           // vertical drift amplitude (world units)
+  bobSpeed: number;
+  spin: [number, number, number];
+  tint: number;          // hex sheen colour
+}
+
+const ORBS: readonly OrbSpec[] = [
+  { pos: [-3.1, 1.1, -2.0], radius: 0.92, detail: 1, parallax: 0.55, bob: 0.34, bobSpeed: 0.55, spin: [0.06, 0.10, 0.0], tint: 0xa78bfa },
+  { pos: [3.3, 0.5, -1.0], radius: 1.18, detail: 2, parallax: 0.85, bob: 0.42, bobSpeed: 0.42, spin: [0.04, -0.08, 0.02], tint: 0x06b6d4 },
+  { pos: [1.7, -1.6, -3.4], radius: 0.66, detail: 1, parallax: 0.35, bob: 0.30, bobSpeed: 0.7, spin: [-0.05, 0.07, 0.0], tint: 0xb9a2ff },
+  { pos: [-2.0, -1.2, -4.6], radius: 0.5, detail: 0, parallax: 0.22, bob: 0.26, bobSpeed: 0.9, spin: [0.08, 0.05, 0.03], tint: 0xc6f800 },
+  { pos: [0.2, 2.0, -5.2], radius: 0.78, detail: 1, parallax: 0.3, bob: 0.5, bobSpeed: 0.5, spin: [0.03, 0.06, -0.02], tint: 0x22c9e6 },
+];
+
 // Vertex: emit a fullscreen triangle from gl_VertexID, pass through UV in [0,1].
 const VERT = /* glsl */ `
   varying vec2 vUv;
@@ -175,11 +198,14 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: false,
+    antialias: true,
     alpha: false,
     powerPreference: "low-power",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  // We draw two passes into one canvas: the fullscreen aurora (clears the frame)
+  // then the orbs on top. Manage clearing manually so the orbs composite over it.
+  renderer.autoClear = false;
 
   const scene = new THREE.Scene();
   const camera = new THREE.Camera();
@@ -221,6 +247,89 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
   });
   scene.add(new THREE.Mesh(geo, material));
 
+  // --- floating 3D glass orbs (second pass, perspective) ---------------------
+  // A handful of frosted icosahedrons drifting in front of the aurora at varying
+  // depth. Physical material with transmission gives a glassy lavender/cyan sheen;
+  // an env map keeps them from going flat-black with no scene lights.
+  const orbScene = new THREE.Scene();
+  const orbCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  orbCamera.position.set(0, 0, 6);
+
+  // Lightweight gradient environment so transmission/reflection has something to
+  // sample — no external HDR. PMREM-process a tiny canvas gradient.
+  const envTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = 4;
+    c.height = 64;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      const g = ctx.createLinearGradient(0, 0, 0, 64);
+      g.addColorStop(0, "#cdbcff");
+      g.addColorStop(0.5, "#9fe6f2");
+      g.addColorStop(1, "#fff3ea");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 4, 64);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    return tex;
+  })();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envRT = pmrem.fromEquirectangular(envTex);
+  orbScene.environment = envRT.texture;
+
+  // Soft rim lights so facets catch a lavender/cyan edge.
+  const keyLight = new THREE.DirectionalLight(0xc9b6ff, 1.1);
+  keyLight.position.set(2, 3, 4);
+  const rimLight = new THREE.DirectionalLight(0x35d8ef, 0.8);
+  rimLight.position.set(-3, -1, 2);
+  orbScene.add(keyLight, rimLight, new THREE.AmbientLight(0xffffff, 0.35));
+
+  interface OrbMesh {
+    mesh: THREE.Mesh;
+    spec: OrbSpec;
+    baseY: number;
+  }
+  const orbGeoCache = new Map<string, THREE.IcosahedronGeometry>();
+  const orbMaterials: THREE.MeshPhysicalMaterial[] = [];
+  const orbs: OrbMesh[] = ORBS.map((spec) => {
+    const key = `${spec.radius}:${spec.detail}`;
+    let g = orbGeoCache.get(key);
+    if (!g) {
+      g = new THREE.IcosahedronGeometry(spec.radius, spec.detail);
+      orbGeoCache.set(key, g);
+    }
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(spec.tint),
+      metalness: 0.0,
+      roughness: 0.18,
+      transmission: 0.9,        // glass-like see-through
+      thickness: spec.radius,
+      ior: 1.35,
+      iridescence: 0.6,
+      iridescenceIOR: 1.3,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.25,
+      transparent: true,
+      opacity: 0.92,
+      envMapIntensity: 1.1,
+    });
+    orbMaterials.push(mat);
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
+    orbScene.add(mesh);
+    return { mesh, spec, baseY: spec.pos[1] };
+  });
+
+  // Scroll-linked depth: as the page scrolls the orb layer recedes/drifts.
+  let scrollNorm = 0; // 0 at top of hero, ~1 once scrolled a viewport
+  const onScroll = () => {
+    const y = window.scrollY || window.pageYOffset || 0;
+    scrollNorm = Math.min(1, y / Math.max(1, window.innerHeight));
+  };
+  if (!reduced) window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
   // --- damped mouse (lerp toward raw target for silk smoothness) ---
   let targetX = 0;
   let targetY = 0;
@@ -235,6 +344,8 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
     const h = window.innerHeight;
     renderer.setSize(w, h, false);
     uniforms.uResolution.value.set(w, h);
+    orbCamera.aspect = w / Math.max(h, 1);
+    orbCamera.updateProjectionMatrix();
   };
   window.addEventListener("resize", resize, { passive: true });
   resize();
@@ -245,6 +356,9 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
   let paused = false;
   let elapsed = 0;
 
+  // Damped scroll value so the orb recede eases instead of snapping per frame.
+  let scrollEased = scrollNorm;
+
   const render = () => {
     const m = uniforms.uMouse.value;
     m.x += (targetX - m.x) * 0.045;
@@ -252,7 +366,34 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
     // Ease the palette mix toward its target for a smooth theme cross-fade.
     uniforms.uMix.value += (mixTarget - uniforms.uMix.value) * 0.06;
     uniforms.uTime.value = elapsed;
+
+    scrollEased += (scrollNorm - scrollEased) * 0.08;
+
+    // Pass 1 — aurora fills the frame (clear first).
+    renderer.clear();
     renderer.render(scene, camera);
+
+    // Pass 2 — orbs composite on top with depth + parallax + drift.
+    // Closer orbs (higher parallax) track the cursor more; the whole layer
+    // recedes and lifts slightly as the user scrolls down the hero.
+    for (const orb of orbs) {
+      const s = orb.spec;
+      orb.mesh.position.x = s.pos[0] + m.x * s.parallax * 1.1;
+      orb.mesh.position.y =
+        orb.baseY +
+        Math.sin(elapsed * s.bobSpeed + s.pos[0]) * s.bob +
+        m.y * s.parallax * 0.7 +
+        scrollEased * (0.6 + s.parallax * 1.4);          // lift on scroll
+      orb.mesh.position.z = s.pos[2] - scrollEased * 2.2; // recede on scroll
+      orb.mesh.rotation.x += s.spin[0] * 0.02;
+      orb.mesh.rotation.y += s.spin[1] * 0.02;
+      orb.mesh.rotation.z += s.spin[2] * 0.02;
+    }
+    // Fade the orb layer out as it recedes so it never fights lower content.
+    const orbOpacity = 1 - scrollEased * 0.9;
+    for (const mat of orbMaterials) mat.opacity = Math.max(0, 0.92 * orbOpacity);
+
+    renderer.render(orbScene, orbCamera);
   };
 
   // Re-tune colours on theme toggle. Under reduced motion (no rAF loop) we set
@@ -300,7 +441,9 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
         cancelAnimationFrame(frameId);
         window.removeEventListener("mousemove", onMouse);
         window.removeEventListener("resize", resize);
+        window.removeEventListener("scroll", onScroll);
         document.removeEventListener("visibilitychange", onVisibility);
+        disposeOrbs();
         geo.dispose();
         material.dispose();
         renderer.dispose();
@@ -314,9 +457,18 @@ export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): He
     destroy(): void {
       destroyed = true;
       window.removeEventListener("resize", resize);
+      disposeOrbs();
       geo.dispose();
       material.dispose();
       renderer.dispose();
     },
   };
+
+  function disposeOrbs(): void {
+    for (const g of orbGeoCache.values()) g.dispose();
+    for (const mat of orbMaterials) mat.dispose();
+    envTex.dispose();
+    envRT.dispose();
+    pmrem.dispose();
+  }
 }

@@ -1,5 +1,6 @@
 import "./style.css";
 import { initMotion } from "./motion";
+import { initCardTilt } from "./tilt";
 import { initTheme, onThemeChange, probeLiquidGlassRefraction } from "./theme";
 import type { HeroMeshHandle } from "./hero-mesh";
 
@@ -11,6 +12,9 @@ probeLiquidGlassRefraction();
 
 // ---------- silk-smooth motion (reveals, scroll progress, magnetic hover, smooth anchors) ----------
 initMotion();
+
+// ---------- 3D card tilt toward the cursor (pointer devices only) ----------
+initCardTilt();
 
 // ---------- copy buttons ----------
 for (const button of document.querySelectorAll<HTMLButtonElement>(".copy-btn")) {

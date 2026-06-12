@@ -790,6 +790,50 @@ html.supports-lg-refract .glass-card {
 .card p + p { margin-top: 8px; }
 
 /* ============================================================
+   3D CARD TILT — cursor-tracking perspective tilt + moving sheen
+   ============================================================
+   Driven by src/tilt.ts (pointer devices only). While .tilting the JS owns the
+   transform via a rAF spring, so the CSS transform-transition is suspended to
+   avoid a double-easing lag; the specular sheen follows the cursor. */
+.tilt {
+  transform-style: preserve-3d;
+  /* keep the moving sheen clipped to the card's rounded corners */
+}
+.tilt.tilting {
+  transition:
+    border-color 0.22s var(--ease-out),
+    box-shadow 0.22s var(--ease-out);
+  z-index: 2;
+}
+/* Moving specular highlight that tracks the tilt — a soft radial hotspot at the
+   cursor position. Layered above the card fill but below its text content. */
+.tilt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    220px circle at var(--sheen-x, 50%) var(--sheen-y, 0%),
+    rgba(255, 255, 255, 0.5),
+    rgba(255, 255, 255, 0) 60%
+  );
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+  pointer-events: none;
+  z-index: 0;
+}
+.tilt.tilting::after { opacity: 0.7; }
+[data-theme="dark"] .tilt::after {
+  background: radial-gradient(
+    220px circle at var(--sheen-x, 50%) var(--sheen-y, 0%),
+    rgba(185, 162, 255, 0.28),
+    rgba(185, 162, 255, 0) 60%
+  );
+}
+/* Card text must sit above the sheen overlay. */
+.tilt > * { position: relative; z-index: 1; }
+
+/* ============================================================
    PROOF TABLE
    ============================================================ */
 .proof-table {
