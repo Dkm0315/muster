@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { isPairingChallenge } from "../envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "../envelope.js";
 
@@ -6,6 +7,35 @@ import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "../envelope
  * server receives events on POST /v1/adapters/slack and posts replies to
  * https://slack.com/api/chat.postMessage with the bot token.
  */
+
+/** Reject Slack webhooks whose timestamp is older than this (replay window). */
+export const SLACK_REPLAY_WINDOW_SECONDS = 5 * 60;
+
+/**
+ * Verify a Slack request signature (https://api.slack.com/authentication/verifying-requests-from-slack).
+ * Slack signs `v0:{timestamp}:{rawBody}` with the app signing secret using
+ * HMAC-SHA256 and sends `v0=<hex>` in X-Slack-Signature, with the timestamp in
+ * X-Slack-Request-Timestamp. Returns false on any missing/malformed input, on
+ * signature mismatch, or when the timestamp is outside the replay window.
+ * The comparison is constant-time. `now` is injectable for tests.
+ */
+export function slackSignatureIsValid(
+  timestamp: string | undefined,
+  rawBody: string,
+  signature: string | undefined,
+  secret: string,
+  now: number = Date.now(),
+): boolean {
+  if (!timestamp || !signature || !secret) return false;
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts)) return false;
+  // Reject stale requests (replay protection). Math.abs guards against clock skew both ways.
+  if (Math.abs(now / 1000 - ts) > SLACK_REPLAY_WINDOW_SECONDS) return false;
+  const expected = `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:${rawBody}`, "utf8").digest("hex")}`;
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 export type SlackInbound =
   | { readonly kind: "url_verification"; readonly challenge: string }

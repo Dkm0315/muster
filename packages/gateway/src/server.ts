@@ -8,7 +8,7 @@ import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
 import { surfaceReplyToTelegramSend, telegramUpdateToSurfaceMessage } from "./adapters/telegram.js";
-import { slackEventToSurfaceMessage, surfaceReplyToSlackPost } from "./adapters/slack.js";
+import { slackEventToSurfaceMessage, slackSignatureIsValid, surfaceReplyToSlackPost } from "./adapters/slack.js";
 import { DISCORD_PONG, discordInteractionToInbound, discordSignatureIsValid, surfaceReplyToDiscordInteractionResponse } from "./adapters/discord.js";
 import { surfaceReplyToWhatsAppSend, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
 import { gchatEventToken, gchatEventToSurfaceMessage, surfaceReplyToGchatResponse } from "./adapters/gchat.js";
@@ -48,6 +48,19 @@ export class GatewayHttpError extends Error {
 
 function defaultRegistry(): FlowToolRegistry {
   return { echo: async (args) => args };
+}
+
+/** Emit an "adapter is unauthenticated" warning at most once per adapter per process. */
+const unauthenticatedWarned = new Set<string>();
+function warnUnauthenticatedOnce(adapter: string, log: (line: string) => void): void {
+  if (unauthenticatedWarned.has(adapter)) return;
+  unauthenticatedWarned.add(adapter);
+  log(`WARNING: ${adapter} webhook is UNAUTHENTICATED — no secret configured. Anyone who can reach this endpoint can forge ${adapter} events. Configure it in .muster/gateway.json.`);
+}
+
+/** Test-only: reset the once-per-process warning latch so each test observes the first warning. */
+export function resetAdapterAuthWarnings(): void {
+  unauthenticatedWarned.clear();
 }
 
 /**
@@ -150,7 +163,12 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
 function bearerTokenMatches(request: IncomingMessage, expected: string): boolean {
   const header = request.headers.authorization ?? "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  const left = Buffer.from(presented);
+  return headerEquals(presented, expected);
+}
+
+/** Constant-time string compare for header secrets (returns false on undefined/length mismatch). */
+function headerEquals(presented: string | undefined, expected: string): boolean {
+  const left = Buffer.from(presented ?? "");
   const right = Buffer.from(expected);
   return left.length === right.length && timingSafeEqual(left, right);
 }
@@ -171,11 +189,23 @@ interface AdapterContext {
  * Telegram webhook: update JSON in, sendMessage out. The adapter module is a
  * pure mapper; only this thin handler touches the network. Processing is
  * synchronous (reply is sent before the webhook is acked) — Telegram retries
- * on timeout, which is acceptable for slice 1.
+ * on timeout, which is acceptable for slice 1. When telegram.secretToken is
+ * configured, the X-Telegram-Bot-Api-Secret-Token header must match it
+ * (constant-time) or the webhook is rejected with 401; otherwise we warn once
+ * that the Telegram webhook is unauthenticated.
  */
 async function handleTelegramWebhook(body: string, context: AdapterContext): Promise<unknown> {
   const botToken = context.gateway.telegram?.botToken;
   if (!botToken) throw new Error("Telegram adapter not configured. Add telegram.botToken to .muster/gateway.json.");
+  const secretToken = context.gateway.telegram?.secretToken;
+  if (secretToken) {
+    const presented = context.headers["x-telegram-bot-api-secret-token"];
+    if (!headerEquals(typeof presented === "string" ? presented : undefined, secretToken)) {
+      throw new GatewayHttpError(401, "Telegram secret token mismatch.");
+    }
+  } else {
+    warnUnauthenticatedOnce("telegram", context.log);
+  }
   const mapped = telegramUpdateToSurfaceMessage(JSON.parse(body));
   if (!mapped) return { ok: true, ignored: "not a text message update" };
   if (context.gateway.telegram?.stream === "draft") {
@@ -214,11 +244,29 @@ async function handleTelegramWebhook(body: string, context: AdapterContext): Pro
 /**
  * Slack Events API webhook: handles url_verification challenges, ignores bot
  * echoes, and posts replies via chat.postMessage (approval requests render as
- * Block Kit buttons). Synchronous processing; see slice-1 caveat above.
+ * Block Kit buttons). Synchronous processing; see slice-1 caveat above. When
+ * slack.signingSecret is configured the X-Slack-Signature / -Request-Timestamp
+ * headers are verified against the RAW body (before any JSON parsing) and a
+ * mismatch (or a >5-min-old timestamp) is rejected with 401. If no signing
+ * secret is configured we warn once that Slack is unauthenticated.
  */
 async function handleSlackWebhook(body: string, context: AdapterContext): Promise<unknown> {
   const botToken = context.gateway.slack?.botToken;
   if (!botToken) throw new Error("Slack adapter not configured. Add slack.botToken to .muster/gateway.json.");
+  const signingSecret = context.gateway.slack?.signingSecret;
+  if (signingSecret) {
+    const signature = context.headers["x-slack-signature"];
+    const timestamp = context.headers["x-slack-request-timestamp"];
+    const valid = slackSignatureIsValid(
+      typeof timestamp === "string" ? timestamp : undefined,
+      body,
+      typeof signature === "string" ? signature : undefined,
+      signingSecret,
+    );
+    if (!valid) throw new GatewayHttpError(401, "Slack signature verification failed.");
+  } else {
+    warnUnauthenticatedOnce("slack", context.log);
+  }
   const inbound = slackEventToSurfaceMessage(JSON.parse(body));
   if (inbound.kind === "url_verification") return { challenge: inbound.challenge };
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
