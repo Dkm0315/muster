@@ -1,4 +1,8 @@
 import "./portal.css";
+import { initTheme } from "./theme";
+
+// Light/dark toggle (shared controller) — wires the nav button + persistence.
+initTheme();
 
 // Highlight the rail item for the section currently in view.
 const railLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>(".rail a.rail-item"));
