@@ -29,7 +29,34 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
+/** Soft radial-falloff sprite so points read as round glows instead of squares. */
+function makeGlowTexture(): THREE.Texture {
+  const size = 64;
+  const cnv = document.createElement("canvas");
+  cnv.width = cnv.height = size;
+  const ctx = cnv.getContext("2d")!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.35, "rgba(255,255,255,0.55)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(cnv);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPreElement): ConstellationHandle {
+  // Probe WebGL on a throwaway canvas first (never bind a context to the real
+  // canvas — that could collide with the type three wants). If unavailable we
+  // throw so main.ts keeps the CSS radial-gradient poster, not a blank canvas.
+  const probeCanvas = document.createElement("canvas");
+  const probe =
+    probeCanvas.getContext("webgl2") ??
+    probeCanvas.getContext("webgl") ??
+    probeCanvas.getContext("experimental-webgl");
+  if (!probe) throw new Error("WebGL unavailable");
+
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: false,
@@ -75,15 +102,33 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
   const nodeGeo = new THREE.BufferGeometry();
   nodeGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   nodeGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+  // Round, soft-edged sprite so additive nodes read as glowing dots, not squares.
+  const nodeSprite = makeGlowTexture();
+  // Crisp core.
   const nodeMat = new THREE.PointsMaterial({
     size: 2.6,
     sizeAttenuation: false,
     vertexColors: true,
     transparent: true,
     opacity: 0.95,
+    map: nodeSprite,
     depthWrite: false,
   });
   scene.add(new THREE.Points(nodeGeo, nodeMat));
+
+  // Wider additive halo around each node for the federation "glow" feel.
+  const glowMat = new THREE.PointsMaterial({
+    size: 9,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.16,
+    map: nodeSprite,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  scene.add(new THREE.Points(nodeGeo, glowMat));
 
   // --- handoff edges between grid neighbours ---
   const edgePairs: Array<[number, number]> = [];
@@ -133,14 +178,24 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
   let asciiOn = false;
   let lastAscii = 0;
 
-  // --- mouse parallax ---
-  let mouseX = 0;
-  let mouseY = 0;
+  // --- mouse parallax (two-stage damping: raw target -> smoothed -> camera) ---
+  let targetX = 0; // where the pointer wants the camera
+  let targetY = 0;
+  let smoothX = 0; // critically-damped follower of the target (kills jitter)
+  let smoothY = 0;
   const onMouse = (event: MouseEvent) => {
-    mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseY = (event.clientY / window.innerHeight) * 2 - 1;
+    targetX = (event.clientX / window.innerWidth) * 2 - 1;
+    targetY = (event.clientY / window.innerHeight) * 2 - 1;
   };
   window.addEventListener("mousemove", onMouse, { passive: true });
+  // Touch drift: a faint parallax so phones don't feel dead, without hijacking scroll.
+  const onTouch = (event: TouchEvent) => {
+    const t = event.touches[0];
+    if (!t) return;
+    targetX = (t.clientX / window.innerWidth) * 2 - 1;
+    targetY = (t.clientY / window.innerHeight) * 2 - 1;
+  };
+  window.addEventListener("touchmove", onTouch, { passive: true });
 
   const resize = () => {
     const w = canvas.clientWidth || window.innerWidth;
@@ -163,11 +218,16 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
 
   function updateGeometry(elapsed: number): void {
     const p = easeOutCubic(Math.min(1, elapsed / MUSTER_SECONDS));
+    const settled = p >= 1;
     for (let i = 0; i < NODE_COUNT; i++) {
-      const wobble = p >= 1 ? Math.sin(elapsed * 0.8 + phase[i]!) * 0.22 : 0;
+      const ph = phase[i]!;
+      // Gentle continuous breathing once in formation: y-wobble + a slow z-depth
+      // drift so the phalanx feels alive rather than frozen.
+      const wobble = settled ? Math.sin(elapsed * 0.8 + ph) * 0.22 : 0;
+      const zBreath = settled ? Math.sin(elapsed * 0.45 + ph * 1.7) * 0.9 : 0;
       positions[i * 3] = scatter[i * 3]! + (formation[i * 3]! - scatter[i * 3]!) * p;
       positions[i * 3 + 1] = scatter[i * 3 + 1]! + (formation[i * 3 + 1]! - scatter[i * 3 + 1]!) * p + wobble;
-      positions[i * 3 + 2] = scatter[i * 3 + 2]! + (formation[i * 3 + 2]! - scatter[i * 3 + 2]!) * p;
+      positions[i * 3 + 2] = scatter[i * 3 + 2]! + (formation[i * 3 + 2]! - scatter[i * 3 + 2]!) * p + zBreath;
     }
     nodeGeo.attributes.position!.needsUpdate = true;
 
@@ -193,8 +253,15 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
     }
     pulseGeo.attributes.position!.needsUpdate = true;
 
-    camera.position.x += (mouseX * 2.4 - camera.position.x) * 0.04;
-    camera.position.y += (-mouseY * 1.6 - camera.position.y) * 0.04;
+    // Two-stage damping: smooth the raw pointer target, then ease the camera
+    // toward it. Removes per-event jitter, no hard snapping.
+    smoothX += (targetX - smoothX) * 0.08;
+    smoothY += (targetY - smoothY) * 0.08;
+    // A slow autonomous orbit so the scene drifts even when the mouse is still.
+    const driftX = Math.sin(elapsed * 0.12) * 0.6;
+    const driftY = Math.cos(elapsed * 0.09) * 0.4;
+    camera.position.x += (smoothX * 2.4 + driftX - camera.position.x) * 0.05;
+    camera.position.y += (-smoothY * 1.6 + driftY - camera.position.y) * 0.05;
     camera.lookAt(0, 0, 0);
   }
 
@@ -220,11 +287,15 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
   const clock = new THREE.Clock();
   let frameId = 0;
   let destroyed = false;
+  let paused = false;
+  // Accumulate elapsed from clamped deltas so a hidden tab can't inject a huge
+  // time jump on resume (which would snap the parallax / breathing).
+  let elapsed = 0;
 
   function frame(): void {
     if (destroyed) return;
     frameId = requestAnimationFrame(frame);
-    const elapsed = clock.getElapsedTime();
+    elapsed += Math.min(clock.getDelta(), 0.05); // clamp to ~20fps worst case
     updateGeometry(elapsed);
     if (asciiOn) {
       // ascii sampling is throttled to ~15fps; the WebGL canvas stays hidden
@@ -237,6 +308,20 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
       renderer.render(scene, camera);
     }
   }
+
+  // Pause the loop when the tab is hidden — saves battery, prevents wasted GPU.
+  const onVisibility = () => {
+    const hidden = document.hidden;
+    if (hidden && !paused) {
+      paused = true;
+      cancelAnimationFrame(frameId);
+    } else if (!hidden && paused) {
+      paused = false;
+      clock.getDelta(); // discard the long hidden interval
+      frame();
+    }
+  };
+  document.addEventListener("visibilitychange", onVisibility);
 
   resize();
   frame();
@@ -251,13 +336,17 @@ export function createConstellation(canvas: HTMLCanvasElement, asciiPre: HTMLPre
       destroyed = true;
       cancelAnimationFrame(frameId);
       window.removeEventListener("mousemove", onMouse);
+      window.removeEventListener("touchmove", onTouch);
       window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibility);
       nodeGeo.dispose();
       edgeGeo.dispose();
       pulseGeo.dispose();
       nodeMat.dispose();
+      glowMat.dispose();
       edgeMat.dispose();
       pulseMat.dispose();
+      nodeSprite.dispose();
       asciiTarget.dispose();
       renderer.dispose();
     },
