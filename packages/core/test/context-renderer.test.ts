@@ -70,3 +70,27 @@ test("stubs are deterministic for identical inputs", () => {
   const b = renderContext(transcript(12), 1_000_000);
   assert.deepEqual(a, b);
 });
+
+test("older tool results are kept verbatim only when trivially small (<=200 chars)", () => {
+  const messages: TranscriptMessage[] = [
+    { role: "system", content: "You are Muster." },
+    { role: "user", content: "task" },
+    // Oldest tool result: trivially small, must stay verbatim even though it is older.
+    { role: "assistant", content: "call small" },
+    { role: "tool", toolName: "tiny", content: "x".repeat(200) },
+    // Second tool result: just over the trivial threshold, must be stubbed.
+    { role: "assistant", content: "call large" },
+    { role: "tool", toolName: "big", content: "y".repeat(201) },
+    // Recent tool results that stay verbatim purely by recency.
+    { role: "assistant", content: "call recent" },
+    { role: "tool", toolName: "recent", content: "z".repeat(5000) },
+    { role: "assistant", content: "Done." },
+  ];
+  const rendered = renderContext(messages, 1_000_000, { keepRecentToolResults: 1 });
+  const tools = rendered.messages.filter((message) => message.role === "tool");
+  const tiny = tools.find((message) => message.toolName === "tiny");
+  const big = tools.find((message) => message.toolName === "big");
+  assert.equal(tiny?.content, "x".repeat(200), "<=200 char older result must remain verbatim");
+  assert.ok(big?.content.includes("[older result elided]"), "201 char older result must be stubbed");
+  assert.equal(rendered.stubbed, 1, "only the over-threshold older result is stubbed");
+});

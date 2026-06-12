@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { addPulse, defaultConfig, listPulses, pulseChecklistPath, resumePulse, runDuePulses } from "../src/index.js";
+import { addPulse, defaultConfig, listPulses, pulseChecklistPath, pulsesPath, resumePulse, runDuePulses } from "../src/index.js";
 import type { MusterConfig } from "../src/index.js";
 
 function startStubLlm(reply: string): Promise<{ url: string; calls: () => number; close(): void }> {
@@ -118,4 +118,15 @@ test("addPulse validates cron and task pulses require prompts", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-pulse-validate-"));
   await assert.rejects(() => addPulse({ cron: "bad" }, cwd), /5 fields/);
   await assert.rejects(() => addPulse({ cron: "* * * * *", kind: "task" }, cwd), /need a prompt/);
+});
+
+test("missing pulses.json yields no pulses; a corrupt one throws instead of silently disabling pulses", async () => {
+  const missingCwd = await mkdtemp(join(tmpdir(), "muster-pulse-missing-"));
+  assert.deepEqual(await listPulses(missingCwd), []);
+
+  const corruptCwd = await mkdtemp(join(tmpdir(), "muster-pulse-corrupt-"));
+  const path = pulsesPath(corruptCwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, "not json at all");
+  await assert.rejects(() => listPulses(corruptCwd), /Corrupt JSON/);
 });

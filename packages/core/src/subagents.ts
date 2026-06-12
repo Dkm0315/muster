@@ -14,6 +14,19 @@ import type { MusterConfig } from "./types.js";
  * PULL completed results with claimCompleted() at their next turn, and a
  * TTL reaper marks crashed children orphaned. Zombies are impossible by
  * construction: no acks, no leases, no gateway round-trips.
+ *
+ * SINGLE-WRITER ASSUMPTION (v0.1): the run store (subruns.jsonl) is designed
+ * for a single writer process per `cwd` — the sessions design guarantees one
+ * parent orchestrator owns a workspace. We deliberately avoid a full file lock
+ * (overkill, and a crash-prone dependency for a single-writer system). The
+ * concurrency cap is derived durably from the store so a crashed child cannot
+ * permanently leak a slot, and claimCompleted re-reads immediately before each
+ * append to narrow the double-claim window to a single fs round-trip. This is
+ * NOT safe for concurrent multi-process parents sharing one `cwd`: such a
+ * deployment MUST add external locking (e.g. flock on subruns.jsonl) around
+ * spawnSubagent/claimCompleted. The append-only event log keeps corruption
+ * impossible even then, but interleaved appends could double-spawn past the
+ * cap or double-deliver a result.
  */
 
 export type SubRunStatus = "running" | "completed" | "failed" | "orphaned";
@@ -96,7 +109,18 @@ export interface SpawnHandle {
 }
 
 const DEFAULT_MAX_CONCURRENT = 5;
+/**
+ * In-memory fast path only. NOT authoritative: a crashed child never runs its
+ * `finally` decrement, so this counter can drift high and would otherwise wedge
+ * spawns forever. The authoritative cap check counts durable `running` entries
+ * in the store (see runningCount), which the TTL reaper can recover.
+ */
 let activeCount = 0;
+
+/** Durable count of children still marked `running` in the store. */
+async function runningCount(cwd: string): Promise<number> {
+  return (await listSubRuns(cwd)).filter((run) => run.status === "running").length;
+}
 
 /**
  * Spawn an async child run. Children always run with skipMemoryWrite: they
@@ -109,7 +133,11 @@ export async function spawnSubagent(config: MusterConfig, spec: SpawnSpec, cwd =
   if (depth >= maxDepth) {
     throw new Error(`Spawn depth ${depth} reached the cap (${maxDepth}). Orchestrator depth must be granted explicitly.`);
   }
-  if (activeCount >= DEFAULT_MAX_CONCURRENT) {
+  // Authoritative, crash-durable cap: count `running` entries in the store so a
+  // crashed child (which never ran its `finally` to decrement activeCount)
+  // cannot wedge spawns forever. The TTL reaper flips stale `running` entries to
+  // `orphaned`, which frees the slot here. activeCount remains only a debug hint.
+  if ((await runningCount(cwd)) >= DEFAULT_MAX_CONCURRENT) {
     throw new Error(`Subagent concurrency cap reached (${DEFAULT_MAX_CONCURRENT}). Drain running children first.`);
   }
   const id = `sub_${randomUUID().slice(0, 12)}`;
@@ -147,14 +175,29 @@ export async function spawnSubagent(config: MusterConfig, spec: SpawnSpec, cwd =
  * PULL delivery: returns this parent's finished-but-unclaimed children and
  * marks them claimed. Call at the start of the parent's next turn; results
  * arrive exactly once, in completion order.
+ *
+ * Idempotency: before appending each claim we re-read the store and skip any
+ * run already claimed in the meantime. Under the single-writer assumption this
+ * makes overlapping claimCompleted calls (e.g. an accidental double-invoke)
+ * deliver each result exactly once. It is NOT a substitute for external locking
+ * across concurrent processes — see the module docstring.
  */
 export async function claimCompleted(parentKey: string, cwd = process.cwd()): Promise<SubRun[]> {
-  const runs = await listSubRuns(cwd);
-  const ready = runs.filter((run) => run.parentKey === parentKey && (run.status === "completed" || run.status === "failed") && !run.claimedAt);
-  for (const run of ready) {
+  const snapshot = await listSubRuns(cwd);
+  const candidates = snapshot.filter(
+    (run) => run.parentKey === parentKey && (run.status === "completed" || run.status === "failed") && !run.claimedAt,
+  );
+  const claimed: SubRun[] = [];
+  for (const run of candidates) {
+    // Re-read immediately before the append to narrow the double-claim window:
+    // if another claim landed since the snapshot, skip this run rather than
+    // emitting a second claim event for it.
+    const current = (await listSubRuns(cwd)).find((entry) => entry.id === run.id);
+    if (!current || current.claimedAt) continue;
     await appendEvent({ id: run.id, at: new Date().toISOString(), event: "claimed" }, cwd);
+    claimed.push(current);
   }
-  return ready;
+  return claimed;
 }
 
 /** TTL reaper: running children older than ttlMs are marked orphaned. */

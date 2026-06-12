@@ -10,11 +10,23 @@ export interface GatewayConfig {
     readonly botToken: string;
     /** "draft" streams replies as live-edited drafts (sendMessage + editMessageText). */
     readonly stream?: "off" | "draft";
+    /**
+     * Optional webhook secret. When set, Telegram echoes it in the
+     * X-Telegram-Bot-Api-Secret-Token header; the gateway rejects any webhook
+     * whose header does not match (constant-time). Configure it via setWebhook.
+     */
+    readonly secretToken?: string;
   };
   readonly slack?: {
     readonly botToken: string;
     /** "draft" streams replies as live-edited drafts (chat.postMessage + chat.update). */
     readonly stream?: "off" | "draft";
+    /**
+     * Slack app "Signing Secret". When set, every webhook is verified against
+     * the X-Slack-Signature / X-Slack-Request-Timestamp headers (v0 HMAC-SHA256)
+     * before parsing, and stale requests (>5 min) are rejected as replays.
+     */
+    readonly signingSecret?: string;
   };
   readonly discord?: {
     readonly botToken: string;

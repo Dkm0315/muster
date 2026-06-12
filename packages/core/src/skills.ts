@@ -1,7 +1,10 @@
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { musterRoot } from "./profiles.js";
+import { readJsonFile } from "./store.js";
 import { estimateTokens } from "./tokens.js";
+
+type SkillUsage = Record<string, { uses: number; lastUsedAt: string }>;
 import type { EvolveReport } from "./evolve.js";
 
 /**
@@ -188,12 +191,9 @@ export async function selectSkills(task: string, budgetTokens = 500, cwd = proce
 export async function recordSkillUse(names: string[], cwd = process.cwd()): Promise<void> {
   if (!names.length) return;
   const path = join(skillsDir(cwd), ".usage.json");
-  let usage: Record<string, { uses: number; lastUsedAt: string }> = {};
-  try {
-    usage = JSON.parse(await readFile(path, "utf8"));
-  } catch {
-    // first use
-  }
+  // Missing telemetry -> first use (start empty); corrupt telemetry -> throw so
+  // we don't silently overwrite a damaged file and lose all prior usage counts.
+  const usage = await readJsonFile<SkillUsage>(path, {});
   for (const name of names) {
     usage[name] = { uses: (usage[name]?.uses ?? 0) + 1, lastUsedAt: new Date().toISOString() };
   }
@@ -204,12 +204,9 @@ export async function recordSkillUse(names: string[], cwd = process.cwd()): Prom
 /** Curator: stale/archive transitions only — skills are never deleted. */
 export async function curateSkills(cwd = process.cwd(), now = new Date()): Promise<{ staled: string[]; archived: string[] }> {
   const path = join(skillsDir(cwd), ".usage.json");
-  let usage: Record<string, { uses: number; lastUsedAt: string }> = {};
-  try {
-    usage = JSON.parse(await readFile(path, "utf8"));
-  } catch {
-    // no telemetry yet — nothing to curate
-  }
+  // Missing telemetry -> nothing recorded yet (fall back to provenance dates);
+  // corrupt telemetry -> throw rather than mis-curating from a damaged file.
+  const usage = await readJsonFile<SkillUsage>(path, {});
   const staled: string[] = [];
   const archived: string[] = [];
   for (const skill of await listSkills(cwd, ["active", "stale"])) {

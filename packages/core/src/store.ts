@@ -127,6 +127,27 @@ async function appendJsonLine(path: string, value: unknown): Promise<void> {
   await appendFile(path, `${JSON.stringify(value)}\n`, "utf8");
 }
 
+/**
+ * Read a whole-file JSON document, distinguishing "file does not exist yet"
+ * (returns the provided fallback) from "file exists but is corrupt" (throws a
+ * clear error). Use this instead of a bare try/catch that returns a default on
+ * ANY error — the latter silently hides corruption (e.g. a half-written
+ * schedules.json) and makes data loss invisible.
+ */
+export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
+  const raw = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (raw === undefined) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Corrupt JSON in ${path}: ${detail}`);
+  }
+}
+
 async function readJsonLines<T>(path: string): Promise<T[]> {
   const raw = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return "";
