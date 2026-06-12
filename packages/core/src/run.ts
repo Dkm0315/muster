@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { loadAgentRules } from "./agent-rules.js";
+import { defaultHookBus, type HookBus } from "./hooks.js";
 import { runClaudeCode } from "./claude.js";
 import { addMemory, searchMemory } from "./memory.js";
 import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from "./pi.js";
@@ -35,6 +36,8 @@ export interface RunOptions {
   readonly timeoutMs?: number;
   readonly skipMemoryWrite?: boolean;
   readonly skipAgentRules?: boolean;
+  /** Hook bus for prompt.build gating; defaults to the process-wide bus. */
+  readonly hooks?: HookBus;
   /** Surface label for per-surface token accounting (set by the gateway). */
   readonly surfaceId?: string;
   /**
@@ -198,7 +201,15 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const recalledBlock = buildRecalledBlock(recalled);
   const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
   const preamble = [rules?.text, recalledBlock].filter(Boolean).join("\n\n");
-  const fullPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
+  let fullPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
+  const hooks = options.hooks ?? defaultHookBus;
+  if (hooks.count("prompt.build")) {
+    const hookOutcome = await hooks.emit("prompt.build", fullPrompt);
+    if (hookOutcome.action === "block") {
+      throw new Error(`Run blocked by hook ${hookOutcome.blockedBy ?? "unknown"}${hookOutcome.reason ? `: ${hookOutcome.reason}` : ""}`);
+    }
+    fullPrompt = hookOutcome.payload;
+  }
 
   const startedAt = Date.now();
   const evidence: EvidenceRecord[] = [];
