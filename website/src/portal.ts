@@ -1,8 +1,12 @@
 import "./portal.css";
+import { initTheme } from "./theme";
 // Statically imported at build time: real captured CLI output from
 // scripts/generate-portal-data.mjs. The portal renders ONLY from this file —
 // nothing on the page is invented.
 import data from "./portal-data.json";
+
+// Light/dark toggle (shared controller) — wires the nav button + persistence.
+initTheme();
 
 type RunRecord = (typeof data.runs)[number];
 type CommandRecord = (typeof data.commands)[number];
