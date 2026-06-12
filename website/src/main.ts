@@ -1,7 +1,6 @@
 import "./style.css";
-import { initTerminal } from "./terminal";
 import { initMotion } from "./motion";
-import type { ConstellationHandle } from "./constellation";
+import type { HeroMeshHandle } from "./hero-mesh";
 
 // ---------- silk-smooth motion (reveals, scroll progress, magnetic hover, smooth anchors) ----------
 initMotion();
@@ -27,42 +26,25 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(".copy-btn")) 
 const yearEl = document.getElementById("year");
 if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 
-// ---------- terminal demo ----------
-initTerminal();
+// ---------- Liquid Lavender hero shader: DOM-first, lazy-init after first paint ----------
+// The CSS poster mesh-gradient in #hero-stage paints immediately. We only mount
+// the WebGL plane after first paint so it never blocks LCP text; if WebGL is
+// unavailable the poster stays. Even under reduced-motion we mount a single
+// frozen frame (still the same liquid look, just not animating).
+const canvas = document.getElementById("hero-canvas") as HTMLCanvasElement | null;
 
-// ---------- constellation: DOM-first, lazy-init after first paint ----------
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const stage = document.getElementById("stage");
-const canvas = document.getElementById("constellation") as HTMLCanvasElement | null;
-const asciiPre = document.getElementById("ascii") as HTMLPreElement | null;
-const toggle = document.getElementById("ascii-toggle");
-const hero = document.getElementById("hero");
-
-if (!reducedMotion && stage && canvas && asciiPre) {
-  let handle: ConstellationHandle | null = null;
-  let manualAscii = false;
-  let pastHero = false;
-
-  const applyMode = () => {
-    const ascii = manualAscii || pastHero;
-    stage.classList.toggle("ascii", ascii);
-    stage.classList.toggle("behind-content", pastHero);
-    handle?.setAscii(ascii);
-    if (toggle) {
-      toggle.setAttribute("aria-pressed", String(manualAscii));
-      const label = toggle.querySelector("span");
-      if (label) label.textContent = manualAscii ? "ascii" : "3d";
-    }
-  };
+if (canvas) {
+  let handle: HeroMeshHandle | null = null;
 
   const boot = async () => {
     try {
-      const { createConstellation } = await import("./constellation");
-      handle = createConstellation(canvas, asciiPre);
-      applyMode();
+      const { createHeroMesh } = await import("./hero-mesh");
+      handle = createHeroMesh(canvas);
+      canvas.classList.add("live"); // fade the shader in over the poster
     } catch {
-      /* WebGL unavailable — the CSS poster gradient remains */
+      /* WebGL unavailable — the CSS poster gradient remains, never a blank area */
     }
+    void handle; // retained for lifetime; explicit destroy not needed on a single-page site
   };
 
   // two RAFs guarantee first paint happened; idle callback defers off the critical path
@@ -75,22 +57,4 @@ if (!reducedMotion && stage && canvas && asciiPre) {
       }
     });
   });
-
-  toggle?.addEventListener("click", () => {
-    manualAscii = !manualAscii;
-    applyMode();
-  });
-
-  if (hero) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) pastHero = !entry.isIntersecting;
-        applyMode();
-      },
-      { threshold: 0.08 },
-    );
-    observer.observe(hero);
-  }
-} else {
-  toggle?.remove();
 }
