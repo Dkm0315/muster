@@ -1,6 +1,6 @@
 /**
  * Silk-smooth, DOM-only motion layer. No dependencies.
- *  - scroll-progress bar (amber, top edge), rAF-throttled
+ *  - scroll-progress bar (lavender→cyan, top edge), rAF-throttled
  *  - IntersectionObserver section reveals with staggered children, fired once
  *  - smooth anchor scrolling for in-page links
  *  - magnetic / glow-lift hover on the primary CTA + feature cards
@@ -101,7 +101,9 @@ function initAnchorScroll(smooth: boolean): void {
 
 /* ---------- magnetic / glow-lift hover ---------- */
 function initMagnetic(): void {
-  const targets = document.querySelectorAll<HTMLElement>(".install, .card, .pillar");
+  // Only the install pill gets magnetic pull. Cards keep their CSS hover-lift
+  // (an inline transform here would clobber the translateY in :hover).
+  const targets = document.querySelectorAll<HTMLElement>(".install");
   // Skip on touch / coarse pointers — a magnet that never releases feels broken.
   if (window.matchMedia("(hover: none)").matches) return;
 
