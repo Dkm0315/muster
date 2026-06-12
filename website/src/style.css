@@ -891,6 +891,155 @@ html.supports-lg-refract .glass-card {
 }
 
 /* ============================================================
+   TERMINAL REPLICA — pixel-accurate macOS Terminal on a glass tray
+   ============================================================ */
+.terminal-band { text-align: left; }
+/* The glass tray the window sits on (Liquid Glass material, reused tokens). */
+.term-tray {
+  position: relative;
+  margin-top: 14px;
+  padding: clamp(16px, 3vw, 32px);
+  border-radius: calc(var(--lg-radius) + 6px);
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
+}
+
+/* The macOS Terminal window itself. */
+.term-window {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 30px 60px -20px rgba(26, 23, 38, 0.45),
+    0 8px 20px -8px rgba(26, 23, 38, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] .term-window {
+  box-shadow:
+    0 30px 60px -20px rgba(0, 0, 0, 0.7),
+    0 8px 20px -8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Title bar with the three traffic-light dots + centered window title. */
+.term-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 14px;
+  background: linear-gradient(180deg, #3a3a3c, #2c2c2e);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.6);
+}
+.term-dots { display: inline-flex; gap: 8px; align-items: center; }
+.term-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+}
+.term-dot.red { background: #FF5F57; }
+.term-dot.yellow { background: #FEBC2E; }
+.term-dot.green { background: #28C840; }
+.term-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #c7c7c9;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}
+
+/* Terminal body — dark, monospace, scrolls horizontally on small screens. */
+.term-body {
+  background: #1e1e1e;
+  padding: 16px clamp(12px, 2vw, 22px) 20px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.term-out {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d6d3cf;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* Each emitted line. Hidden until revealed by the line-reveal observer; if JS
+   never runs (or reduced-motion), the .term-out:not(.revealing) fallback shows
+   all lines statically. */
+.term-out.revealing .t-line {
+  opacity: 0;
+  transform: translateY(2px);
+}
+.term-out.revealing .t-line.shown {
+  opacity: 1;
+  transform: none;
+  transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
+}
+
+/* Banner gradient: gold crown -> amber body -> ember base (mirrors banner.ts). */
+.term-banner { line-height: 1.05; }
+.term-banner .b0 { color: #ffd166; }
+.term-banner .b1 { color: #ffc43d; }
+.term-banner .b2 { color: #ffb714; }
+.term-banner .b3 { color: #f7a500; }
+.term-banner .b4 { color: #e69000; }
+.term-banner .b5 { color: #d67a00; }
+.term-tag { color: #ffb000; }
+
+/* Prompt + command + output colors. */
+.t-prompt { color: #28C840; font-weight: 700; }
+.t-cmd { color: #f0eee9; font-weight: 600; }
+.t-acc { color: #22C9E6; font-weight: 700; }
+.t-recall { color: #B9A2FF; }
+.t-muted { color: #8f8b86; }
+.t-dim { color: #6f6b67; }
+.t-head { color: #8f8b86; }
+.t-rule { color: #4a4744; }
+.t-lav { color: #B9A2FF; }
+.t-cyan { color: #22C9E6; }
+.t-ok { color: #28C840; font-weight: 600; }
+.t-warn { color: #FFB37A; font-weight: 600; }
+.term-gap { display: block; height: 0.5em; }
+
+/* Blinking block cursor at the final prompt. */
+.t-cursor {
+  display: inline-block;
+  color: #d6d3cf;
+  animation: term-blink 1.05s steps(1) infinite;
+}
+@keyframes term-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+/* Mobile: shrink the type so the tables don't blow out the layout; the body
+   still scrolls horizontally as a fallback for very narrow screens. */
+@media (max-width: 680px) {
+  .term-out { font-size: 10.5px; line-height: 1.45; }
+  .term-title { font-size: 11px; }
+}
+@media (max-width: 460px) {
+  .term-out { font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Show the whole session statically; never hide lines, never blink. */
+  .term-out.revealing .t-line { opacity: 1; transform: none; }
+  .t-cursor { animation: none; }
+}
+
+/* ============================================================
    ECOSYSTEM
    ============================================================ */
 .eco-grid {
