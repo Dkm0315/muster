@@ -5,39 +5,85 @@
 > Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
 ```bash
-pnpm dlx @musterhq/cli init && muster doctor
+pnpm dlx @musterhq/cli init && muster demo
 ```
 
-## Why Muster
+## See it work — `muster demo`
 
-Every agent framework demos beautifully. Then production happens:
+One command provisions a throwaway workspace and a local model service, then runs the full governed pipeline: scoped-memory recall → token ledger → integrity check.
 
-- **Token burn you can't see.** Agents replay megatokens of stale context; field reports show 60–89% of spend wasted. Muster records every run in a **token ledger** (`muster tokens`) and flags replay waste with the exact ratio.
-- **Memory that leaks.** Most harnesses have one memory pool. Muster memory is **scoped** — tenant / workspace / user / role / session lanes with promotion gates. Cross-user leakage is a failing CI check, not a hope.
-- **Silent model drift.** Fallbacks that quietly swap your model mid-session. Muster's fallback is **governed**: recorded as evidence on the episode, verified by `muster verify`, never silent.
-- **Learning on vibes.** "Self-improving" agents that promote skills nobody validated. Muster learning is **eval-gated**: feedback → adjudication against evidence → replayable fixture → promotion only when the suite passes.
-- **Sessions that rot.** Corrupt transcripts, duplicate runs, poisoned context replaying old failures. `muster verify` detects all four classes; `muster evolve` re-tests the harness itself against them.
+```text
+muster demo — provisioned an isolated workspace and a live stub model service.
 
-## 60-second tour
+> Where do we deploy?
+  (recalled 1 scoped memory)
+  Muster deploys to uat-erp.example.com (recalled from scoped memory).
+
+run            model                        in       out      est  cost$    waste   session
+----------------------------------------------------------------------------------------------
+287bde9c-eb19- demo/demo-model              38       17       ~    -        -       -
+653b434a-0924- demo/demo-model              7        18       ~    -        -       -
+
+totals by model              runs   in         out        cost$      waste-runs
+--------------------------------------------------------------------------------
+demo/demo-model              2      45         35         -          0
+
+integrity check at 2026-06-12: OK
+store      lines    corrupt
+episodes   2        0
+memory     3        0
+tokens     2        0
+```
+
+## Proof, not promises — `muster benchmark`
+
+The **Token Waste Index** measures what Muster's immutable-transcript renderer and never-wedge compactor actually save versus a naive replay-everything harness. Deterministic — no model calls, fully reproducible.
+
+```text
+scenario                          turns  naive    muster   reduction  replay-overhead
+--------------------------------------------------------------------------------------
+codebase-refactor-20              21     82.6k    40.7k    50.7%      90.5%
+incident-triage-30                31     140.4k   56.2k    59.9%      93.6%
+erp-data-audit-40                 41     197.8k   72.4k    63.4%      95.1%
+research-synthesis-25             26     156.8k   64.6k    58.8%      92.3%
+long-support-thread-50            51     268.8k   93.8k    65.1%      96.1%
+--------------------------------------------------------------------------------------
+AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
+```
+
+**~61% fewer tokens on long agent sessions**, and the saving grows with session length. Full methodology + table: [benchmark/RESULTS.md](benchmark/RESULTS.md).
+
+## Features
+
+| | |
+|---|---|
+| 🪙 **Token ledger** | Every run recorded; replay-waste flagged with the exact ratio. `muster tokens` |
+| 🔒 **Scoped memory** | Tenant / workspace / user / role / session lanes. Cross-user leakage is a failing test, not a hope. |
+| 🎓 **Eval-gated skills** | Skills promote only after an eval suite converges — no self-certified learning. |
+| 🛡️ **Integrity verify** | Corruption, duplicate runs, silent model drift, stale-narrative poisoning. `muster verify` |
+| ♻️ **Never-wedge compactor** | A session can always take a turn — no compaction deadlock. |
+| 🔁 **Recursive self-test** | `muster evolve` runs real tasks, adjudicates against evidence, converges. |
+| 🌊 **Flow engine** | Tool/agent/gate steps, preflight, durable runs, replay/diff, `flow loop --cron`. |
+| 📡 **One gateway, every chat app** | Telegram · Slack · Discord · WhatsApp · Google Chat · Teams + a zero-dep web client. |
+| 🔌 **MCP client** | Per-server isolation, circuit breakers, capped results. |
+| 🧰 **20+ providers** | Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Groq, Ollama, vLLM… zero lock-in. |
+| 💓 **Pulse scheduler** | Heartbeat that feels alive at ~5% of the token cost — zero-LLM preflight + daily budget. |
+| 👥 **Pull-based subagents** | Durable run store, exactly-once results, no zombie processes. |
+
+## Everyday commands
 
 ```bash
-muster provider presets                 # 20 providers: openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter...
-muster provider add anthropic           # or: add kimi / add ollama / add-openai-compatible <any-url>
-
-muster memory add --summary "We deploy to uat-erp.example.com" --scope user:$USER --provenance manual
-muster run "Where do we deploy?" --runtime claude-code --model haiku
-#   -> recalls scoped memory, answers from it, records episode + tokens
-
-muster tokens                           # per-run cost table, waste flags, totals by model
-muster verify                           # store integrity: corruption, drift, poisoning
-muster evolve evolve-suites/core-capabilities.json --runtime claude-code
-#   -> recursive self-test: runs real tasks, judges, adjudicates, converges
-
-muster profile create team-a            # fully isolated config + memory + ledger per profile
-muster schedule add "0 9 * * 1-5" "summarize my open work"   # cron loops, no daemon
+muster provider add anthropic                 # or kimi / ollama / add-openai-compatible <any-url>
+muster run "where do we deploy?"              # governed run: memory recall + ledger + evidence
+muster tokens                                 # per-run cost table, replay-waste flags
+muster verify                                 # store integrity
+muster sessions search "leave balance"        # FTS search across past sessions
+muster evolve evolve-suites/core-capabilities.json   # recursive self-test
+muster pulse add "0 9 * * 1-5" --kind task --prompt "summarize open work"
+muster benchmark                              # the Token Waste Index, live
 ```
 
-Every command renders plain-text tables in your terminal. No web dashboard required.
+Everything renders plain-text tables in your terminal. No web dashboard required.
 
 ## Architecture
 

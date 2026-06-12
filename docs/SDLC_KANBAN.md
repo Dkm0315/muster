@@ -128,3 +128,4 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-057 | Browser tool (Playwright-backed, flat contract, a11y snapshots) | Ready — deferred to browser milestone |
 | HC-058 | CLI surface for sessions/skills/pulse/subagents + muster demo (provisioned stub service); CLI run persists sessions | Done |
 | HC-059 | Production setup: npm publish config (files/publishConfig/prepublishOnly), pnpm-publish release workflow, LICENSE/CONTRIBUTING/CHANGELOG, v0.1.0, Fable 5 default | Done |
+| HC-060 | Token Waste Index benchmark (deterministic, 61% reduction proven) + muster benchmark CLI + README reworked with real output | Done |

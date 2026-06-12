@@ -1,4 +1,5 @@
 export * from "./agent-rules.js";
+export * from "./benchmark.js";
 export * from "./capability.js";
 export * from "./claude.js";
 export * from "./compactor.js";

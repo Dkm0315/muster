@@ -11,6 +11,8 @@ import {
   resumePulse,
   listSubRuns,
   reapOrphans,
+  runWasteBenchmark,
+  renderWasteReport,
   adjudicateFeedback,
   addMemory,
   appendEpisode,
@@ -176,6 +178,9 @@ async function main(): Promise<void> {
     case "demo":
       await demoCommand(args);
       return;
+    case "benchmark":
+      await benchmarkCommand();
+      return;
     case "run":
       await runCommand(args);
       return;
@@ -253,6 +258,7 @@ Usage:
   muster pulse add "<cron>" [--kind heartbeat|task] [--prompt "..."] | list | resume <id> | run-due
   muster subagents list | reap [--ttl-min N]
   muster demo                         # provision a throwaway workspace + stub model, show the full pipeline
+  muster benchmark                    # Token Waste Index — prove the ledger savings (deterministic, no model)
   muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
   muster tokens [--limit 20]
   muster profile create|list|use|current [name]
@@ -1880,5 +1886,35 @@ async function demoCommand(_commandArgs: string[]): Promise<void> {
   } finally {
     server.close();
   }
+}
+
+
+async function benchmarkCommand(): Promise<void> {
+  // Built-in Token Waste Index scenarios — deterministic, no model calls.
+  const toolResult = (name: string, chars: number) => ({ role: "tool" as const, toolName: name, content: `${name} ` + "output line ".repeat(Math.ceil(chars / 12)) });
+  const task = (id: string, description: string, turns: number, chars: number) => {
+    const transcript: import("@musterhq/core").TranscriptMessage[] = [
+      { role: "system", content: "You are an autonomous agent. Use tools, then report." },
+      { role: "user", content: `Task: ${description}` },
+    ];
+    for (let i = 0; i < turns; i += 1) {
+      transcript.push({ role: "assistant", content: `Step ${i + 1}: inspect the next artifact.` });
+      transcript.push(toolResult(`read_${i}`, chars));
+      transcript.push({ role: "user", content: `Continue with step ${i + 2}.` });
+    }
+    transcript.push({ role: "assistant", content: "Done." });
+    return { id, description, transcript };
+  };
+  const scenarios = [
+    task("codebase-refactor-20", "Refactor a module across 20 files", 20, 1440),
+    task("incident-triage-30", "Triage an incident across 30 log pulls", 30, 1080),
+    task("erp-data-audit-40", "Audit ERP records across 40 queries", 40, 840),
+    task("research-synthesis-25", "Synthesize 25 fetched sources", 25, 1800),
+    task("long-support-thread-50", "Resolve a 50-message support thread", 50, 720),
+  ];
+  const report = await runWasteBenchmark(scenarios, { budgetTokens: 8000, keepRecentToolResults: 5 });
+  console.log(renderWasteReport(report));
+  console.log(`\nMuster reduced naive token cost by ${report.aggregate.musterReductionPct}% across these scenarios.`);
+  console.log("Deterministic — no model calls. Regenerate the published table with: node benchmark/run.mjs");
 }
 
