@@ -1,6 +1,10 @@
 import "./style.css";
 import { initTerminal } from "./terminal";
+import { initMotion } from "./motion";
 import type { ConstellationHandle } from "./constellation";
+
+// ---------- silk-smooth motion (reveals, scroll progress, magnetic hover, smooth anchors) ----------
+initMotion();
 
 // ---------- copy buttons ----------
 for (const button of document.querySelectorAll<HTMLButtonElement>(".copy-btn")) {

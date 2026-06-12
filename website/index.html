@@ -19,9 +19,17 @@
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Muster — the AI agent harness you can audit" />
   <meta name="twitter:description" content="Token-waste ledger, leak-proof scoped memory, eval-gated learning, integrity verification. 20+ LLM providers. MIT." />
+  <!-- One webfont: JetBrains Mono for the machine-text identity. preconnect + display=swap so it never blocks LCP text. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
+  <!-- Scroll-progress bar: amber, fixed to the top edge, scaleX driven by motion.ts -->
+  <div id="scroll-progress" aria-hidden="true"></div>
+  <!-- Fine film-grain overlay: tiny inline-SVG fractal noise, very subtle, never intercepts clicks -->
+  <div id="grain" aria-hidden="true"></div>
   <!-- Constellation layer: poster gradient is pure CSS; canvas + ascii pre lazy-init after first paint -->
   <div id="stage" aria-hidden="true">
     <canvas id="constellation"></canvas>
@@ -42,10 +50,10 @@
 
   <main>
     <section class="hero" id="hero">
-      <p class="kicker">mission control for a federation of agents</p>
-      <h1>Muster — the AI agent <em>harness you can audit</em></h1>
-      <p class="sub">Agents waste 60&ndash;89% of what you spend on them. Muster puts every token on a ledger,<br />every memory in a scoped lane, every learned skill behind an eval gate.<br />Optimize first. Then ask: does your agent <em>pass muster</em>?</p>
-      <div class="hero-cta">
+      <p class="kicker hero-step">mission control for a federation of agents</p>
+      <h1 class="hero-step">Muster — the AI agent <em>harness you can audit</em></h1>
+      <p class="sub hero-step">Agents waste 60&ndash;89% of what you spend on them. Muster puts every token on a ledger,<br />every memory in a scoped lane, every learned skill behind an eval gate.<br />Optimize first. Then ask: does your agent <em>pass muster</em>?</p>
+      <div class="hero-cta hero-step">
         <div class="install" role="group" aria-label="Install command">
           <code id="install-cmd">pnpm dlx @musterhq/cli init</code>
           <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init" aria-label="Copy install command">copy</button>
@@ -53,13 +61,13 @@
         <a class="btn-ghost" href="https://github.com/Dkm0315/muster" rel="noopener">Read the source →</a>
       </div>
       <button id="ascii-toggle" class="ascii-toggle" aria-pressed="false" title="Render the constellation as ASCII">mode: <span>3d</span></button>
-      <p class="hero-footnote">muster <span class="muted">(v.)</span> — to assemble troops into formation.</p>
+      <p class="hero-footnote hero-step">muster <span class="muted">(v.)</span> — to assemble troops into formation.</p>
     </section>
 
-    <section class="terminal-section" id="demo" aria-label="Terminal demo">
-      <h2><span class="sec-num">01</span> Plain-text tables. No dashboard required.</h2>
-      <p class="sec-sub">A faithful replay of three real commands — scoped recall, the token ledger, and store verification.</p>
-      <div class="terminal" id="terminal">
+    <section class="terminal-section" id="demo" aria-label="Terminal demo" data-reveal>
+      <h2 class="reveal-child"><span class="sec-num">01</span> Plain-text tables. No dashboard required.</h2>
+      <p class="sec-sub reveal-child">A faithful replay of three real commands — scoped recall, the token ledger, and store verification.</p>
+      <div class="terminal reveal-child" id="terminal">
         <div class="terminal-titlebar">
           <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
           <span class="terminal-title">muster — zsh</span>
@@ -78,30 +86,30 @@ $ muster verify
 integrity check: OK</pre></noscript>
     </section>
 
-    <section class="why" id="why">
-      <h2><span class="sec-num">02</span> Every agent framework demos beautifully. Then production happens.</h2>
+    <section class="why" id="why" data-reveal>
+      <h2 class="reveal-child"><span class="sec-num">02</span> Every agent framework demos beautifully. Then production happens.</h2>
       <div class="cards">
-        <article class="card">
+        <article class="card reveal-child">
           <h3>Token burn you can't see</h3>
           <p>Agents replay megatokens of stale context; field reports show 60–89% of spend wasted.</p>
           <p class="answer"><code>muster tokens</code> — every run on a ledger, replay waste flagged with the exact ratio.</p>
         </article>
-        <article class="card">
+        <article class="card reveal-child">
           <h3>Memory that leaks</h3>
           <p>Most harnesses have one memory pool. Cross-user leakage is discovered by your customers.</p>
           <p class="answer">Scoped lanes — tenant / workspace / user / role / session — with promotion gates. Leakage is blocked by design, not by hope.</p>
         </article>
-        <article class="card">
+        <article class="card reveal-child">
           <h3>Silent model drift</h3>
           <p>Fallbacks that quietly swap your model mid-session and never tell anyone.</p>
           <p class="answer">Governed fallback: recorded as evidence on the episode, verified by <code>muster verify</code>, never silent.</p>
         </article>
-        <article class="card">
+        <article class="card reveal-child">
           <h3>Learning on vibes</h3>
           <p>"Self-improving" agents that promote skills nobody validated.</p>
           <p class="answer">Eval-gated learning: feedback → adjudication against evidence → replayable fixture → promotion only when the suite passes.</p>
         </article>
-        <article class="card">
+        <article class="card reveal-child">
           <h3>Sessions that rot</h3>
           <p>Corrupt transcripts, duplicate runs, poisoned context replaying old failures.</p>
           <p class="answer"><code>muster verify</code> detects all four classes; <code>muster evolve</code> re-tests the harness itself against them.</p>
@@ -109,23 +117,23 @@ integrity check: OK</pre></noscript>
       </div>
     </section>
 
-    <section class="pillars" id="why-muster">
-      <h2><span class="sec-num">03</span> Why teams choose Muster</h2>
-      <p class="sec-sub">Three promises, kept on every single run. Not a roadmap — the core that's already underneath.</p>
+    <section class="pillars" id="why-muster" data-reveal>
+      <h2 class="reveal-child"><span class="sec-num">03</span> Why teams choose Muster</h2>
+      <p class="sec-sub reveal-child">Three promises, kept on every single run. Not a roadmap — the core that's already underneath.</p>
       <div class="pillar-grid">
-        <article class="pillar">
+        <article class="pillar reveal-child">
           <p class="pillar-kicker">Optimize</p>
           <h3>The ledger sees every token.</h3>
           <p>Most agent spend evaporates into replayed context. Muster prices every run, flags the waste, and shows you the exact ratio.</p>
           <p class="pillar-stat">Up to 89% of agent spend is invisible waste — until it's on a ledger.</p>
         </article>
-        <article class="pillar">
+        <article class="pillar reveal-child">
           <p class="pillar-kicker">Trust</p>
           <h3>Memory that cannot leak.</h3>
           <p>Five scoped lanes — tenant, workspace, user, role, session — with promotion gates between them. What one customer teaches your agent never reaches another.</p>
           <p class="pillar-stat">Five lanes. Zero shared pools. Leakage is blocked by design, not by hope.</p>
         </article>
-        <article class="pillar">
+        <article class="pillar reveal-child">
           <p class="pillar-kicker">Evolve</p>
           <h3>Agents that prove improvement.</h3>
           <p>Feedback becomes a replayable test before it becomes behavior. A skill only ships once it demonstrably beats what it replaces.</p>
@@ -134,10 +142,10 @@ integrity check: OK</pre></noscript>
       </div>
     </section>
 
-    <section class="surfaces" id="surfaces">
-      <h2><span class="sec-num">04</span> One envelope. Every surface.</h2>
-      <p class="sec-sub">A single governed message envelope fans out to wherever your people already are — same memory, same ledger, same approval gates in every room.</p>
-      <div class="surfaces-band" aria-label="Supported surfaces">
+    <section class="surfaces" id="surfaces" data-reveal>
+      <h2 class="reveal-child"><span class="sec-num">04</span> One envelope. Every surface.</h2>
+      <p class="sec-sub reveal-child">A single governed message envelope fans out to wherever your people already are — same memory, same ledger, same approval gates in every room.</p>
+      <div class="surfaces-band reveal-child" aria-label="Supported surfaces">
         <p class="band-tagline">One harness. Every room you work in.</p>
         <ul class="surface-logos">
           <li title="Slack">
@@ -166,7 +174,7 @@ integrity check: OK</pre></noscript>
           </li>
         </ul>
       </div>
-      <div class="surfaces-figure">
+      <div class="surfaces-figure reveal-child">
         <svg viewBox="0 0 720 420" role="img" aria-label="Diagram: a central Muster node radiating to Slack, Discord, Telegram, WhatsApp, Teams, Google Chat and Web">
           <g class="rays" stroke="#2a2f3a" stroke-width="1.5">
             <line x1="360" y1="210" x2="120" y2="70" /><line x1="360" y1="210" x2="360" y2="52" />
@@ -198,9 +206,9 @@ integrity check: OK</pre></noscript>
       </div>
     </section>
 
-    <section class="closer">
-      <h2>Provably governed, or it doesn't ship.</h2>
-      <div class="install install-lg" role="group" aria-label="Install command">
+    <section class="closer" data-reveal>
+      <h2 class="reveal-child">Provably governed, or it doesn't ship.</h2>
+      <div class="install install-lg reveal-child" role="group" aria-label="Install command">
         <code>pnpm dlx @musterhq/cli init &amp;&amp; muster doctor</code>
         <button class="copy-btn" data-copy="pnpm dlx @musterhq/cli init && muster doctor" aria-label="Copy install command">copy</button>
       </div>
