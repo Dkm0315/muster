@@ -1,6 +1,6 @@
 {
   "name": "@musterhq/gateway",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,9 +13,39 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "rm -rf dist && tsc -p tsconfig.json"
   },
   "dependencies": {
     "@musterhq/core": "workspace:*"
+  },
+  "description": "Muster surface gateway: one governed envelope for Telegram, Slack, Discord, WhatsApp, Teams, and web.",
+  "license": "MIT",
+  "author": "Muster contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dkm0315/muster.git",
+    "directory": "packages/gateway"
+  },
+  "homepage": "https://github.com/Dkm0315/muster#readme",
+  "bugs": "https://github.com/Dkm0315/muster/issues",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "harness",
+    "agent-framework",
+    "mcp",
+    "claude",
+    "openai",
+    "scoped-memory",
+    "token-ledger"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

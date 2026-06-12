@@ -1,6 +1,6 @@
 {
   "name": "@musterhq/surface",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,6 +13,36 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "rm -rf dist && tsc -p tsconfig.json"
+  },
+  "description": "Zero-dependency browser client for the Muster surface gateway.",
+  "license": "MIT",
+  "author": "Muster contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dkm0315/muster.git",
+    "directory": "packages/surface"
+  },
+  "homepage": "https://github.com/Dkm0315/muster#readme",
+  "bugs": "https://github.com/Dkm0315/muster/issues",
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "harness",
+    "agent-framework",
+    "mcp",
+    "claude",
+    "openai",
+    "scoped-memory",
+    "token-ledger"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -41,3 +42,26 @@ jobs:
           git config user.email "release@muster.local"
           git tag "v${{ inputs.version }}"
           git push origin "v${{ inputs.version }}"
+
+      - name: Set versions
+        run: |
+          for pkg in packages/core packages/cli packages/gateway packages/surface; do
+            (cd "$pkg" && npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version)
+          done
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish to npm
+        # pnpm publish rewrites workspace:* deps to the real version on pack,
+        # avoiding the workspace-protocol-in-tarball failure (OpenClaw #12853).
+        run: pnpm -r publish --access public --no-git-checks
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.version }}"
+          generate_release_notes: true
