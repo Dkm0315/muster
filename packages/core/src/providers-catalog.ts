@@ -20,7 +20,7 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
   // Cloud, native protocols
   { id: "openai", label: "OpenAI", kind: "openai", baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", defaultModel: "gpt-5.4", category: "cloud" },
-  { id: "anthropic", label: "Anthropic Claude (API)", kind: "anthropic", baseUrl: "https://api.anthropic.com", apiKeyEnv: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-4-6", category: "cloud" },
+  { id: "anthropic", label: "Anthropic Claude (API)", kind: "anthropic", baseUrl: "https://api.anthropic.com", apiKeyEnv: "ANTHROPIC_API_KEY", defaultModel: "claude-fable-5", category: "cloud", notes: "Fable 5: 1M context, adaptive thinking via effort param." },
   // Cloud, OpenAI-compatible
   { id: "xai", label: "xAI Grok", kind: "openai-compatible", baseUrl: "https://api.x.ai/v1", apiKeyEnv: "XAI_API_KEY", defaultModel: "grok-4", category: "cloud" },
   { id: "kimi", label: "Moonshot Kimi", kind: "openai-compatible", baseUrl: "https://api.moonshot.ai/v1", apiKeyEnv: "MOONSHOT_API_KEY", defaultModel: "kimi-k2-0905-preview", category: "cloud" },
