@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { persistToolResult, resultFetch } from "./context-renderer.js";
 import type { FlowToolRegistry } from "./flow.js";
@@ -128,9 +128,52 @@ export const BUILTIN_TOOLSETS: Record<string, ToolsetDef> = {
 /** Tools safe to expose to untrusted webhook triggers (no fs writes, no shell). */
 export const WEBHOOK_SAFE_TOOLS: readonly string[] = ["web_fetch", "result_fetch"];
 
+/**
+ * SSRF guard for web_fetch. Even with no allowlist configured, web_fetch must
+ * NOT be a window into the host's private network or the cloud metadata
+ * endpoint. We block by hostname/IP-literal pattern (a full DNS resolve +
+ * re-check is out of scope for v0.1, and rebinding still needs a resolve):
+ * loopback, link-local (incl. 169.254.169.254 metadata), RFC1918 private,
+ * carrier-grade NAT (100.64/10), the unspecified address, and "localhost".
+ * This is a literal-pattern defense; it does not defeat DNS rebinding.
+ */
+export function isBlockedFetchHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+
+  // IPv6 loopback / unspecified.
+  if (host === "::1" || host === "::" || host === "0:0:0:0:0:0:0:1") return true;
+  // IPv6 link-local (fe80::/10) and unique-local (fc00::/7) ranges.
+  if (/^fe[89ab][0-9a-f]:/.test(host) || /^f[cd][0-9a-f]{2}:/.test(host)) return true;
+  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1): recurse on the embedded IPv4.
+  const mapped = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (mapped) return isBlockedFetchHost(mapped[1]);
+
+  const octets = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (octets) {
+    const [a, b] = octets.slice(1).map(Number);
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8 private
+    if (a === 0) return true; // 0.0.0.0/8 (incl. 0.0.0.0 unspecified)
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + metadata
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  }
+  return false;
+}
+
 function insideWorkspace(ctx: ToolContext, target: string): string {
-  const absolute = resolve(ctx.cwd, target);
-  if (!absolute.startsWith(resolve(ctx.cwd))) throw new Error(`Path escapes the workspace: ${target}`);
+  const root = resolve(ctx.cwd);
+  const absolute = resolve(root, target);
+  // A plain `startsWith(root)` check is bypassable: it is case-sensitive even on
+  // case-insensitive filesystems, and it treats a sibling like `/work-evil` as
+  // inside `/work` (shared prefix). Use path.relative instead: a path is inside
+  // root iff the relative path is neither empty-with-escape nor itself absolute
+  // and does not start with "..".
+  const rel = relative(root, absolute);
+  const escapes = rel === "" ? false : rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  if (escapes) throw new Error(`Path escapes the workspace: ${target}`);
   return absolute;
 }
 
@@ -186,8 +229,14 @@ export function registerBuiltinTools(registry: ToolRegistryV2): void {
     name: "web_fetch", toolset: "web", description: "Fetch a public URL as text.",
     async handler(args, ctx) {
       const url = new URL(args.url);
-      if (ctx.allowHosts && !ctx.allowHosts.includes(url.hostname)) {
-        return { ok: false, error: `Host not in allowlist: ${url.hostname}` };
+      if (ctx.allowHosts) {
+        // Explicit allowlist: the operator opted into exactly these hosts.
+        if (!ctx.allowHosts.includes(url.hostname)) {
+          return { ok: false, error: `Host not in allowlist: ${url.hostname}` };
+        }
+      } else if (isBlockedFetchHost(url.hostname)) {
+        // No allowlist: still refuse SSRF targets (loopback/private/metadata).
+        return { ok: false, error: `Blocked private/loopback/metadata host: ${url.hostname}` };
       }
       const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
       return { ok: response.ok, ...(response.ok ? { data: await response.text() } : { error: `HTTP ${response.status}`, retryable: response.status >= 500 }) } as ToolResult;

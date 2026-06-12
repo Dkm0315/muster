@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { claimCompleted, defaultConfig, listSubRuns, listTokenRecords, reapOrphans, spawnSubagent } from "../src/index.js";
+import { claimCompleted, defaultConfig, listSubRuns, listTokenRecords, reapOrphans, spawnSubagent, subRunsPath } from "../src/index.js";
 import type { MusterConfig } from "../src/index.js";
+
+/** Write a raw `spawned` event for a stale child that "crashed" while running. */
+async function seedStaleRunning(cwd: string, id: string, createdAt: string): Promise<void> {
+  const path = subRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, `${JSON.stringify({ id, at: createdAt, event: "spawned", parentKey: "ghost", task: "crashed mid-run" })}\n`);
+}
 
 function startStubLlm(reply = "child result"): Promise<{ url: string; close(): void }> {
   return new Promise((resolve) => {
@@ -99,6 +106,62 @@ test("completed-after-orphan does not resurrect a reaped run's claim", async () 
     const runs = await listSubRuns(cwd);
     assert.equal(runs.length, 1);
     assert.equal(runs[0].status, "completed");
+  } finally {
+    llm.close();
+  }
+});
+
+test("concurrency cap is durable: crashed children do not permanently wedge spawns; reaper recovers", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sub-cap-"));
+  const llm = await startStubLlm();
+  try {
+    // Simulate 5 children that crashed mid-run: `spawned` events with no
+    // terminal event. The in-memory activeCount is 0 (fresh process), so only a
+    // durable count derived from the store can see the saturation.
+    const staleAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    for (let i = 0; i < 5; i += 1) await seedStaleRunning(cwd, `sub_stale_${i}`, staleAt);
+    assert.equal((await listSubRuns(cwd)).filter((r) => r.status === "running").length, 5);
+
+    // Durable cap (5 running) must block a new spawn even though activeCount is 0.
+    await assert.rejects(
+      () => spawnSubagent(stubConfig(llm.url), { task: "blocked", parentKey: "p" }, cwd),
+      /concurrency cap reached/,
+    );
+
+    // The TTL reaper flips the stale running entries to orphaned, freeing slots.
+    const reaped = await reapOrphans(60_000, cwd);
+    assert.equal(reaped.length, 5);
+    assert.equal((await listSubRuns(cwd)).filter((r) => r.status === "running").length, 0);
+
+    // With the slots recovered, spawning succeeds again — no permanent wedge.
+    const handle = await spawnSubagent(stubConfig(llm.url), { task: "now ok", parentKey: "p" }, cwd);
+    const finished = await handle.done;
+    assert.equal(finished.status, "completed");
+  } finally {
+    llm.close();
+  }
+});
+
+test("double-claim is idempotent: a second claimCompleted returns the result only once", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sub-claim-"));
+  const llm = await startStubLlm();
+  try {
+    const handle = await spawnSubagent(stubConfig(llm.url), { task: "summarize", parentKey: "parent:x" }, cwd);
+    await handle.done;
+
+    // Under the single-writer assumption (see module docstring), claims are
+    // sequential. The re-read guard ensures a redundant claim observes the run
+    // already claimed and delivers nothing.
+    const first = await claimCompleted("parent:x", cwd);
+    assert.equal(first.length, 1, "first claim delivers the finished child");
+    assert.equal(first[0].id, handle.id);
+
+    const second = await claimCompleted("parent:x", cwd);
+    assert.equal(second.length, 0, "redundant claim delivers nothing");
+
+    // Exactly one `claimed` marker exists for the run — no duplicate claim event.
+    const claimed = (await listSubRuns(cwd)).filter((r) => r.id === handle.id && r.claimedAt);
+    assert.equal(claimed.length, 1);
   } finally {
     llm.close();
   }

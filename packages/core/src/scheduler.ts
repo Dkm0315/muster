@@ -1,7 +1,7 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { dataDir } from "./store.js";
+import { dataDir, readJsonFile } from "./store.js";
 
 export interface ScheduleJob {
   readonly id: string;
@@ -76,11 +76,9 @@ export function parseCron(expression: string): { matches(date: Date): boolean } 
 }
 
 async function readJobs(cwd: string): Promise<ScheduleJob[]> {
-  try {
-    return JSON.parse(await readFile(schedulesPath(cwd), "utf8")) as ScheduleJob[];
-  } catch {
-    return [];
-  }
+  // Missing file -> no jobs yet; corrupt file -> throw so the corruption is
+  // visible instead of silently dropping every schedule.
+  return readJsonFile<ScheduleJob[]>(schedulesPath(cwd), []);
 }
 
 async function writeJobs(jobs: ScheduleJob[], cwd: string): Promise<void> {

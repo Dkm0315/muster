@@ -5,18 +5,27 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { defaultConfig } from "@musterhq/core";
 import type { MusterConfig } from "@musterhq/core";
+import { createHmac } from "node:crypto";
 import {
   approvePairing,
   gatewayConfigPath,
   loadGatewayConfig,
   requestPairing,
+  resetAdapterAuthWarnings,
   slackEventToSurfaceMessage,
+  slackSignatureIsValid,
+  SLACK_REPLAY_WINDOW_SECONDS,
   startGatewayServer,
   surfaceReplyToSlackPost,
   surfaceReplyToTelegramSend,
   telegramUpdateToSurfaceMessage,
   TELEGRAM_SURFACE_ID,
 } from "../src/index.js";
+
+/** Build the X-Slack-Signature value Slack would send for a given body/timestamp/secret. */
+function slackSignature(timestamp: string, rawBody: string, secret: string): string {
+  return `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:${rawBody}`, "utf8").digest("hex")}`;
+}
 
 // --- realistic fixtures (shape per Bot API / Events API docs) ---
 
@@ -270,6 +279,146 @@ test("slack webhook posts governed reply via chat.postMessage with bot token", a
     assert.equal(body.channel, "C2147483705");
     assert.equal(body.text, "3 open tickets");
     assert.equal(body.thread_ts, "1765432000.000200");
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+// --- Slack signing-secret verification (fix #6) ---
+
+test("slackSignatureIsValid accepts a correct v0 signature and rejects tampering/replay", () => {
+  const secret = "8f742231b10e8888abcd99yyyzzz85a5";
+  const rawBody = JSON.stringify(slackEventCallback);
+  const now = 1_765_432_500_000; // fixed clock
+  const ts = String(Math.floor(now / 1000));
+  const good = slackSignature(ts, rawBody, secret);
+
+  assert.equal(slackSignatureIsValid(ts, rawBody, good, secret, now), true, "valid signature passes");
+  assert.equal(slackSignatureIsValid(ts, `${rawBody} `, good, secret, now), false, "tampered body fails");
+  assert.equal(slackSignatureIsValid(ts, rawBody, "v0=deadbeef", secret, now), false, "bad signature fails");
+  assert.equal(slackSignatureIsValid(ts, rawBody, good, "wrong-secret", now), false, "wrong secret fails");
+  assert.equal(slackSignatureIsValid(undefined, rawBody, good, secret, now), false, "missing timestamp fails");
+  assert.equal(slackSignatureIsValid(ts, rawBody, undefined, secret, now), false, "missing signature fails");
+
+  // A timestamp older than the replay window is rejected even with a correct HMAC.
+  const oldTs = String(Math.floor(now / 1000) - SLACK_REPLAY_WINDOW_SECONDS - 1);
+  const oldSig = slackSignature(oldTs, rawBody, secret);
+  assert.equal(slackSignatureIsValid(oldTs, rawBody, oldSig, secret, now), false, "stale timestamp rejected (replay)");
+});
+
+test("slack webhook verifies the signing secret before processing when configured", async () => {
+  resetAdapterAuthWarnings();
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-slack-sig-"));
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(cwd, ".muster"), { recursive: true });
+  const signingSecret = "topsecretsigning";
+  await writeFile(gatewayConfigPath(cwd), JSON.stringify({ token: "test-token", slack: { botToken: "xoxb-test", signingSecret } }));
+  const gateway = await loadGatewayConfig(cwd);
+  const llm = await startStubLlm("unused");
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd }, 0);
+  const rawBody = JSON.stringify(slackUrlVerification);
+  const ts = String(Math.floor(Date.now() / 1000));
+  const postSlack = (headers: Record<string, string>) => fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: rawBody,
+  });
+  try {
+    // No signature headers -> 401.
+    assert.equal((await postSlack({})).status, 401);
+    // Wrong signature -> 401.
+    assert.equal((await postSlack({ "x-slack-request-timestamp": ts, "x-slack-signature": "v0=bad" })).status, 401);
+    // Tampered body (valid sig for different body) -> 401.
+    const sigForOther = slackSignature(ts, "{}", signingSecret);
+    assert.equal((await postSlack({ "x-slack-request-timestamp": ts, "x-slack-signature": sigForOther })).status, 401);
+    // Correct signature -> 200 and the url_verification challenge echoes back.
+    const good = slackSignature(ts, rawBody, signingSecret);
+    const ok = await postSlack({ "x-slack-request-timestamp": ts, "x-slack-signature": good });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { challenge: slackUrlVerification.challenge });
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+test("slack webhook without a signing secret warns once that it is unauthenticated", async () => {
+  resetAdapterAuthWarnings();
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-slack-warn-"));
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(cwd, ".muster"), { recursive: true });
+  await writeFile(gatewayConfigPath(cwd), JSON.stringify({ token: "test-token", slack: { botToken: "xoxb-test" } }));
+  const gateway = await loadGatewayConfig(cwd);
+  const llm = await startStubLlm("unused");
+  const lines: string[] = [];
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, log: (line) => lines.push(line) }, 0);
+  const postSlack = () => fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(slackUrlVerification),
+  });
+  try {
+    assert.equal((await postSlack()).status, 200, "unauthenticated slack still processes (back-compat)");
+    assert.equal((await postSlack()).status, 200);
+    const warnings = lines.filter((line) => line.includes("UNAUTHENTICATED") && line.includes("slack"));
+    assert.equal(warnings.length, 1, "warns exactly once per process");
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+// --- Telegram secret-token verification (fix #7) ---
+
+test("telegram webhook requires the secret-token header when configured", async () => {
+  resetAdapterAuthWarnings();
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-tg-secret-"));
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(cwd, ".muster"), { recursive: true });
+  const secretToken = "tg-webhook-secret-123";
+  await writeFile(gatewayConfigPath(cwd), JSON.stringify({ token: "test-token", telegram: { botToken: "123:ABC", secretToken } }));
+  const gateway = await loadGatewayConfig(cwd);
+  const llm = await startStubLlm("unused");
+  const fetcher = (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch;
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, fetcher }, 0);
+  const postTg = (headers: Record<string, string>) => fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(telegramUpdate),
+  });
+  try {
+    assert.equal((await postTg({})).status, 401, "missing secret token rejected");
+    assert.equal((await postTg({ "x-telegram-bot-api-secret-token": "wrong" })).status, 401, "wrong secret token rejected");
+    // Matching token is accepted (proceeds to pairing -> 200).
+    assert.equal((await postTg({ "x-telegram-bot-api-secret-token": secretToken })).status, 200, "matching secret token accepted");
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+test("telegram webhook without a secret token warns once that it is unauthenticated", async () => {
+  resetAdapterAuthWarnings();
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-tg-warn-"));
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(cwd, ".muster"), { recursive: true });
+  await writeFile(gatewayConfigPath(cwd), JSON.stringify({ token: "test-token", telegram: { botToken: "123:ABC" } }));
+  const gateway = await loadGatewayConfig(cwd);
+  const llm = await startStubLlm("unused");
+  const lines: string[] = [];
+  const fetcher = (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch;
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, fetcher, log: (line) => lines.push(line) }, 0);
+  const postTg = () => fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(telegramUpdate),
+  });
+  try {
+    assert.equal((await postTg()).status, 200, "unauthenticated telegram still processes (back-compat)");
+    assert.equal((await postTg()).status, 200);
+    const warnings = lines.filter((line) => line.includes("UNAUTHENTICATED") && line.includes("telegram"));
+    assert.equal(warnings.length, 1, "warns exactly once per process");
   } finally {
     await running.close();
     llm.close();

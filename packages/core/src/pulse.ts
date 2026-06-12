@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { executeRun } from "./run.js";
 import { parseCron } from "./scheduler.js";
-import { dataDir } from "./store.js";
+import { dataDir, readJsonFile } from "./store.js";
 import { listTokenRecords } from "./tokens.js";
 import { musterRoot } from "./profiles.js";
 import type { MusterConfig } from "./types.js";
@@ -49,11 +49,9 @@ export function pulseChecklistPath(cwd = process.cwd()): string {
 }
 
 async function readPulses(cwd: string): Promise<Pulse[]> {
-  try {
-    return JSON.parse(await readFile(pulsesPath(cwd), "utf8"));
-  } catch {
-    return [];
-  }
+  // Missing file -> no pulses yet; corrupt file -> throw so corruption surfaces
+  // rather than silently disabling every pulse.
+  return readJsonFile<Pulse[]>(pulsesPath(cwd), []);
 }
 
 async function writePulses(pulses: Pulse[], cwd: string): Promise<void> {
@@ -94,12 +92,14 @@ export async function resumePulse(id: string, cwd = process.cwd()): Promise<void
 /** Deterministic, zero-LLM gate. Heartbeats with no due checklist content never call a model. */
 export async function pulsePreflight(pulse: Pulse, cwd: string): Promise<{ due: boolean; reason: string; checklist?: string }> {
   if (pulse.kind === "task") return { due: true, reason: "task pulse is always due on its schedule" };
-  let checklist = "";
-  try {
-    checklist = (await readFile(pulseChecklistPath(cwd), "utf8")).trim();
-  } catch {
+  const checklistRaw = await readFile(pulseChecklistPath(cwd), "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error; // a real IO error (e.g. EACCES) must not masquerade as "no checklist"
+  });
+  if (checklistRaw === undefined) {
     return { due: false, reason: "no PULSE.md checklist — skipped without any API call" };
   }
+  const checklist = checklistRaw.trim();
   const items = checklist.split("\n").filter((line) => /^\s*[-*]\s+\S/.test(line));
   if (!items.length) return { due: false, reason: "PULSE.md has no checklist items — skipped without any API call" };
   return { due: true, reason: `${items.length} checklist item(s)`, checklist };

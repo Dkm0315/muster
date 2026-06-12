@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,7 @@ import {
   promoteSkill,
   recordSkillUse,
   selectSkills,
+  skillsDir,
   viewSkill,
   writeCandidateSkill,
 } from "../src/index.js";
@@ -79,4 +80,18 @@ test("skill names are validated and oversized bodies refused", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-skills-validate-"));
   await assert.rejects(() => writeCandidateSkill({ name: "Bad Name!", description: "x", body: "x" }, cwd), /Invalid skill name/);
   await assert.rejects(() => writeCandidateSkill({ name: "ok-name", description: "x", body: "y".repeat(100_001) }, cwd), /100K/);
+});
+
+test("missing usage telemetry is treated as first use; corrupt telemetry throws instead of clobbering counts", async () => {
+  // Missing .usage.json -> recordSkillUse starts fresh and succeeds.
+  const freshCwd = await mkdtemp(join(tmpdir(), "muster-skills-usage-missing-"));
+  await recordSkillUse(["alpha"], freshCwd);
+  await curateSkills(freshCwd); // also exercises the read path with no error
+
+  // Corrupt .usage.json -> both readers throw rather than silently overwriting it.
+  const corruptCwd = await mkdtemp(join(tmpdir(), "muster-skills-usage-corrupt-"));
+  await mkdir(skillsDir(corruptCwd), { recursive: true });
+  await writeFile(join(skillsDir(corruptCwd), ".usage.json"), "{ corrupt");
+  await assert.rejects(() => recordSkillUse(["alpha"], corruptCwd), /Corrupt JSON/);
+  await assert.rejects(() => curateSkills(corruptCwd), /Corrupt JSON/);
 });
