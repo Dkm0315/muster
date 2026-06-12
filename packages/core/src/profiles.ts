@@ -73,3 +73,44 @@ export async function useProfile(name: string, cwd = process.cwd()): Promise<voi
   await mkdir(musterRoot(cwd), { recursive: true });
   await writeFile(profilePointerPath(cwd), `${name}\n`);
 }
+
+/**
+ * Per-profile HOME for subprocess credential isolation: tools that shell out
+ * (git/ssh/npm) get this as HOME so credentials can never leak across
+ * profiles. Default profile uses .muster/home.
+ */
+export function profileHomeDir(cwd = process.cwd(), profile = activeProfile(cwd)): string {
+  if (profile === DEFAULT_PROFILE) return join(musterRoot(cwd), "home");
+  return join(profilesRoot(cwd), profile, "home");
+}
+
+export function subprocessEnvForProfile(cwd = process.cwd()): Record<string, string> {
+  return { HOME: profileHomeDir(cwd), PATH: process.env.PATH ?? "" };
+}
+
+/**
+ * Clone personality + knowledge WITHOUT history: copies config, memory, and
+ * skills; never sessions, episodes, or token ledgers.
+ */
+export async function cloneProfile(from: string, to: string, cwd = process.cwd()): Promise<void> {
+  validateProfileName(to);
+  if (to === DEFAULT_PROFILE) throw new Error("Cannot clone onto the default profile.");
+  const { cp, mkdir: mkdirAsync } = await import("node:fs/promises");
+  const sourceData = profileDataDir(cwd, from);
+  const sourceConfig = profileConfigPath(cwd, from);
+  const targetRoot = join(profilesRoot(cwd), to);
+  await mkdirAsync(join(targetRoot, "data"), { recursive: true });
+  await mkdirAsync(join(targetRoot, "home"), { recursive: true });
+  const copies: Array<[string, string]> = [
+    [sourceConfig, join(targetRoot, "config.json")],
+    [join(sourceData, "memory.jsonl"), join(targetRoot, "data", "memory.jsonl")],
+    [join(musterRoot(cwd), "skills"), join(targetRoot, "skills")],
+  ];
+  for (const [source, target] of copies) {
+    try {
+      await cp(source, target, { recursive: true });
+    } catch {
+      // missing pieces (no memory yet, no skills yet) are fine
+    }
+  }
+}
