@@ -980,6 +980,9 @@ html.supports-lg-refract .glass-card {
 /* Each emitted line. Hidden until revealed by the line-reveal observer; if JS
    never runs (or reduced-motion), the .term-out:not(.revealing) fallback shows
    all lines statically. */
+.t-line {
+  display: block;
+}
 .term-out.revealing .t-line {
   opacity: 0;
   transform: translateY(2px);
