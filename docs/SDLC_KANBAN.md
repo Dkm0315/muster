@@ -116,3 +116,4 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-048 | Typed hook bus (8 hooks, block-terminal, timeout-pass) wired into run loop | Done |
 
 | HC-044 | Context renderer: immutable transcript, progressive tool-result stubbing, result_fetch | Done |
+| HC-045 | SQLite session store + 4-shape session_search (FTS5, single-writer) | Done |
