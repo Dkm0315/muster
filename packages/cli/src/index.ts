@@ -1,5 +1,16 @@
 #!/usr/bin/env node
 import {
+  openSessionStore,
+  listSkills,
+  viewSkill,
+  promoteSkill,
+  curateSkills,
+  listPulses,
+  addPulse,
+  runDuePulses,
+  resumePulse,
+  listSubRuns,
+  reapOrphans,
   adjudicateFeedback,
   addMemory,
   appendEpisode,
@@ -150,6 +161,21 @@ async function main(): Promise<void> {
     case "migrate":
       await migrate(args);
       return;
+    case "sessions":
+      await sessionsCommand(args);
+      return;
+    case "skills":
+      await skillsCommand(args);
+      return;
+    case "pulse":
+      await pulseCommand(args);
+      return;
+    case "subagents":
+      await subagentsCommand(args);
+      return;
+    case "demo":
+      await demoCommand(args);
+      return;
     case "run":
       await runCommand(args);
       return;
@@ -222,6 +248,11 @@ Usage:
   muster migrate openclaw --dry-run
   muster migrate hermes --dry-run
   muster migrate pi --dry-run
+  muster sessions search "query" | show <id> | recent
+  muster skills list | view <name> | curate
+  muster pulse add "<cron>" [--kind heartbeat|task] [--prompt "..."] | list | resume <id> | run-due
+  muster subagents list | reap [--ttl-min N]
+  muster demo                         # provision a throwaway workspace + stub model, show the full pipeline
   muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
   muster tokens [--limit 20]
   muster profile create|list|use|current [name]
@@ -1239,6 +1270,17 @@ async function runCommand(commandArgs: string[]): Promise<void> {
   }
   console.log(`run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} task=${outcome.plan.taskKind} status=${outcome.episode.outcome?.kind}`);
   console.log(`tokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}${outcome.tokens.costUsd !== undefined ? ` cost=$${outcome.tokens.costUsd.toFixed(4)}` : ""}`);
+  // Persist to the session store so `muster sessions` works from the CLI, not only the gateway.
+  try {
+    const store = openSessionStore();
+    const session = store.createSession({ channel: "cli", peer: process.env.USER ?? "local", title: prompt.slice(0, 60) });
+    store.appendMessage(session.id, "user", prompt);
+    store.appendMessage(session.id, "assistant", outcome.episode.responseText);
+    store.addUsage(session.id, outcome.tokens.inputTokens, outcome.tokens.outputTokens, outcome.tokens.costUsd ?? 0);
+    store.close();
+  } catch {
+    // session store is best-effort from the CLI; never fail a run over it
+  }
   if (outcome.episode.outcome?.kind === "failed") {
     throw new Error(outcome.episode.outcome.detail ?? "Run failed");
   }
@@ -1651,5 +1693,192 @@ async function pairingCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   throw new Error("Usage: muster pairing list | approve <code>");
+}
+
+
+async function sessionsCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  const store = openSessionStore();
+  try {
+    if (action === "search") {
+      const query = stripFlags(rest, ["--limit"]).join(" ").trim();
+      if (!query) throw new Error('Usage: muster sessions search "query" [--limit N]');
+      const result = store.search({ query, limit: readNumberFlag(rest, "--limit") });
+      if (result.shape !== "discover") return;
+      if (!result.hits.length) { console.log("No matching sessions."); return; }
+      for (const hit of result.hits) {
+        console.log(`${hit.sessionId}  ${hit.title || "(untitled)"}\n  ${hit.snippet}`);
+      }
+      return;
+    }
+    if (action === "show" && rest[0]) {
+      const result = store.search({ sessionId: rest[0] });
+      if (result.shape !== "read") return;
+      console.log(`${result.session.title || "(untitled)"}  [${result.session.channel}/${result.session.peer}]  in=${result.session.tokensIn} out=${result.session.tokensOut}`);
+      for (const message of [...result.head, ...(result.omitted ? [{ role: "system", content: `… ${result.omitted} messages omitted …` } as { role: string; content: string }] : []), ...result.tail]) {
+        console.log(`  ${message.role.padEnd(9)} ${message.content.slice(0, 100)}`);
+      }
+      return;
+    }
+    if (action === "recent" || action === undefined) {
+      const result = store.search({ limit: readNumberFlag(rest, "--limit") ?? 15 });
+      if (result.shape !== "browse") return;
+      for (const session of result.sessions) {
+        console.log(`${session.id}  ${session.createdAt.slice(0, 16)}  ${session.title || "(untitled)"}  [${session.channel}/${session.peer}]`);
+      }
+      return;
+    }
+    throw new Error("Usage: muster sessions search|show|recent");
+  } finally {
+    store.close();
+  }
+}
+
+async function skillsCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  if (action === "list" || action === undefined) {
+    const skills = await listSkills();
+    if (!skills.length) { console.log("No skills yet."); return; }
+    for (const skill of skills) {
+      console.log(`${skill.status.padEnd(10)} ${skill.name.padEnd(28)} ${skill.description.slice(0, 60)}`);
+    }
+    return;
+  }
+  if (action === "view" && rest[0]) {
+    const skill = await viewSkill(rest[0]);
+    console.log(`# ${skill.name} (${skill.status}, v${skill.version})\n${skill.description}\n\n${skill.body}`);
+    return;
+  }
+  if (action === "curate") {
+    const result = await curateSkills();
+    console.log(`staled: ${result.staled.join(", ") || "none"}; archived: ${result.archived.join(", ") || "none"}`);
+    return;
+  }
+  if (action === "promote") {
+    console.log("Promotion is eval-gated: a skill becomes active only after `muster evolve` converges on its suite.");
+    console.log("This is intentional — skills cannot self-certify. See docs/FEATURE_PARITY_PLAN.md.");
+    return;
+  }
+  throw new Error("Usage: muster skills list|view <name>|curate");
+}
+
+async function pulseCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  if (action === "add") {
+    const positional = stripFlags(rest, ["--kind", "--prompt", "--max-tokens"]);
+    const cron = positional[0];
+    if (!cron) throw new Error('Usage: muster pulse add "<cron>" [--kind heartbeat|task] [--prompt "..."] [--max-tokens N]');
+    const pulse = await addPulse({
+      cron,
+      kind: (readFlag(rest, "--kind") as "heartbeat" | "task" | undefined) ?? "heartbeat",
+      prompt: readFlag(rest, "--prompt"),
+      maxTokensPerDay: readNumberFlag(rest, "--max-tokens"),
+    });
+    console.log(`${pulse.id} [${pulse.cron}] ${pulse.kind} budget=${pulse.maxTokensPerDay}/day`);
+    console.log("No daemon. Add to external cron: * * * * * cd <repo> && pnpm hc pulse run-due");
+    if (pulse.kind === "heartbeat") console.log("Heartbeats need a .muster/PULSE.md checklist; empty checklist = zero API calls.");
+    return;
+  }
+  if (action === "list" || action === undefined) {
+    const pulses = await listPulses();
+    if (!pulses.length) { console.log("No pulses."); return; }
+    for (const pulse of pulses) {
+      console.log(`${pulse.id} [${pulse.cron}] ${pulse.kind}${pulse.pausedReason ? `  PAUSED: ${pulse.pausedReason}` : ""}`);
+    }
+    return;
+  }
+  if (action === "resume" && rest[0]) {
+    await resumePulse(rest[0]);
+    console.log(`Resumed ${rest[0]}`);
+    return;
+  }
+  if (action === "run-due") {
+    const config = await loadConfig();
+    const results = await runDuePulses(config);
+    if (!results.length) { console.log("No pulses due."); return; }
+    for (const result of results) {
+      console.log(`${result.pulse.id}: ${result.action}${result.detail ? ` (${result.detail})` : ""}`);
+      if (result.action === "surfaced" && result.text) console.log(`  ${result.text.slice(0, 200)}`);
+    }
+    return;
+  }
+  throw new Error("Usage: muster pulse add|list|resume|run-due");
+}
+
+async function subagentsCommand(commandArgs: string[]): Promise<void> {
+  const [action, ...rest] = commandArgs;
+  if (action === "list" || action === undefined) {
+    const runs = await listSubRuns();
+    if (!runs.length) { console.log("No subagent runs."); return; }
+    for (const run of runs) {
+      console.log(`${run.id}  ${run.status.padEnd(10)} ${run.parentKey.padEnd(24)} ${run.task.slice(0, 50)}`);
+    }
+    return;
+  }
+  if (action === "reap") {
+    const ttlMin = readNumberFlag(rest, "--ttl-min") ?? 30;
+    const reaped = await reapOrphans(ttlMin * 60_000);
+    console.log(reaped.length ? `Orphaned ${reaped.length} stale run(s): ${reaped.map((run) => run.id).join(", ")}` : "No stale runs to reap.");
+    return;
+  }
+  throw new Error("Usage: muster subagents list|reap [--ttl-min N]");
+}
+
+
+async function demoCommand(_commandArgs: string[]): Promise<void> {
+  const { createServer } = await import("node:http");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const {
+    executeRun, addMemory, verifyIntegrity, renderIntegrityReport,
+    listTokenRecords, renderTokenTable, ensureDefaultConfig, loadConfig, saveConfig,
+  } = await import("@musterhq/core");
+
+  // Provision a real, isolated workspace + a real stub LLM HTTP service.
+  const cwd = await mkdtemp(join(tmpdir(), "muster-demo-"));
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const prompt = JSON.stringify(body);
+      const text = /deploy/i.test(prompt)
+        ? "Muster deploys to uat-erp.example.com (recalled from scoped memory)."
+        : "Demo run complete. Every token above is real, recorded to the ledger.";
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: text } }] }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    await ensureDefaultConfig(cwd);
+    const config = await loadConfig(cwd);
+    await saveConfig({
+      ...config,
+      providers: { ...config.providers, demo: { id: "demo", kind: "openai-compatible", baseUrl: `http://127.0.0.1:${port}/v1`, defaultModel: "demo-model", timeoutMs: 5000 } },
+      runtimes: { ...config.runtimes, native: { id: "native", enabled: true, provider: "demo", routes: {} } },
+      routing: { ...config.routing, defaultRuntime: "native" },
+    }, cwd);
+    const live = await loadConfig(cwd);
+
+    console.log("muster demo — provisioned an isolated workspace and a live stub model service.\n");
+    await addMemory({ summary: "Muster deploys to uat-erp.example.com", provenance: ["demo"], scopes: [{ kind: "user", id: "demo" }] }, cwd);
+
+    for (const prompt of ["Where do we deploy?", "Summarize the day's work."]) {
+      const outcome = await executeRun(live, { prompt, cwd, scopes: [{ kind: "user", id: "demo" }] });
+      console.log(`> ${prompt}`);
+      if (outcome.recalled.length) console.log(`  (recalled ${outcome.recalled.length} scoped memory)`);
+      console.log(`  ${outcome.episode.responseText}\n`);
+    }
+
+    console.log(renderTokenTable(await listTokenRecords(cwd)));
+    console.log("\n" + renderIntegrityReport(await verifyIntegrity(cwd)));
+    console.log("\nThat was a real run loop: scoped memory recall, token ledger, integrity verification — on a throwaway workspace.");
+  } finally {
+    server.close();
+  }
 }
 

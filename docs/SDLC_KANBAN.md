@@ -126,3 +126,4 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-055 | Profiles v2 (home/ credential isolation, clone-without-sessions), MEDIA: tags, gateway idempotency | Done |
 | HC-056 | Tool registry v2: declarative entries, composable toolsets, SSRF/allowlist gates, result caps, flow bridge | Done |
 | HC-057 | Browser tool (Playwright-backed, flat contract, a11y snapshots) | Ready — deferred to browser milestone |
+| HC-058 | CLI surface for sessions/skills/pulse/subagents + muster demo (provisioned stub service); CLI run persists sessions | Done |
