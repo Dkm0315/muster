@@ -122,3 +122,4 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-051 | Pull-based subagents: durable run store, claim-exactly-once, depth/concurrency caps, TTL reaper, ledger folding | Done |
 | HC-052 | Pulse scheduler: zero-LLM preflight, daily budget kill-switch, deterministic quiet-suppression | Done |
 | HC-053 | Never-wedge compactor: deterministic-first, model-optional, hard-truncate guarantee | Done |
+| HC-054 | JSON-RPC gateway protocol: stdio+event transport, contract versioning, single-use tickets, ledger.tick | Done |

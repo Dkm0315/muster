@@ -9,3 +9,4 @@ export * from "./adapters/discord.js";
 export * from "./adapters/whatsapp.js";
 export * from "./adapters/gchat.js";
 export * from "./adapters/teams.js";
+export * from "./rpc.js";
