@@ -119,3 +119,4 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 | HC-045 | SQLite session store + 4-shape session_search (FTS5, single-writer) | Done |
 | HC-049 | Eval-gated skill loop: quarantined candidates, gate promotion, top-K injection, telemetry, curator | Done |
 | HC-050 | MCP client: zero-dep JSON-RPC (stdio+HTTP), per-server isolation, circuit breaker, capped results | Done |
+| HC-051 | Pull-based subagents: durable run store, claim-exactly-once, depth/concurrency caps, TTL reaper, ledger folding | Done |
