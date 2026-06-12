@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { addSchedule, listSchedules, parseCron, removeSchedule, runDueSchedules } from "../src/index.js";
+import { addSchedule, listSchedules, parseCron, removeSchedule, runDueSchedules, schedulesPath } from "../src/index.js";
 
 test("parseCron matches simple and complex expressions", () => {
   const everyMinute = parseCron("* * * * *");
@@ -85,4 +85,15 @@ test("removeSchedule reports whether anything was removed", async () => {
   const job = await addSchedule("* * * * *", "temp", { cwd });
   assert.equal(await removeSchedule(job.id, cwd), true);
   assert.equal(await removeSchedule(job.id, cwd), false);
+});
+
+test("missing schedules.json yields no jobs; a corrupt one throws instead of silently dropping schedules", async () => {
+  const missingCwd = await mkdtemp(join(tmpdir(), "muster-sched-missing-"));
+  assert.deepEqual(await listSchedules(missingCwd), [], "absent file is an empty schedule, not an error");
+
+  const corruptCwd = await mkdtemp(join(tmpdir(), "muster-sched-corrupt-"));
+  const path = schedulesPath(corruptCwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, "{ this is not valid json");
+  await assert.rejects(() => listSchedules(corruptCwd), /Corrupt JSON/);
 });

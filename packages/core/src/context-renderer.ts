@@ -28,11 +28,12 @@ export interface RenderedContext {
   readonly savedTokens: number;
 }
 
+/** Older tool results at or below this size are kept verbatim — too small to be worth stubbing. */
+export const TRIVIAL_TOOL_RESULT_CHARS = 200;
+
 export interface RenderOptions {
   /** Most recent tool results kept verbatim. Default 5. */
   readonly keepRecentToolResults?: number;
-  /** Tool results larger than this are always stub candidates. Default 8000 chars. */
-  readonly oversizeChars?: number;
 }
 
 export function resultsDir(cwd = process.cwd()): string {
@@ -79,7 +80,9 @@ export async function resultFetch(
 
 /**
  * Pure render: never mutates `messages`. Reduction order is deterministic:
- * 1. stub all but the last N tool results (oldest first),
+ * 1. stub all but the last N tool results (oldest first), keeping older tool
+ *    results verbatim only when they are trivially small
+ *    (<= TRIVIAL_TOOL_RESULT_CHARS — stubbing them would not save tokens),
  * 2. if still over budget, drop oldest non-system messages,
  * 3. system messages and the final message are never dropped.
  */
@@ -89,7 +92,6 @@ export function renderContext(
   options: RenderOptions = {},
 ): RenderedContext {
   const keepRecent = options.keepRecentToolResults ?? 5;
-  const oversize = options.oversizeChars ?? 8000;
 
   const toolIndexes = messages
     .map((message, index) => ({ message, index }))
@@ -99,7 +101,7 @@ export function renderContext(
   let stubbed = 0;
   const working: TranscriptMessage[] = messages.map((message, index) => {
     if (message.role !== "tool" || protectedToolIndexes.has(index)) return message;
-    if (message.content.length <= 200 && message.content.length <= oversize) return message;
+    if (message.content.length <= TRIVIAL_TOOL_RESULT_CHARS) return message;
     stubbed += 1;
     return {
       ...message,
