@@ -6,6 +6,7 @@ export * from "./context-graph.js";
 export * from "./eval.js";
 export * from "./evolve.js";
 export * from "./feedback.js";
+export * from "./hooks.js";
 export * from "./flow.js";
 export * from "./integrity.js";
 export * from "./memory.js";
