@@ -16,9 +16,30 @@
   --warm: #FFD9C2;         /* peach — used inside the shader mesh only */
   --line: rgba(26, 23, 38, 0.12);
   --line-soft: rgba(26, 23, 38, 0.07);
-  --glass: rgba(255, 255, 255, 0.55);
+
+  /* ---- Apple "Liquid Glass" material (light mode) ----
+     A reusable recipe: translucent frost fill + a bright inset specular rim +
+     a soft layered float shadow with a faint lavender glow. The .liquid-glass
+     class below consumes these so every surface reads from one source. */
+  --glass: rgba(255, 255, 255, 0.55);          /* legacy fill kept for back-compat */
   --glass-border: rgba(255, 255, 255, 0.6);
   --glass-shadow: 0 18px 50px -18px rgba(76, 56, 130, 0.32);
+
+  --lg-fill: rgba(255, 255, 255, 0.14);        /* primary translucent frost */
+  --lg-fill-strong: rgba(255, 255, 255, 0.42); /* opaque-ish variant (nav, pills) */
+  --lg-border: rgba(255, 255, 255, 0.55);
+  --lg-blur: 20px;
+  --lg-saturate: 180%;
+  /* specular: bright top rim + faint bottom rim = the Apple "lit edge" tell */
+  --lg-specular:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.15);
+  /* float: layered ambient shadow + a faint lavender colored glow */
+  --lg-float:
+    0 8px 40px rgba(167, 139, 250, 0.18),
+    0 2px 10px rgba(26, 23, 38, 0.10);
+  --lg-sheen: rgba(255, 255, 255, 0.5);        /* top-edge ::before gradient start */
+  --lg-radius: 24px;
 
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --display: "Clash Display", "Hanken Grotesk", system-ui, sans-serif;
@@ -44,22 +65,94 @@
   --reveal-ms: 720ms;
 }
 
-/* Optional night variant behind [data-theme="night"] (nice-to-have). */
-[data-theme="night"] {
-  --canvas: #0E0B1A;
-  --canvas-2: #15102a;
-  --ink: #ECE9F5;
-  --ink-dim: #B3ABcc;
-  --ink-faint: #7d7596;
-  --line: rgba(236, 233, 245, 0.14);
-  --line-soft: rgba(236, 233, 245, 0.08);
+/* ---- Real dark mode (deep plum-black). Set via [data-theme="dark"] on <html>
+   by the inline boot script + theme.ts toggle. ---- */
+[data-theme="dark"] {
+  --canvas: #0E0B1A;       /* deep plum-black base */
+  --canvas-2: #17132a;     /* elevated surface */
+  --ink: #F0EEE9;          /* warm off-white text */
+  --ink-dim: #C4BCDA;      /* readable muted */
+  --ink-faint: #A89FC0;    /* faint muted-lavender */
+  --primary: #B9A2FF;      /* lavender brightened for contrast on dark */
+  --primary-deep: #C3AEFF; /* link/accent lavender that reads on dark */
+  --accent: #22C9E6;       /* cyan brightened a touch */
+  --accent-deep: #3DD6F0;
+  --line: rgba(240, 238, 233, 0.14);
+  --line-soft: rgba(240, 238, 233, 0.08);
+
+  /* Liquid Glass tuned for dark: darker translucent fill, softer specular. */
   --glass: rgba(40, 32, 66, 0.5);
   --glass-border: rgba(167, 139, 250, 0.32);
   --glass-shadow: 0 18px 50px -18px rgba(0, 0, 0, 0.6);
+
+  --lg-fill: rgba(255, 255, 255, 0.06);
+  --lg-fill-strong: rgba(40, 32, 66, 0.55);
+  --lg-border: rgba(255, 255, 255, 0.16);
+  --lg-specular:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.05);
+  --lg-float:
+    0 8px 40px rgba(124, 92, 224, 0.26),
+    0 2px 12px rgba(0, 0, 0, 0.5);
+  --lg-sheen: rgba(255, 255, 255, 0.22);
 }
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+
+/* Theme cross-fade: only background/color animate, and only when the user
+   hasn't asked to reduce motion (handled in the reduced-motion block below). */
+html { transition: background-color 300ms var(--ease-out, ease); }
+body { transition: background-color 300ms var(--ease-out, ease), color 300ms var(--ease-out, ease); }
+
+/* ============================================================
+   LIQUID GLASS — one reusable material for every glass surface
+   ============================================================
+   Default = plain frosted blur + specular rim + lavender float glow. Looks
+   complete on its own in every browser. The SVG-refraction variant (.lg-refract)
+   is layered on top only where supported (Chromium), gated by @supports + a JS
+   feature test that adds .supports-lg-refract to <html>. */
+.liquid-glass {
+  position: relative;
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  /* Performance: isolate paint; never animate backdrop-filter itself. */
+  contain: layout style paint;
+}
+/* Top-edge sheen — the thin lit line Apple draws along the upper border. */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* Progressive enhancement: real refraction via the inline SVG turbulence/
+   displacement filter. Only applied when BOTH the browser advertises support
+   AND our JS probe confirmed it (Safari claims support then renders nothing,
+   so the probe is the real gate). Falls back silently to the plain blur. */
+@supports (backdrop-filter: url(#liquid-glass)) {
+  html.supports-lg-refract .liquid-glass.lg-refract {
+    backdrop-filter: url(#liquid-glass) blur(var(--lg-blur)) saturate(var(--lg-saturate));
+    -webkit-backdrop-filter: url(#liquid-glass) blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  }
+}
 
 body {
   margin: 0;
@@ -126,11 +219,12 @@ code { font-family: var(--mono); }
     radial-gradient(42vw 42vw at 18% 78%, rgba(167, 139, 250, 0.38), transparent 64%),
     var(--canvas);
 }
-[data-theme="night"] #hero-stage {
+[data-theme="dark"] #hero-stage {
   background:
-    radial-gradient(46vw 46vw at 22% 28%, rgba(167, 139, 250, 0.4), transparent 60%),
-    radial-gradient(40vw 40vw at 78% 26%, rgba(6, 182, 212, 0.28), transparent 62%),
-    radial-gradient(50vw 50vw at 60% 82%, rgba(124, 92, 224, 0.3), transparent 64%),
+    radial-gradient(46vw 46vw at 22% 28%, rgba(167, 139, 250, 0.42), transparent 60%),
+    radial-gradient(40vw 40vw at 78% 26%, rgba(34, 201, 230, 0.30), transparent 62%),
+    radial-gradient(50vw 50vw at 60% 82%, rgba(124, 92, 224, 0.34), transparent 64%),
+    radial-gradient(42vw 42vw at 18% 78%, rgba(99, 73, 200, 0.30), transparent 64%),
     var(--canvas);
 }
 #hero-canvas {
@@ -168,10 +262,21 @@ main::before {
   justify-content: space-between;
   gap: 24px;
   padding: 16px clamp(18px, 4vw, 44px);
-  background: rgba(240, 238, 233, 0.62);
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  /* Liquid Glass bar: a tinted frost so text on the bar stays legible, plus a
+     specular bottom rim instead of a flat hairline. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0)),
+    rgba(240, 238, 233, 0.58);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
   border-bottom: 1px solid var(--line-soft);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+}
+[data-theme="dark"] .topbar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
+    rgba(14, 11, 26, 0.62);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
 }
 .brand {
   font-family: var(--display);
@@ -192,15 +297,48 @@ main::before {
 .nav-cta {
   padding: 7px 16px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--glass);
+  border: 1px solid var(--lg-border);
+  background: var(--lg-fill-strong);
   color: var(--ink) !important;
-  backdrop-filter: blur(8px);
-  transition: border-color 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+  box-shadow: var(--lg-specular);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  transition: border-color 0.18s var(--ease-out), transform 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
 }
-.nav-cta:hover { border-color: var(--primary); transform: translateY(-1px); }
+.nav-cta:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--lg-specular), 0 6px 20px rgba(167, 139, 250, 0.22);
+}
 
-/* hide overflow nav links on small screens (keep brand + GitHub CTA) */
+/* ---- theme toggle: small glass pill, sun in light / moon in dark ---- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--lg-border);
+  background: var(--lg-fill-strong);
+  color: var(--ink-dim);
+  box-shadow: var(--lg-specular);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  cursor: pointer;
+  transition: color 0.18s var(--ease-out), border-color 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+}
+.theme-toggle:hover { color: var(--ink); border-color: var(--primary); transform: translateY(-1px); }
+.theme-toggle svg { width: 18px; height: 18px; display: block; }
+/* show the icon for the mode you'd switch TO: moon in light, sun in dark */
+.theme-toggle .ico-moon { display: block; }
+.theme-toggle .ico-sun { display: none; }
+[data-theme="dark"] .theme-toggle .ico-moon { display: none; }
+[data-theme="dark"] .theme-toggle .ico-sun { display: block; }
+
+/* hide overflow nav links on small screens (keep brand + GitHub CTA + toggle) */
 @media (max-width: 760px) {
   .topbar nav a:not(.nav-cta) { display: none; }
 }
@@ -253,18 +391,33 @@ main::before {
 
 /* install command line */
 .install {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 12px;
   padding: 12px 14px 12px 18px;
-  border-radius: 14px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  border-radius: 16px;
+  background: var(--lg-fill-strong);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
   max-width: 100%;
   will-change: transform;
+}
+.install::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
 .install code {
   font-family: var(--mono);
@@ -282,7 +435,7 @@ main::before {
   padding: 6px 12px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--lg-fill-strong);
   color: var(--ink-dim);
   cursor: pointer;
   transition: all 0.18s var(--ease-out);
@@ -338,13 +491,34 @@ main::before {
   pointer-events: none;
 }
 .glass-card {
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  border-radius: 18px;
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  position: relative;
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  border-radius: 22px;
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
   padding: 16px 18px;
+}
+.glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+/* The hero cards are the hero glass showcase — opt into SVG refraction where
+   it's actually supported (gated by html.supports-lg-refract). */
+html.supports-lg-refract .glass-card {
+  backdrop-filter: url(#liquid-glass) blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: url(#liquid-glass) blur(var(--lg-blur)) saturate(var(--lg-saturate));
 }
 .gc-label {
   display: block;
@@ -358,6 +532,7 @@ main::before {
 .gc-row { display: block; font-family: var(--mono); font-size: var(--t-sm); color: var(--ink); margin: 4px 0; }
 .gc-row.dim { color: var(--ink-faint); }
 .gc-flag { color: #B45309; font-weight: 600; }
+[data-theme="dark"] .gc-flag { color: #FFB37A; }
 .gc-ok { color: var(--accent-deep); font-weight: 700; }
 .gc-big {
   display: block;
@@ -400,6 +575,9 @@ main::before {
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
   backdrop-filter: blur(2px);
+}
+[data-theme="dark"] .band-alt {
+  background: rgba(23, 19, 42, 0.5);
 }
 .band-alt > * { max-width: var(--maxw); margin-left: auto; margin-right: auto; }
 
@@ -453,19 +631,34 @@ main::before {
   gap: 14px;
 }
 .chip-tile {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 16px 18px;
-  border-radius: 14px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border-radius: 16px;
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
   font-weight: 500;
   color: var(--ink);
   transition: transform 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+.chip-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
 .chip-tile svg { width: 22px; height: 22px; flex: none; color: var(--primary-deep); }
 .chip-tile:hover { transform: translateY(-3px); border-color: var(--primary); }
@@ -482,8 +675,11 @@ main::before {
 .model-grid li {
   padding: 13px 16px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid var(--line-soft);
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
   font-family: var(--mono);
   font-size: var(--t-sm);
   color: var(--ink);
@@ -492,7 +688,7 @@ main::before {
 .model-grid li:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--lg-fill-strong);
 }
 
 /* ---- feature cards ---- */
@@ -500,15 +696,30 @@ main::before {
 .cards.three { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .cards.five { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .card {
+  position: relative;
   padding: 24px 22px;
-  border-radius: 18px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--lg-radius);
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
   transition: transform 0.22s var(--ease-out), border-color 0.22s var(--ease-out);
   will-change: transform;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
 .card:hover { transform: translateY(-4px); border-color: var(--primary); }
 .card h3 {
@@ -525,13 +736,25 @@ main::before {
    PROOF TABLE
    ============================================================ */
 .proof-table {
-  border-radius: 18px;
+  position: relative;
+  border-radius: var(--lg-radius);
   overflow: hidden;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
+}
+.proof-table::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  height: 60px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 70%);
+  pointer-events: none;
+  z-index: 1;
 }
 .proof-table table { width: 100%; border-collapse: collapse; }
 .proof-table th, .proof-table td {
@@ -578,13 +801,27 @@ main::before {
 .eco-card {
   position: relative;
   padding: 22px 20px;
-  border-radius: 16px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border-radius: 18px;
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
   transition: transform 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+.eco-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
 .eco-card:hover { transform: translateY(-3px); border-color: var(--primary); }
 .eco-card.planned { opacity: 0.84; }
@@ -600,6 +837,7 @@ main::before {
 }
 .eco-card.shipped .eco-status { background: rgba(6, 182, 212, 0.16); color: var(--accent-deep); }
 .eco-card.planned .eco-status { background: rgba(26, 23, 38, 0.08); color: var(--ink-faint); }
+[data-theme="dark"] .eco-card.planned .eco-status { background: rgba(240, 238, 233, 0.08); }
 .eco-card h3 {
   font-family: var(--display);
   font-weight: 600;
@@ -643,6 +881,7 @@ main::before {
   padding: 34px clamp(18px, 5vw, 44px);
   background: rgba(233, 230, 223, 0.6);
 }
+[data-theme="dark"] .footer { background: rgba(23, 19, 42, 0.55); }
 .footer-inner {
   max-width: var(--maxw);
   margin: 0 auto;

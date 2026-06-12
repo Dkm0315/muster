@@ -15,6 +15,8 @@ import * as THREE from "three";
 
 export interface HeroMeshHandle {
   destroy(): void;
+  /** Re-tune the aurora colour centres for light/dark without a reload. */
+  setDark(dark: boolean): void;
 }
 
 // Vertex: emit a fullscreen triangle from gl_VertexID, pass through UV in [0,1].
@@ -34,10 +36,17 @@ const FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec2  uMouse;       // damped, normalised [-1,1]
   uniform vec2  uResolution;
+  uniform float uMix;         // 0 = light palette, 1 = dark palette (animated)
+  // light palette
   uniform vec3  uLavender;
   uniform vec3  uCyan;
   uniform vec3  uPeach;
   uniform vec3  uCanvas;
+  // dark palette (deep plum canvas; aurora = lavender / cyan / indigo)
+  uniform vec3  uLavenderD;
+  uniform vec3  uCyanD;
+  uniform vec3  uIndigoD;
+  uniform vec3  uCanvasD;
 
   // --- Ashima simplex noise -------------------------------------------------
   vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
@@ -113,33 +122,47 @@ const FRAG = /* glsl */ `
     float w3 = centre(puv, c3, 0.60);
     float w4 = centre(puv, c4, 0.66);
 
-    // Start from canvas, layer the three accents over it (peach kept gentle).
-    vec3 col = uCanvas;
-    col = mix(col, uLavender, w1 * 0.92);
-    col = mix(col, uCyan,     w2 * 0.62);
-    col = mix(col, uPeach,    w3 * 0.45);
-    col = mix(col, uLavender, w4 * 0.55);
+    // Resolve the active palette by interpolating light<->dark with uMix.
+    vec3 canvasCol   = mix(uCanvas,   uCanvasD,   uMix);
+    vec3 accentA     = mix(uLavender, uLavenderD, uMix);  // primary lavender
+    vec3 accentB     = mix(uCyan,     uCyanD,     uMix);  // cyan
+    vec3 accentC     = mix(uPeach,    uIndigoD,   uMix);  // peach (light) -> indigo (dark)
+    // In dark mode the accents are bolder so the aurora reads on near-black.
+    float gain = mix(1.0, 1.35, uMix);
 
-    // A faint grain of extra FBM keeps banding away on flat off-white.
-    float sheen = fbm(auv * 3.0 + t) * 0.04;
+    // Start from canvas, layer the three accents over it.
+    vec3 col = canvasCol;
+    col = mix(col, accentA, clamp(w1 * 0.92 * gain, 0.0, 1.0));
+    col = mix(col, accentB, clamp(w2 * 0.62 * gain, 0.0, 1.0));
+    col = mix(col, accentC, clamp(w3 * 0.45 * gain, 0.0, 1.0));
+    col = mix(col, accentA, clamp(w4 * 0.55 * gain, 0.0, 1.0));
+
+    // A faint grain of extra FBM keeps banding away; softer in dark.
+    float sheen = fbm(auv * 3.0 + t) * mix(0.04, 0.02, uMix);
     col += sheen;
 
     // Vignette toward canvas at the edges so content stays readable.
     float vig = smoothstep(1.15, 0.25, distance(uv, vec2(0.5)));
-    col = mix(uCanvas, col, 0.35 + vig * 0.65);
+    col = mix(canvasCol, col, 0.35 + vig * 0.65);
 
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
 const COLORS = {
+  // light palette — warm off-white canvas, lavender / cyan / peach aurora
   lavender: new THREE.Color("#A78BFA"),
   cyan: new THREE.Color("#06B6D4"),
   peach: new THREE.Color("#FFD9C2"),
   canvas: new THREE.Color("#F0EEE9"),
+  // dark palette — deep plum-black canvas, brighter lavender / cyan / indigo
+  lavenderD: new THREE.Color("#9B7BFF"),
+  cyanD: new THREE.Color("#22C9E6"),
+  indigoD: new THREE.Color("#6D4BD6"),
+  canvasD: new THREE.Color("#0E0B1A"),
 };
 
-export function createHeroMesh(canvas: HTMLCanvasElement): HeroMeshHandle {
+export function createHeroMesh(canvas: HTMLCanvasElement, startDark = false): HeroMeshHandle {
   // Probe WebGL on a throwaway canvas so the caller can keep its CSS poster.
   const probeCanvas = document.createElement("canvas");
   const probe =
@@ -165,11 +188,20 @@ export function createHeroMesh(canvas: HTMLCanvasElement): HeroMeshHandle {
     uTime: { value: 0 },
     uMouse: { value: new THREE.Vector2(0, 0) },
     uResolution: { value: new THREE.Vector2(1, 1) },
+    uMix: { value: startDark ? 1 : 0 },
     uLavender: { value: COLORS.lavender },
     uCyan: { value: COLORS.cyan },
     uPeach: { value: COLORS.peach },
     uCanvas: { value: COLORS.canvas },
+    uLavenderD: { value: COLORS.lavenderD },
+    uCyanD: { value: COLORS.cyanD },
+    uIndigoD: { value: COLORS.indigoD },
+    uCanvasD: { value: COLORS.canvasD },
   };
+
+  // Target for uMix; the render loop eases the live value toward it so toggling
+  // theme cross-fades the aurora instead of snapping.
+  let mixTarget = startDark ? 1 : 0;
 
   // Fullscreen triangle: a 3-vertex geometry whose clip coords cover the screen.
   const geo = new THREE.BufferGeometry();
@@ -217,8 +249,20 @@ export function createHeroMesh(canvas: HTMLCanvasElement): HeroMeshHandle {
     const m = uniforms.uMouse.value;
     m.x += (targetX - m.x) * 0.045;
     m.y += (targetY - m.y) * 0.045;
+    // Ease the palette mix toward its target for a smooth theme cross-fade.
+    uniforms.uMix.value += (mixTarget - uniforms.uMix.value) * 0.06;
     uniforms.uTime.value = elapsed;
     renderer.render(scene, camera);
+  };
+
+  // Re-tune colours on theme toggle. Under reduced motion (no rAF loop) we set
+  // the mix directly and repaint the single frozen frame.
+  const setDark = (dark: boolean): void => {
+    mixTarget = dark ? 1 : 0;
+    if (reduced) {
+      uniforms.uMix.value = mixTarget;
+      render();
+    }
   };
 
   if (reduced) {
@@ -250,6 +294,7 @@ export function createHeroMesh(canvas: HTMLCanvasElement): HeroMeshHandle {
 
     // expose cleanup that also detaches the visibility listener
     return {
+      setDark,
       destroy(): void {
         destroyed = true;
         cancelAnimationFrame(frameId);
@@ -265,6 +310,7 @@ export function createHeroMesh(canvas: HTMLCanvasElement): HeroMeshHandle {
 
   // reduced-motion cleanup (no loop / visibility listener attached)
   return {
+    setDark,
     destroy(): void {
       destroyed = true;
       window.removeEventListener("resize", resize);

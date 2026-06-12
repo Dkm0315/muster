@@ -1,6 +1,13 @@
 import "./style.css";
 import { initMotion } from "./motion";
+import { initTheme, onThemeChange, probeLiquidGlassRefraction } from "./theme";
 import type { HeroMeshHandle } from "./hero-mesh";
+
+// ---------- theme (light/dark) + Liquid Glass refraction capability probe ----------
+// initTheme reflects the persisted/OS choice and wires the nav toggle; the inline
+// <head> script already applied it pre-paint so this only confirms + adds events.
+initTheme();
+probeLiquidGlassRefraction();
 
 // ---------- silk-smooth motion (reveals, scroll progress, magnetic hover, smooth anchors) ----------
 initMotion();
@@ -39,8 +46,13 @@ if (canvas) {
   const boot = async () => {
     try {
       const { createHeroMesh } = await import("./hero-mesh");
-      handle = createHeroMesh(canvas);
+      // Read the live attribute at boot — the user may have toggled during the
+      // idle delay before the shader mounted.
+      const darkNow = document.documentElement.getAttribute("data-theme") === "dark";
+      handle = createHeroMesh(canvas, darkNow);
       canvas.classList.add("live"); // fade the shader in over the poster
+      // Re-tune the aurora colours when the theme toggles (no reload).
+      onThemeChange((theme) => handle?.setDark(theme === "dark"));
     } catch {
       /* WebGL unavailable — the CSS poster gradient remains, never a blank area */
     }

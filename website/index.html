@@ -8,6 +8,18 @@
   <meta name="keywords" content="AI agent framework, LLM agent harness, agent memory, token cost tracking, agent observability, eval-driven development, self-hosted AI agent, AI governance, agent audit trail, MCP, multi-provider LLM routing" />
   <link rel="canonical" href="https://mustered.dev/" />
   <meta name="theme-color" content="#F0EEE9" />
+  <!-- Set theme before first paint to avoid a flash. localStorage wins, else
+       prefers-color-scheme. Mirrors resolveTheme() in src/theme.ts. -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("muster-theme");
+        var dark = saved ? saved === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
@@ -28,6 +40,17 @@
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
+  <!-- Liquid Glass refraction filter (progressive enhancement). Safari/Firefox
+       don't support SVG-in-backdrop-filter, so this is opt-in via the
+       .lg-refract class which is itself feature-gated in CSS + JS. The plain
+       blur+specular glass below is the default and stands on its own. -->
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise" />
+      <feGaussianBlur in="noise" stdDeviation="1.4" result="softNoise" />
+      <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="14" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
   <!-- Scroll-progress bar: lavender→cyan, fixed to the top edge -->
   <div id="scroll-progress" aria-hidden="true"></div>
   <!-- Liquid-lavender hero shader. CSS poster gradient paints immediately; canvas
@@ -47,6 +70,10 @@
       <a href="#ecosystem">Ecosystem</a>
       <a href="/docs.html">Docs</a>
       <a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+      <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.4v2.6M12 19v2.6M4.6 4.6l1.9 1.9M17.5 17.5l1.9 1.9M2.4 12h2.6M19 12h2.6M4.6 19.4l1.9-1.9M17.5 6.5l1.9-1.9"/></g></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.5 14.3A8.4 8.4 0 0 1 9.7 3.5a.7.7 0 0 0-.93-.86A9.4 9.4 0 1 0 21.4 15.2a.7.7 0 0 0-.9-.9z"/></svg>
+      </button>
     </nav>
   </header>
 
