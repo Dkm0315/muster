@@ -29,5 +29,6 @@ export * from "./subagents.js";
 export * from "./store.js";
 export * from "./stream.js";
 export * from "./tokens.js";
+export * from "./tool-registry.js";
 export * from "./trust.js";
 export * from "./types.js";
