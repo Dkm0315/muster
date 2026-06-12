@@ -14,6 +14,7 @@ export * from "./mcp.js";
 export * from "./memory.js";
 export * from "./migration.js";
 export * from "./profiles.js";
+export * from "./pulse.js";
 export * from "./provider.js";
 export * from "./providers-catalog.js";
 export * from "./pi.js";
