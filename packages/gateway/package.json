@@ -1,5 +1,5 @@
 {
-  "name": "@musterhq/gateway",
+  "name": "@dkm0315/gateway",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,7 @@
     "prepublishOnly": "rm -rf dist && tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@musterhq/core": "workspace:*"
+    "@dkm0315/core": "workspace:*"
   },
   "description": "Muster surface gateway: one governed envelope for Telegram, Slack, Discord, WhatsApp, Teams, and web.",
   "license": "MIT",

@@ -27,14 +27,14 @@ jobs:
           npm whoami || echo "whoami FAILED — token invalid or not authenticating"
           echo "::endgroup::"
 
-          echo "::group::orgs this account belongs to (musterhq?)"
-          npm org ls musterhq 2>&1 || echo "cannot list org 'musterhq' — not a member or org does not exist"
+          echo "::group::orgs this account belongs to (dkm0315?)"
+          npm org ls dkm0315 2>&1 || echo "cannot list org 'dkm0315' — not a member or org does not exist"
           echo "::endgroup::"
 
           echo "::group::packages this token can publish"
           npm access list packages 2>&1 | head -50 || echo "no package access listing available (granular token may restrict this)"
           echo "::endgroup::"
 
-          echo "::group::is the @musterhq scope reachable?"
-          curl -s -o /dev/null -w "registry @musterhq/core -> HTTP %{http_code}\n" https://registry.npmjs.org/@musterhq%2Fcore
+          echo "::group::is the @dkm0315 scope reachable?"
+          curl -s -o /dev/null -w "registry @dkm0315/core -> HTTP %{http_code}\n" https://registry.npmjs.org/@dkm0315%2Fcore
           echo "::endgroup::"

@@ -1,5 +1,5 @@
 {
-  "name": "@musterhq/core",
+  "name": "@dkm0315/core",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

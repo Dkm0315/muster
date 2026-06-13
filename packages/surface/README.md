@@ -5,7 +5,7 @@
 > Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
 ```bash
-pnpm dlx @musterhq/cli init && muster demo
+pnpm dlx @dkm0315/cli init && muster demo
 ```
 
 ## See it work — `muster demo`

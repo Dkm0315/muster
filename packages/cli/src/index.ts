@@ -87,7 +87,7 @@ import {
   runHarnessChecks,
   verifyIntegrity,
   renderIntegrityReport
-} from "@musterhq/core";
+} from "@dkm0315/core";
 import {
   approvePairing,
   DEFAULT_GATEWAY_PORT,
@@ -95,10 +95,10 @@ import {
   loadGatewayConfig,
   loadPairings,
   startGatewayServer
-} from "@musterhq/gateway";
+} from "@dkm0315/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MigrationSource } from "@musterhq/core";
+import type { ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MigrationSource } from "@dkm0315/core";
 
 const [, , command, ...args] = process.argv;
 
@@ -1842,7 +1842,7 @@ async function demoCommand(_commandArgs: string[]): Promise<void> {
   const {
     executeRun, addMemory, verifyIntegrity, renderIntegrityReport,
     listTokenRecords, renderTokenTable, ensureDefaultConfig, loadConfig, saveConfig,
-  } = await import("@musterhq/core");
+  } = await import("@dkm0315/core");
 
   // Provision a real, isolated workspace + a real stub LLM HTTP service.
   const cwd = await mkdtemp(join(tmpdir(), "muster-demo-"));
@@ -1896,7 +1896,7 @@ async function benchmarkCommand(): Promise<void> {
   // Built-in Token Waste Index scenarios — deterministic, no model calls.
   const toolResult = (name: string, chars: number) => ({ role: "tool" as const, toolName: name, content: `${name} ` + "output line ".repeat(Math.ceil(chars / 12)) });
   const task = (id: string, description: string, turns: number, chars: number) => {
-    const transcript: import("@musterhq/core").TranscriptMessage[] = [
+    const transcript: import("@dkm0315/core").TranscriptMessage[] = [
       { role: "system", content: "You are an autonomous agent. Use tools, then report." },
       { role: "user", content: `Task: ${description}` },
     ];

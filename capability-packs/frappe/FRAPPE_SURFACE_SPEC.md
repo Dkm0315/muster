@@ -77,7 +77,7 @@ Not "AI writes a script": governed creation of living automation:
 
 One contract, three transports:
 - `<script>` snippet for classic Desk
-- npm package `@musterhq/frappe-surface` for Vue/React SPAs (Helpdesk,
+- npm package `@dkm0315/frappe-surface` for Vue/React SPAs (Helpdesk,
   Gameplan, ChatNext, custom apps) — 0 deps, emits ContextObjects + renders
   an optional headless chat/drawer primitive (BYO styling)
 - REST/WS bridge for server-side surfaces (Telegram/WhatsApp federation,

@@ -219,7 +219,7 @@ The Terminal Cockpit reads a bounded local state snapshot from `packages/ui/publ
 ```bash
 pnpm hc state show
 pnpm hc state export
-pnpm --filter @musterhq/ui dev
+pnpm --filter @dkm0315/ui dev
 ```
 
 Use `state show` for read-only QA. Use `state export` when the browser UI needs to load the snapshot.
@@ -228,7 +228,7 @@ For static builds, export state before building because Vite copies `packages/ui
 
 ```bash
 pnpm hc state export
-pnpm --filter @musterhq/ui build
+pnpm --filter @dkm0315/ui build
 ```
 
 To write elsewhere:

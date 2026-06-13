@@ -1,4 +1,4 @@
-import type { DraftErrorClass, DraftSink } from "@musterhq/core";
+import type { DraftErrorClass, DraftSink } from "@dkm0315/core";
 
 /**
  * Gateway draft streaming (docs/teardowns/OPENCLAW_TEARDOWN.md): per-channel

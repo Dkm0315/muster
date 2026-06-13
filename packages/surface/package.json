@@ -1,5 +1,5 @@
 {
-  "name": "@musterhq/surface",
+  "name": "@dkm0315/surface",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

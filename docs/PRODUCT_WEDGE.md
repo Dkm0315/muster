@@ -177,15 +177,15 @@ Muster can connect to Codex, Claude Code, Cursor SDK, OpenHands, OpenAI-compatib
 ## v0 Product Shape
 
 ```text
-@musterhq/core
+@dkm0315/core
   config, route planning, provider calls, store, scoped memory, capability inspection,
   eval fixtures, embedded Pi SDK adapter, feedback adjudication, cockpit state
 
-@musterhq/cli
+@dkm0315/cli
   init, doctor, provider, chat, tui, episodes, feedback, candidates, eval, memory,
   capability, migrate, pi inspect/ask, state
 
-@musterhq/ui
+@dkm0315/ui
   Terminal Cockpit viewer for exported runs, evidence, candidates, and route state
 
 future

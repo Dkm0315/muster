@@ -20,10 +20,10 @@ importers:
 
   packages/cli:
     dependencies:
-      '@musterhq/core':
+      '@dkm0315/core':
         specifier: workspace:*
         version: link:../core
-      '@musterhq/gateway':
+      '@dkm0315/gateway':
         specifier: workspace:*
         version: link:../gateway
 
@@ -44,7 +44,7 @@ importers:
 
   packages/gateway:
     dependencies:
-      '@musterhq/core':
+      '@dkm0315/core':
         specifier: workspace:*
         version: link:../core
 

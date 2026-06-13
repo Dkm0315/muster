@@ -9,7 +9,7 @@ We are NOT externalizing the *core* into many fragile packages — OpenClaw's ow
 "rough week" post-mortem proves that path causes version-skew and plugin-repair hell.
 
 Instead:
-- **Core stays one monorepo, one version** (@musterhq/core/cli/gateway/surface). Engineering win.
+- **Core stays one monorepo, one version** (@dkm0315/core/cli/gateway/surface). Engineering win.
 - **Marketing surface = present those packages AS products** + add a *small* number of
   genuinely-separate satellite tools (only where separation is justified) + the
   capability-pack ecosystem. An **Ecosystem page** on the site ties them together,
@@ -25,8 +25,8 @@ Candidate names: Muster · Roster · Garrison · Picket · Dispatch · Recon · 
 | Name | What | Status |
 |---|---|---|
 | **Muster** (core/cli) | the governed agent harness | shipped |
-| **Garrison** (gateway) | one governed envelope for 7 chat surfaces | shipped (@musterhq/gateway) |
-| **Dispatch** (surface) | zero-dep web client for any frontend | shipped (@musterhq/surface) |
+| **Garrison** (gateway) | one governed envelope for 7 chat surfaces | shipped (@dkm0315/gateway) |
+| **Dispatch** (surface) | zero-dep web client for any frontend | shipped (@dkm0315/surface) |
 | **Tally** (benchmark) | the Token Waste Index — prove the savings | shipped (`muster benchmark`) |
 | **Frappe pack** | ERPNext/Frappe capability pack | v0 shipped |
 

@@ -61,7 +61,7 @@ Tier 1 (built-in, thin — webhook/REST only, no heavy SDKs):
 - **Google Chat** (apps webhook), **MS Teams** (incoming webhook v1;
   full Bot Framework adapter later)
 
-Tier 2 (npm package `@musterhq/surface`):
+Tier 2 (npm package `@dkm0315/surface`):
 - Framework-agnostic web client (~3KB, zero deps): `createSurface({url, token})`
   → `send()`, `onReply()`, `onStream()`, `onApproval()`. Headless — works in
   React, Vue, Svelte, plain script tags, Frappe Desk/SPAs (the Frappe screen
@@ -80,6 +80,6 @@ Tier 3 (community): the adapter contract is ~40 lines — publish
 ## Build order
 1. Gateway core: envelope types, HTTP/WS server, pairing lane, run dispatch (slice 1)
 2. Telegram + Slack adapters (most demand, simplest APIs)
-3. `@musterhq/surface` web client + a 20-line HTML demo page
+3. `@dkm0315/surface` web client + a 20-line HTML demo page
 4. Discord, WhatsApp Cloud, GChat, Teams webhook adapters
 5. Approval cards per surface; `tokens --by-surface`

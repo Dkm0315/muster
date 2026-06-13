@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultConfig, listEpisodes, listTokenRecords } from "@musterhq/core";
-import type { MusterConfig } from "@musterhq/core";
+import { defaultConfig, listEpisodes, listTokenRecords } from "@dkm0315/core";
+import type { MusterConfig } from "@dkm0315/core";
 import { approvePairing, loadPairings } from "../src/pairing.js";
 import { startGatewayServer } from "../src/server.js";
 

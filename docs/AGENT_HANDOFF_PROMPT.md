@@ -20,9 +20,9 @@ redesign what exists. Extend it, in its style, under its rules.
 ## The repo
 - Path: `/Users/pavankumarmarwaha/Documents/Codex/2026-04-23-openclaw-docs-live-users-pavankumarmarwaha-codex/muster`
 - GitHub: `Dkm0315/muster` (main branch; PRs #1–#15 merged). pnpm monorepo, TypeScript,
-  Node 22+. Packages: `@musterhq/core`, `@musterhq/cli` (binary `muster`),
-  `@musterhq/gateway`, `@musterhq/surface`, `website/` (Vite vanilla-TS + three.js).
-- npm scope is `@musterhq` (bare "muster" npm name is squatted — never use it).
+  Node 22+. Packages: `@dkm0315/core`, `@dkm0315/cli` (binary `muster`),
+  `@dkm0315/gateway`, `@dkm0315/surface`, `website/` (Vite vanilla-TS + three.js).
+- npm scope is `@dkm0315` (bare "muster" npm name is squatted — never use it).
 - Gates that must stay green: `pnpm typecheck && pnpm test` (≈150 tests:
   core 109, cli 16, gateway 23, surface 5) and `pnpm --filter muster-website build`.
 
