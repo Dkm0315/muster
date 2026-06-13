@@ -32,7 +32,15 @@ function stubConfig(baseUrl: string): MusterConfig {
   };
 }
 
-const NOW = new Date("2026-06-12T09:00:00");
+// Anchor to *today* at 09:00 local time. The daily-budget kill-switch compares
+// the run clock (this `now`) against the wall-clock `createdAt` on token records,
+// so a hardcoded past date silently breaks the budget filter the moment the
+// calendar advances past it. 09:00 keeps the "0 9 * * *" cron cases matching.
+const NOW = (() => {
+  const anchor = new Date();
+  anchor.setHours(9, 0, 0, 0);
+  return anchor;
+})();
 
 async function writeChecklist(cwd: string, content: string): Promise<void> {
   await mkdir(join(cwd, ".muster"), { recursive: true });
