@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { executeRun } from "./run.js";
 import { addSchedule, type ScheduleJob } from "./scheduler.js";
 import { dataDir } from "./store.js";
+import { endSpan, startSpan, type Span } from "./telemetry.js";
 import { estimateTokens } from "./tokens.js";
 import type { MusterConfig, TaskKind } from "./types.js";
 
@@ -465,9 +466,32 @@ async function failStep(context: ExecutionContext, stepId: string, error: string
 }
 
 async function executeSteps(context: ExecutionContext, fromIndex: number): Promise<FlowRunResult> {
+  const rootSpan = startSpan("flow.run", {
+    kind: "internal",
+    attributes: { "muster.flow_id": context.flow.id, "muster.run_id": context.runId },
+  });
+  try {
+    const result = await executeStepsTraced(context, fromIndex, rootSpan);
+    await endSpan(rootSpan, { status: result.status === "failed" ? "error" : "ok", statusMessage: result.error, cwd: context.cwd });
+    return result;
+  } catch (error) {
+    // An unexpected throw (e.g. an event-sink rejection) must still close the run span.
+    await endSpan(rootSpan, { status: "error", statusMessage: error instanceof Error ? error.message : String(error), cwd: context.cwd });
+    throw error;
+  }
+}
+
+async function executeStepsTraced(context: ExecutionContext, fromIndex: number, rootSpan: Span | null): Promise<FlowRunResult> {
   const { flow, runId, cwd, onEvent } = context;
   for (let index = fromIndex; index < flow.steps.length; index += 1) {
     const step = flow.steps[index];
+    const stepSpan = startSpan("flow.step", {
+      parent: rootSpan,
+      attributes: { "muster.step_id": step.id, "muster.step_kind": step.kind },
+    });
+    const endStep = async (status: "ok" | "error", message?: string): Promise<void> => {
+      await endSpan(stepSpan, { status, statusMessage: message, cwd });
+    };
 
     if (step.when) {
       let granted = false;
@@ -478,6 +502,7 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
       }
       if (!granted) {
         await appendEvent(runId, { type: "step_skipped", at: now(), stepId: step.id, reason: `when "${step.when}" is not truthy` }, cwd, onEvent);
+        await endStep("ok");
         continue;
       }
     }
@@ -487,7 +512,9 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
       try {
         show = lookupReference(step.show, context.outputs);
       } catch (error) {
-        return failStep(context, step.id, error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        await endStep("error", message);
+        return failStep(context, step.id, message);
       }
       if (context.replay) {
         // Replays never wait for a human: reuse the recorded gate decision.
@@ -495,15 +522,22 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
           (event): event is Extract<FlowRunEvent, { type: "gate_resolved" }> => event.type === "gate_resolved" && event.stepId === step.id,
         );
         if (!recorded) {
-          return failStep(context, step.id, `Replay source run ${context.replay.source.runId} never resolved gate "${step.id}"; nothing deterministic to replay.`);
+          const message = `Replay source run ${context.replay.source.runId} never resolved gate "${step.id}"; nothing deterministic to replay.`;
+          await endStep("error", message);
+          return failStep(context, step.id, message);
         }
         await appendEvent(runId, { type: "gate_resolved", at: now(), stepId: step.id, approved: recorded.approved }, cwd, onEvent);
-        if (!recorded.approved) return finishRun(context, "rejected", `Gate "${step.id}" was rejected in the source run.`);
+        if (!recorded.approved) {
+          await endStep("ok");
+          return finishRun(context, "rejected", `Gate "${step.id}" was rejected in the source run.`);
+        }
         context.outputs[step.id] = { granted: true };
+        await endStep("ok");
         continue;
       }
       const expiresAt = step.expiresHours !== undefined ? new Date(Date.now() + step.expiresHours * 3_600_000).toISOString() : undefined;
       await appendEvent(runId, { type: "gate_pending", at: now(), stepId: step.id, show, expiresAt }, cwd, onEvent);
+      await endStep("ok");
       return { runId, flowId: flow.id, status: "awaiting_approval", outputs: context.outputs, gateId: step.id, show };
     }
 
@@ -512,18 +546,27 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
       try {
         args = resolveTemplates(step.args ?? {}, context.outputs) as Record<string, unknown>;
       } catch (error) {
-        return failStep(context, step.id, error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        await endStep("error", message);
+        return failStep(context, step.id, message);
       }
       const tool = context.registry[step.tool];
-      if (!tool) return failStep(context, step.id, `Tool "${step.tool}" is not registered.`);
+      if (!tool) {
+        const message = `Tool "${step.tool}" is not registered.`;
+        await endStep("error", message);
+        return failStep(context, step.id, message);
+      }
       await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
       try {
         const output = await tool(args);
         context.outputs[step.id] = output;
         await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output }, cwd, onEvent);
       } catch (error) {
-        return failStep(context, step.id, error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        await endStep("error", message);
+        return failStep(context, step.id, message);
       }
+      await endStep("ok");
       continue;
     }
 
@@ -531,24 +574,31 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
     if (context.replay && !context.replay.liveAgents) {
       // Deterministic replay: agent steps reuse the recorded output instead of hitting a model.
       if (!(step.id in context.replay.source.outputs)) {
-        return failStep(context, step.id, `Replay source run ${context.replay.source.runId} has no recorded output for agent step "${step.id}"; replay with { liveAgents: true } to re-execute it.`);
+        const message = `Replay source run ${context.replay.source.runId} has no recorded output for agent step "${step.id}"; replay with { liveAgents: true } to re-execute it.`;
+        await endStep("error", message);
+        return failStep(context, step.id, message);
       }
       const recordedOutput = context.replay.source.outputs[step.id];
       await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
       context.outputs[step.id] = recordedOutput;
       await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output: recordedOutput }, cwd, onEvent);
+      await endStep("ok");
       continue;
     }
     let prompt: string;
     try {
       prompt = String(resolveTemplates(step.prompt, context.outputs));
     } catch (error) {
-      return failStep(context, step.id, error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      await endStep("error", message);
+      return failStep(context, step.id, message);
     }
     const budget = flow.budgetTokens;
     const promptEstimate = estimateTokens(prompt);
     if (budget !== undefined && context.tokensUsed + promptEstimate > budget) {
-      return finishRun(context, "budget_exceeded", `Step "${step.id}" would exceed budget: ${context.tokensUsed} used + ~${promptEstimate} prompt tokens > ${budget}.`);
+      const message = `Step "${step.id}" would exceed budget: ${context.tokensUsed} used + ~${promptEstimate} prompt tokens > ${budget}.`;
+      await endStep("error", message);
+      return finishRun(context, "budget_exceeded", message);
     }
     await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
     try {
@@ -556,16 +606,21 @@ async function executeSteps(context: ExecutionContext, fromIndex: number): Promi
       const stepTokens = outcome.tokens.inputTokens + outcome.tokens.outputTokens;
       context.tokensUsed += stepTokens;
       if (outcome.episode.outcome?.kind !== "completed") {
-        return failStep(context, step.id, outcome.episode.outcome?.detail ?? "agent run failed");
+        const message = outcome.episode.outcome?.detail ?? "agent run failed";
+        await endStep("error", message);
+        return failStep(context, step.id, message);
       }
       const output = { text: outcome.episode.responseText, runId: outcome.plan.runId };
       context.outputs[step.id] = output;
       await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output, tokensUsed: stepTokens }, cwd, onEvent);
+      await endStep("ok");
       if (budget !== undefined && context.tokensUsed > budget) {
         return finishRun(context, "budget_exceeded", `Cumulative ~${context.tokensUsed} tokens exceeded budget of ${budget} after step "${step.id}".`);
       }
     } catch (error) {
-      return failStep(context, step.id, error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      await endStep("error", message);
+      return failStep(context, step.id, message);
     }
   }
   return finishRun(context, "completed");

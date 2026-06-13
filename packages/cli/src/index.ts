@@ -71,6 +71,8 @@ import {
   executeRun,
   listTokenRecords,
   renderTokenTable,
+  listSpans,
+  renderTracesTable,
   activeProfile,
   dataDir,
   parseCron,
@@ -189,6 +191,9 @@ async function main(): Promise<void> {
     case "tokens":
       await tokensCommand(args);
       return;
+    case "traces":
+      await tracesCommand(args);
+      return;
     case "profile":
       await profileCommand(args);
       return;
@@ -263,6 +268,7 @@ Usage:
   muster benchmark                    # Token Waste Index — prove the ledger savings (deterministic, no model)
   muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
   muster tokens [--limit 20]
+  muster traces [--limit N] [--trace <id>]     # OpenTelemetry spans — set MUSTER_TRACE=1 to record, MUSTER_OTLP_ENDPOINT to export
   muster profile create|list|use|current [name]
   muster schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
   muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
@@ -1298,6 +1304,15 @@ async function runCommand(commandArgs: string[]): Promise<void> {
 
 async function tokensCommand(commandArgs: string[]): Promise<void> {
   console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(commandArgs, "--limit") ?? 20));
+}
+
+async function tracesCommand(commandArgs: string[]): Promise<void> {
+  console.log(
+    renderTracesTable(await listSpans(), {
+      limit: readNumberFlag(commandArgs, "--limit") ?? 20,
+      traceId: readFlag(commandArgs, "--trace")
+    })
+  );
 }
 
 async function profileCommand(commandArgs: string[]): Promise<void> {

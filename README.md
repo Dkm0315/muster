@@ -87,6 +87,26 @@ muster benchmark                              # the Token Waste Index, live
 
 Everything renders plain-text tables in your terminal. No web dashboard required.
 
+## Observability — OpenTelemetry
+
+Opt in with `MUSTER_TRACE=1`. When it's unset there is zero overhead: `startSpan` returns `null`, nothing is allocated, and no file is touched.
+
+Spans follow the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) — `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens` / `output_tokens` — and are written as JSONL to `.muster/traces.jsonl`.
+
+```bash
+MUSTER_TRACE=1 muster run "where do we deploy?"   # record spans for the run
+muster traces                                     # plain-text trace table
+muster traces <traceId>                           # one trace as a span tree
+```
+
+To ship spans to any OTLP/HTTP collector — **Jaeger**, **Grafana Tempo**, **Honeycomb**, or anything that speaks OTLP — set `MUSTER_OTLP_ENDPOINT`; each span is best-effort `POST`ed to `<endpoint>/v1/traces` alongside the local JSONL.
+
+```bash
+MUSTER_TRACE=1 MUSTER_OTLP_ENDPOINT=http://localhost:4318 muster run "audit last deploy"
+```
+
+Zero dependencies — no OTel SDK, just Node builtins — and zero overhead when disabled.
+
 ## Architecture
 
 ```
@@ -143,7 +163,7 @@ Mapped against the mid-2026 production bar for agent harnesses:
 | Memory: working / episodic / scoped | ✅ scoped lanes + SQLite session store (FTS5) |
 | Strategic (not reactive) compaction | ✅ immutable transcript renderer + never-wedge compactor |
 | One protocol for CLI / desktop / web | ✅ JSON-RPC gateway with `ledger.tick` live cost |
-| OpenTelemetry tracing | 🔜 planned |
+| OpenTelemetry tracing | ✅ GenAI-semconv spans, JSONL + OTLP/HTTP export, opt-in `MUSTER_TRACE=1` |
 | Desktop apps | 🔜 Tauri over the RPC protocol |
 
 **Claude Fable 5 ready:** the Anthropic preset defaults to `claude-fable-5` (1M context, adaptive thinking via `effort`). The token ledger and scoped tool exposure align with Fable 5's deferred-tool-loading and task-budget direction. First-class `stop_reason: "refusal"` handling is on the roadmap.

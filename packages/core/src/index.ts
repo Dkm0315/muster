@@ -29,6 +29,7 @@ export * from "./skills.js";
 export * from "./subagents.js";
 export * from "./store.js";
 export * from "./stream.js";
+export * from "./telemetry.js";
 export * from "./tokens.js";
 export * from "./tool-registry.js";
 export * from "./trust.js";
