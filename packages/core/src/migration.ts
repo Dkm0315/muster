@@ -293,9 +293,12 @@ function nextActions(
   ];
   if (source === "openclaw" && openclaw) {
     if (openclaw.profile) {
+      const hasShared = assets.some((asset) => asset.kind !== "channel");
       actions.unshift(
         openclaw.profileScoped
-          ? `Only the "${openclaw.profile}" channel/profile is selected for migration.`
+          ? hasShared
+            ? `Profile "${openclaw.profile}" selected: only the channels.${openclaw.profile} entry is profile-specific. The other listed assets (agent, memory, flows, extensions) are instance-wide — shared by all channels, not part of this profile.`
+            : `Only the "${openclaw.profile}" channel/profile is selected for migration.`
           : `Requested profile "${openclaw.profile}" was not found among channels (${openclaw.channelNames.join(", ") || "none"}).`
       );
     } else if (openclaw.channelNames.length) {

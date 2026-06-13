@@ -98,9 +98,14 @@ test("openclaw scanner --profile selects only one channel", async () => {
   const channels = report.assets.filter((asset) => asset.kind === "channel");
   assert.equal(channels.length, 1);
   assert.equal(channels[0]?.path.endsWith("channels.telegram"), true);
+  // The report must be honest: the channel is profile-specific, but the agent/
+  // memory/flows/extensions it lists are instance-wide (shared), not part of the
+  // selected profile — otherwise "--profile telegram" looks like it migrates 10 assets.
   assert.equal(
-    report.recommendedNextActions.some((a) => a.includes('Only the "telegram" channel')),
-    true
+    report.recommendedNextActions.some(
+      (a) => a.includes("telegram") && a.includes("profile-specific") && a.includes("instance-wide"),
+    ),
+    true,
   );
 });
 
