@@ -45,6 +45,19 @@ export function profileConfigPath(cwd = process.cwd(), profile = activeProfile(c
   return join(musterRoot(cwd), "config.json");
 }
 
+/**
+ * Where config WRITES go. profileConfigPath falls back to the shared default
+ * config when a profile has no scoped config yet (so a fresh profile inherits
+ * the default until customized) — but writes must ALWAYS target the scoped path
+ * for a non-default profile, otherwise the scoped config is never created and
+ * the profile's config silently leaks into the shared default, breaking
+ * isolation.
+ */
+export function profileConfigWritePath(cwd = process.cwd(), profile = activeProfile(cwd)): string {
+  if (profile !== DEFAULT_PROFILE) return join(profilesRoot(cwd), profile, "config.json");
+  return join(musterRoot(cwd), "config.json");
+}
+
 export async function createProfile(name: string, cwd = process.cwd()): Promise<string> {
   validateProfileName(name);
   if (name === DEFAULT_PROFILE) throw new Error("The default profile always exists; no need to create it.");
