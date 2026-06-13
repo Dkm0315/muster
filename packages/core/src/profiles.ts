@@ -108,6 +108,12 @@ export function subprocessEnvForProfile(cwd = process.cwd()): Record<string, str
 export async function cloneProfile(from: string, to: string, cwd = process.cwd()): Promise<void> {
   validateProfileName(to);
   if (to === DEFAULT_PROFILE) throw new Error("Cannot clone onto the default profile.");
+  if (from !== DEFAULT_PROFILE && !existsSync(join(profilesRoot(cwd), from))) {
+    throw new Error(`Source profile "${from}" does not exist.`);
+  }
+  if (existsSync(join(profilesRoot(cwd), to))) {
+    throw new Error(`Profile "${to}" already exists; choose a new name.`);
+  }
   const { cp, mkdir: mkdirAsync } = await import("node:fs/promises");
   const sourceData = profileDataDir(cwd, from);
   const sourceConfig = profileConfigPath(cwd, from);

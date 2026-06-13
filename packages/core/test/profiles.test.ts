@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   activeProfile,
   addMemory,
+  cloneProfile,
   createProfile,
   defaultConfig,
   listMemory,
@@ -90,4 +91,36 @@ test("config writes isolate per profile and never leak into the shared default",
   // ...but the shared default is untouched (true isolation).
   await useProfile("default", cwd);
   assert.equal((await loadConfig(cwd)).providers.alphaonly, undefined, "default profile is not polluted by alpha's config");
+});
+
+test("cloneProfile copies config + memory, is independent, and refuses overwrite / missing source", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-clone-"));
+  await saveConfig(defaultConfig(), cwd);
+  await createProfile("src", cwd);
+  await useProfile("src", cwd);
+  const base = defaultConfig();
+  await saveConfig(
+    { ...base, providers: { ...base.providers, srconly: { id: "srconly", kind: "codex-cli", defaultModel: "x", timeoutMs: 1000 } } },
+    cwd,
+  );
+  await addMemory({ summary: "CLONE_MARKER_42", provenance: ["test"], scopes: [{ kind: "user", id: "me" }] }, cwd);
+
+  await cloneProfile("src", "dst", cwd);
+
+  // the clone carries the source's config + memory
+  await useProfile("dst", cwd);
+  assert.ok((await loadConfig(cwd)).providers.srconly, "clone inherits source provider");
+  assert.ok((await listMemory(cwd)).some((m) => m.summary.includes("CLONE_MARKER_42")), "clone inherits source memory");
+
+  // editing the clone does not touch the source
+  await saveConfig(
+    { ...base, providers: { ...base.providers, dstonly: { id: "dstonly", kind: "codex-cli", defaultModel: "y", timeoutMs: 1 } } },
+    cwd,
+  );
+  await useProfile("src", cwd);
+  assert.equal((await loadConfig(cwd)).providers.dstonly, undefined, "source is unaffected by edits to the clone");
+
+  // guards
+  await assert.rejects(() => cloneProfile("src", "dst", cwd), /already exists/);
+  await assert.rejects(() => cloneProfile("ghost", "newone", cwd), /does not exist/);
 });

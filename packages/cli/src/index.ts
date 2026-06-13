@@ -76,6 +76,7 @@ import {
   activeProfile,
   dataDir,
   parseCron,
+  cloneProfile,
   createProfile,
   listProfiles,
   useProfile,
@@ -269,7 +270,7 @@ Usage:
   muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
   muster tokens [--limit 20]
   muster traces [--limit N] [--trace <id>]     # OpenTelemetry spans — set MUSTER_TRACE=1 to record, MUSTER_OTLP_ENDPOINT to export
-  muster profile create|list|use|current [name]
+  muster profile create|list|use|current [name] | clone <from> <to>
   muster schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
   muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
   muster evolve selfcheck
@@ -1335,11 +1336,18 @@ async function profileCommand(commandArgs: string[]): Promise<void> {
     console.log(`Active profile: ${name}`);
     return;
   }
+  if (action === "clone") {
+    const [, from, to] = commandArgs;
+    if (!from || !to) throw new Error("Usage: muster profile clone <from> <to>");
+    await cloneProfile(from, to);
+    console.log(`Cloned profile ${from} -> ${to} (history-free copy of config, memory, and skills)`);
+    return;
+  }
   if (action === "current" || action === undefined) {
     console.log(activeProfile());
     return;
   }
-  throw new Error("Usage: muster profile create|list|use|current [name]");
+  throw new Error("Usage: muster profile create|list|use|current|clone [name]");
 }
 
 async function scheduleCommand(commandArgs: string[]): Promise<void> {
