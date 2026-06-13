@@ -257,7 +257,7 @@ Usage:
   muster pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
   muster state export [--output packages/ui/public/muster-state.json]
   muster state show
-  muster migrate openclaw --dry-run
+  muster migrate openclaw --dry-run [--profile <channel-name>]
   muster migrate hermes --dry-run
   muster migrate pi --dry-run
   muster sessions search "query" | show <id> | recent
@@ -1055,13 +1055,14 @@ async function migrate(args: string[]): Promise<void> {
   const source = args[0];
   const dryRun = args.includes("--dry-run");
   if (!isMigrationSource(source)) {
-    throw new Error("Usage: muster migrate <openclaw|hermes|pi> --dry-run");
+    throw new Error("Usage: muster migrate <openclaw|hermes|pi> --dry-run [--profile <name>]");
   }
   if (!dryRun) {
     throw new Error("v0 only supports migration dry-runs. Apply will be added after scanners are verified.");
   }
   const home = readFlag(args, "--home");
-  const report = await scanMigrationSource(source, { homeDir: home });
+  const profile = readFlag(args, "--profile");
+  const report = await scanMigrationSource(source, { homeDir: home, profile });
   console.log(`migration_source=${report.source}`);
   console.log("mode=dry-run");
   console.log(`root=${report.rootPath}`);
