@@ -9,6 +9,7 @@ import { completeChat } from "./provider.js";
 import { classifyTask, planRun } from "./router.js";
 import { appendEpisode } from "./store.js";
 import { synthesizeDeltas } from "./stream.js";
+import { endSpan, genAiAttributes, startSpan } from "./telemetry.js";
 import { appendTokenRecord, buildTokenRecord, type TokenRecord } from "./tokens.js";
 import type {
   ContextObject,
@@ -214,9 +215,38 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     fullPrompt = hookOutcome.payload;
   }
 
+  const rootSpan = startSpan("muster.run", {
+    kind: "internal",
+    attributes: { "muster.run_id": plan.runId, "muster.task_kind": plan.taskKind, "muster.runtime": plan.runtimeId },
+  });
+  // Each model attempt (primary or governed fallback) gets a child span under the
+  // run. Per GenAI semconv the span name is "{operation} {model}" and the kind is
+  // "client" (a remote model invocation). The try/finally guarantees the span is
+  // ended even if the attempt throws, so spans never leak.
+  const tracedAttempt = async (route: ModelRoute): Promise<AttemptResult> => {
+    const span = startSpan(`chat ${route.model}`, {
+      kind: "client",
+      parent: rootSpan,
+      attributes: genAiAttributes({ operation: "chat", system: route.provider, requestModel: route.model }),
+    });
+    try {
+      const result = await attemptRoute(config, plan, route, fullPrompt, options);
+      await endSpan(span, {
+        status: result.status === "completed" ? "ok" : "error",
+        statusMessage: result.errorMessage,
+        attributes: { "gen_ai.response.model": result.route.model },
+        cwd,
+      });
+      return result;
+    } catch (error) {
+      await endSpan(span, { status: "error", statusMessage: error instanceof Error ? error.message : String(error), cwd });
+      throw error;
+    }
+  };
+
   const startedAt = Date.now();
   const evidence: EvidenceRecord[] = [];
-  let attempt = await attemptRoute(config, plan, plan.route, fullPrompt, options);
+  let attempt = await tracedAttempt(plan.route);
   let fallbackUsed: string | undefined;
 
   if (attempt.status === "failed" && config.routing.fallbacks?.length) {
@@ -227,7 +257,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         status: "observed",
         detail: `Primary route ${plan.route.provider}/${plan.route.model} failed (${attempt.errorMessage ?? "unknown"}). Governed fallback to ${fallbackRoute.provider}/${fallbackRoute.model}.`,
       });
-      const fallbackAttempt = await attemptRoute(config, plan, fallbackRoute, fullPrompt, options);
+      const fallbackAttempt = await tracedAttempt(fallbackRoute);
       if (fallbackAttempt.status === "completed") {
         attempt = fallbackAttempt;
         fallbackUsed = `${fallbackRoute.provider}/${fallbackRoute.model}`;
@@ -287,6 +317,15 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     surfaceId: options.surfaceId,
   });
   await appendTokenRecord(tokens, cwd);
+
+  await endSpan(rootSpan, {
+    status: attempt.status === "completed" ? "ok" : "error",
+    statusMessage: attempt.errorMessage,
+    attributes: attempt.status === "completed"
+      ? { "gen_ai.usage.input_tokens": tokens.inputTokens, "gen_ai.usage.output_tokens": tokens.outputTokens }
+      : undefined,
+    cwd,
+  });
 
   if (attempt.status === "completed" && attempt.responseText && !options.skipMemoryWrite) {
     await addMemory({

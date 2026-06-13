@@ -5,3 +5,6 @@ dist/
 .DS_Store
 packages/ui/public/hybrowclaw-state.json
 .claude/
+
+# Workflow scratch scripts
+.workflows/
