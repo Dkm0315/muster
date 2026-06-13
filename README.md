@@ -71,6 +71,8 @@ AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
 | 👥 **Pull-based subagents** | Durable run store, exactly-once results, no zombie processes. |
 
 ## Everyday commands
+<img width="3288" height="1740" alt="image" src="https://github.com/user-attachments/assets/8186bd41-3e18-4511-8566-d756c195d57f" />
+
 
 ```bash
 muster provider add anthropic                 # or kimi / ollama / add-openai-compatible <any-url>
