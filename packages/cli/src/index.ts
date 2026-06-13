@@ -63,6 +63,7 @@ import {
   runPiInteractive,
   runEvalCases,
   scanMigrationSource,
+  applyOpenclawProfile,
   seedEvalFromEpisode,
   searchMemory,
   setRuntimeProvider,
@@ -1055,11 +1056,44 @@ async function state(args: string[]): Promise<void> {
 async function migrate(args: string[]): Promise<void> {
   const source = args[0];
   const dryRun = args.includes("--dry-run");
+  const apply = args.includes("--apply");
   if (!isMigrationSource(source)) {
-    throw new Error("Usage: muster migrate <openclaw|hermes|pi> --dry-run [--profile <name>]");
+    throw new Error("Usage: muster migrate <openclaw|hermes|pi> --dry-run [--profile <name>] | muster migrate openclaw --apply --profile <name> --out <name>");
+  }
+  if (apply) {
+    if (source !== "openclaw") {
+      throw new Error(`--apply is only supported for openclaw. ${source} apply is not yet enabled (dry-run only).`);
+    }
+    const home = readFlag(args, "--home");
+    const profile = readFlag(args, "--profile");
+    const outProfile = readFlag(args, "--out");
+    if (!profile || !outProfile) {
+      throw new Error("Usage: muster migrate openclaw --apply --profile <name> --out <new-profile-name>");
+    }
+    const result = await applyOpenclawProfile({ homeDir: home ?? process.env.HOME ?? process.cwd(), profile, outProfile });
+    console.log(`migration_source=openclaw`);
+    console.log("mode=apply");
+    console.log(`out_profile=${result.outProfile}`);
+    console.log(`channel=${result.channel}`);
+    console.log(`provider=${result.provider}`);
+    console.log(`model=${result.model}`);
+    console.log(`runtime=${result.runtime}`);
+    console.log(`commands_migrated=${result.commandsMigrated}`);
+    if (result.tokenEnvRef) console.log(`token_env_ref=${result.tokenEnvRef}`);
+    // Make selectivity explicit: exactly ONE channel/profile was migrated.
+    console.log(
+      `excluded ${result.excludedChannels.length} other channel(s): ${result.excludedChannels.join(", ") || "none"}`
+    );
+    console.log(`excluded ${result.excludedAgents} agent(s)`);
+    console.log(`config_path=${result.configPath}`);
+    // No --runtime flag on purpose: passing one bypasses the profile's routing and
+    // falls back to a default model. A flagless run uses the migrated config's
+    // defaultRuntime (${result.runtime}) + model (${result.model}).
+    console.log(`try: muster profile use ${result.outProfile} && muster run "hello"`);
+    return;
   }
   if (!dryRun) {
-    throw new Error("v0 only supports migration dry-runs. Apply will be added after scanners are verified.");
+    throw new Error("v0 only supports migration dry-runs. Apply is enabled only for: muster migrate openclaw --apply --profile <name> --out <name>.");
   }
   const home = readFlag(args, "--home");
   const profile = readFlag(args, "--profile");
