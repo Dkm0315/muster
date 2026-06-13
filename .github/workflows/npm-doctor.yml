@@ -1,0 +1,40 @@
+name: npm doctor
+
+# Diagnostic: reveals which npm account the NPM_TOKEN belongs to and what
+# scopes/orgs it can publish to. Run this when a publish fails with
+# "Scope not found" / E404 / 2FA errors to see the real identity behind the
+# token without exposing the token itself. Safe: prints only public account
+# metadata, never the token.
+on:
+  workflow_dispatch:
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Who is this token?
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "::group::npm whoami"
+          npm whoami || echo "whoami FAILED — token invalid or not authenticating"
+          echo "::endgroup::"
+
+          echo "::group::orgs this account belongs to (musterhq?)"
+          npm org ls musterhq 2>&1 || echo "cannot list org 'musterhq' — not a member or org does not exist"
+          echo "::endgroup::"
+
+          echo "::group::packages this token can publish"
+          npm access list packages 2>&1 | head -50 || echo "no package access listing available (granular token may restrict this)"
+          echo "::endgroup::"
+
+          echo "::group::is the @musterhq scope reachable?"
+          curl -s -o /dev/null -w "registry @musterhq/core -> HTTP %{http_code}\n" https://registry.npmjs.org/@musterhq%2Fcore
+          echo "::endgroup::"
