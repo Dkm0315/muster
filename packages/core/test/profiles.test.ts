@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +8,13 @@ import {
   activeProfile,
   addMemory,
   createProfile,
+  defaultConfig,
   listMemory,
   listProfiles,
+  loadConfig,
   profileDataDir,
+  profilesRoot,
+  saveConfig,
   useProfile,
   validateProfileName,
 } from "../src/index.js";
@@ -58,4 +63,31 @@ test("profile names are validated strictly", () => {
   assert.throws(() => validateProfileName("UPPER"), /Invalid profile name/);
   assert.throws(() => validateProfileName(""), /Invalid profile name/);
   assert.doesNotThrow(() => validateProfileName("oxygen-hr-uat"));
+});
+
+test("config writes isolate per profile and never leak into the shared default", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-config-"));
+  // Baseline shared default config.
+  await saveConfig(defaultConfig(), cwd);
+
+  await createProfile("alpha", cwd);
+  await useProfile("alpha", cwd);
+
+  // Customize the alpha profile's config with a provider only it should have.
+  const base = defaultConfig();
+  await saveConfig(
+    { ...base, providers: { ...base.providers, alphaonly: { id: "alphaonly", kind: "codex-cli", defaultModel: "x", timeoutMs: 1000 } } },
+    cwd,
+  );
+
+  // The scoped config must now exist (was the bug: it never did, so writes hit the shared config).
+  assert.ok(existsSync(join(profilesRoot(cwd), "alpha", "config.json")), "scoped config.json is created on write");
+
+  // alpha sees its own provider...
+  await useProfile("alpha", cwd);
+  assert.ok((await loadConfig(cwd)).providers.alphaonly, "alpha profile sees its own provider");
+
+  // ...but the shared default is untouched (true isolation).
+  await useProfile("default", cwd);
+  assert.equal((await loadConfig(cwd)).providers.alphaonly, undefined, "default profile is not polluted by alpha's config");
 });

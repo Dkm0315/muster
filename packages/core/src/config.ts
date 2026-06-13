@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { profileConfigPath } from "./profiles.js";
+import { profileConfigPath, profileConfigWritePath } from "./profiles.js";
 import { findProviderPreset, presetToProviderConfig } from "./providers-catalog.js";
 import type { MusterConfig, ProviderConfig } from "./types.js";
 
@@ -68,7 +68,10 @@ export async function loadConfig(cwd = process.cwd()): Promise<MusterConfig> {
 }
 
 export async function saveConfig(config: MusterConfig, cwd = process.cwd()): Promise<void> {
-  const target = configPath(cwd);
+  // Writes always target the active profile's own config (creating it), so a
+  // non-default profile's config does not leak into the shared default. Reads
+  // (configPath/loadConfig) still inherit the default until a scoped config exists.
+  const target = profileConfigWritePath(cwd);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
