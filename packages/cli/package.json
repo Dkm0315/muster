@@ -2,6 +2,9 @@
   "name": "@musterhq/cli",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "bin": {
     "muster": "dist/index.js",
     "hc": "dist/index.js"
