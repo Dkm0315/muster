@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { scanMigrationSource } from "../src/index.js";
+import { applyOpenclawProfile, loadConfig, scanMigrationSource, useProfile } from "../src/index.js";
 
 test("openclaw scanner reports missing root safely", async () => {
   const home = await mkdtemp(join(tmpdir(), "muster-missing-"));
@@ -155,4 +155,116 @@ test("openclaw scanner never leaks secret values into the report", async () => {
   const serialized = JSON.stringify(report);
   assert.equal(serialized.includes(FIXTURE_TELEGRAM_TOKEN), false, "telegram botToken leaked into report");
   assert.equal(serialized.includes("another-secret-gateway-token"), false, "gateway auth token leaked into report");
+});
+
+const APPLY_SECRET = "SUPER_SECRET_123";
+
+const APPLY_OPENCLAW_CONFIG = {
+  agents: {
+    defaults: {
+      model: "anthropic/claude-opus-4-8",
+      workspace: "frappe-ops",
+      models: {
+        "anthropic/claude-opus-4-8": { alias: "opus", agentRuntime: { id: "claude-cli" } },
+        "openai/gpt-5.5": { alias: "codex", agentRuntime: { id: "codex" } },
+      },
+    },
+  },
+  channels: {
+    telegram: {
+      enabled: true,
+      dmPolicy: "allow",
+      botToken: APPLY_SECRET,
+      commands: { hello: {}, status: {}, deploy: {} },
+    },
+    whatsapp: {
+      enabled: true,
+      botToken: "another-secret-wa-token",
+    },
+  },
+  gateway: { mode: "remote", auth: { token: "gateway-secret-token" } },
+};
+
+test("applyOpenclawProfile materializes exactly one runnable, redacted profile", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-home-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-cwd-"));
+  await writeOpenclawConfig(home, APPLY_OPENCLAW_CONFIG);
+
+  const result = await applyOpenclawProfile({ homeDir: home, profile: "telegram", outProfile: "tg", cwd });
+
+  // Exactly one profile created beyond default.
+  const { listProfiles } = await import("../src/index.js");
+  const profiles = await listProfiles(cwd);
+  assert.deepEqual(profiles, ["default", "tg"]);
+
+  // Selectivity: whatsapp excluded, codex agent entry excluded.
+  assert.equal(result.outProfile, "tg");
+  assert.equal(result.channel, "telegram");
+  assert.equal(result.provider, "anthropic");
+  assert.equal(result.model, "claude-opus-4-8");
+  assert.equal(result.runtime, "claude-code");
+  assert.equal(result.commandsMigrated, 3);
+  assert.ok(result.excludedChannels.includes("whatsapp"));
+  assert.equal(result.excludedAgents, 1);
+  assert.equal(result.tokenEnvRef, "TELEGRAM_BOT_TOKEN");
+
+  // The written config is loadable via loadConfig and routes to claude-code.
+  await useProfile("tg", cwd);
+  const config = await loadConfig(cwd);
+  assert.equal(config.routing.defaultRuntime, "claude-code");
+  assert.ok(config.runtimes["claude-code"]);
+  assert.equal(config.runtimes["claude-code"]?.routes.simple_qa?.model, "claude-opus-4-8");
+
+  // The redaction guarantee: the secret value appears NOWHERE in the written file.
+  const { readFile: readFileAsync } = await import("node:fs/promises");
+  const writtenRaw = await readFileAsync(result.configPath, "utf8");
+  assert.equal(writtenRaw.includes(APPLY_SECRET), false, "botToken secret leaked into materialized config");
+  assert.equal(writtenRaw.includes("another-secret-wa-token"), false, "other channel secret leaked");
+  assert.equal(writtenRaw.includes("gateway-secret-token"), false, "gateway auth token leaked");
+  // The placeholder env reference IS present where the token would be.
+  assert.ok(writtenRaw.includes("${TELEGRAM_BOT_TOKEN}"), "placeholder env reference missing");
+
+  // Applying again onto the same --out must refuse rather than clobber the profile.
+  await assert.rejects(
+    () => applyOpenclawProfile({ homeDir: home, profile: "telegram", outProfile: "tg", cwd }),
+    /already exists/,
+  );
+});
+
+test("applyOpenclawProfile throws for a missing channel, listing names without secrets", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-missing-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-missing-cwd-"));
+  await writeOpenclawConfig(home, APPLY_OPENCLAW_CONFIG);
+
+  await assert.rejects(
+    () => applyOpenclawProfile({ homeDir: home, profile: "slack", outProfile: "sl", cwd }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.match(message, /not found/);
+      assert.match(message, /telegram/);
+      assert.match(message, /whatsapp/);
+      assert.equal(message.includes(APPLY_SECRET), false, "secret leaked into not-found error");
+      return true;
+    },
+  );
+});
+
+test("applyOpenclawProfile throws on malformed openclaw.json without echoing file contents", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-malformed-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-malformed-cwd-"));
+  await mkdir(join(home, ".openclaw"), { recursive: true });
+  await writeFile(
+    join(home, ".openclaw", "openclaw.json"),
+    '{ "channels": { "telegram": { "botToken": "sk-LEAKED-APPLY-9999" } not json ]\n',
+  );
+
+  await assert.rejects(
+    () => applyOpenclawProfile({ homeDir: home, profile: "telegram", outProfile: "tg", cwd }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.equal(message.includes("sk-LEAKED-APPLY-9999"), false, "malformed-config secret leaked into error");
+      assert.match(message, /Could not read or parse/);
+      return true;
+    },
+  );
 });

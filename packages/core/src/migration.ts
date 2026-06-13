@@ -1,5 +1,9 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { defaultConfig } from "./config.js";
+import { createProfile, profileConfigWritePath, profilesRoot } from "./profiles.js";
+import type { MusterConfig } from "./types.js";
 
 export type MigrationSource = "openclaw" | "hermes" | "pi";
 
@@ -261,6 +265,211 @@ function countCustomCommands(channel: unknown): number {
   if (Array.isArray(commands)) return commands.length;
   if (isRecord(commands)) return Object.keys(commands).length;
   return 0;
+}
+
+/**
+ * Result of materializing exactly ONE OpenClaw channel/profile into a runnable
+ * Muster profile. The excluded* fields make selectivity auditable: the caller
+ * can show the operator that the OTHER channels and the unused agent model
+ * entries were deliberately left behind, not silently merged.
+ */
+export interface ApplyOpenclawResult {
+  readonly outProfile: string;
+  readonly channel: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly runtime: string;
+  readonly commandsMigrated: number;
+  readonly excludedChannels: string[];
+  readonly excludedAgents: number;
+  readonly configPath: string;
+  /**
+   * When the selected channel needs a bot token to actually run (e.g. telegram),
+   * this names the env var the materialized config expects. The secret VALUE is
+   * never read or written — only this reference and the literal placeholder.
+   */
+  readonly tokenEnvRef?: string;
+}
+
+/** Placeholder env reference written wherever a channel secret would otherwise live. */
+const TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN";
+const TELEGRAM_TOKEN_PLACEHOLDER = "${TELEGRAM_BOT_TOKEN}";
+
+/** Map an OpenClaw agentRuntime.id to the muster runtime that can run it. */
+function mapRuntime(openclawRuntimeId: string | undefined): string {
+  if (openclawRuntimeId === "codex") return "codex-cli";
+  // "claude-cli" and anything unknown materialize to the claude-code runtime,
+  // which shells to the local `claude` binary (no ANTHROPIC_API_KEY required) —
+  // the only runtime that works on the migrate target server.
+  return "claude-code";
+}
+
+/** Split "<provider>/<model>" on the FIRST slash; default provider "anthropic". */
+function splitModelId(rawModel: string): { provider: string; model: string } {
+  const slash = rawModel.indexOf("/");
+  if (slash === -1) return { provider: "anthropic", model: rawModel };
+  return { provider: rawModel.slice(0, slash), model: rawModel.slice(slash + 1) };
+}
+
+/**
+ * Materialize exactly ONE OpenClaw channel/profile into a runnable Muster
+ * profile. Reads <homeDir>/.openclaw/openclaw.json, resolves the model +
+ * runtime for the named channel, creates the target profile, and writes a
+ * MusterConfig whose default routing sends `muster run "<prompt>"` to the
+ * resolved runtime + model.
+ *
+ * Secrets: no botToken/auth/secret VALUE is ever read or written. Where the
+ * channel needs a bot token, the result records tokenEnvRef and the written
+ * config carries only the literal placeholder "${TELEGRAM_BOT_TOKEN}".
+ */
+export async function applyOpenclawProfile(options: {
+  homeDir: string;
+  profile: string;
+  outProfile: string;
+  cwd?: string;
+}): Promise<ApplyOpenclawResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const configPath = join(options.homeDir, ".openclaw", "openclaw.json");
+
+  let parsed: unknown;
+  try {
+    const raw = await readFile(configPath, "utf8");
+    parsed = JSON.parse(raw);
+  } catch {
+    // Never echo the raw parser/read error: JSON.parse messages embed a source
+    // snippet that can contain a botToken/auth value. A generic message is enough.
+    throw new Error(
+      `Could not read or parse OpenClaw config at ${configPath}. Ensure it exists and is valid JSON.`,
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(`OpenClaw config at ${configPath} is not a JSON object.`);
+  }
+
+  const channels = isRecord(parsed.channels) ? parsed.channels : {};
+  const channelNames = Object.keys(channels);
+  const selected = channels[options.profile];
+  if (!isRecord(selected)) {
+    // Names only — never any channel field value.
+    throw new Error(
+      `Channel/profile "${options.profile}" not found. Available: ${channelNames.join(", ") || "none"}`,
+    );
+  }
+
+  // Resolve the model id: channel override, else agents.defaults.model, else the
+  // OpenClaw house default.
+  const agents = isRecord(parsed.agents) ? parsed.agents : undefined;
+  const defaults = agents && isRecord(agents.defaults) ? agents.defaults : undefined;
+  const channelModel = typeof selected.model === "string" ? selected.model : undefined;
+  const defaultModel =
+    defaults && typeof defaults.model === "string" ? defaults.model : undefined;
+  const rawModel = channelModel ?? defaultModel ?? "anthropic/claude-opus-4-8";
+  const { provider, model } = splitModelId(rawModel);
+
+  // Determine the runtime from agents.defaults.models[<rawModel>].agentRuntime.id.
+  const defaultsModels =
+    defaults && isRecord(defaults.models) ? defaults.models : undefined;
+  const modelEntry =
+    defaultsModels && isRecord(defaultsModels[rawModel]) ? defaultsModels[rawModel] : undefined;
+  const agentRuntime =
+    modelEntry && isRecord(modelEntry.agentRuntime) ? modelEntry.agentRuntime : undefined;
+  const openclawRuntimeId =
+    agentRuntime && typeof agentRuntime.id === "string" ? agentRuntime.id : "claude-cli";
+  const runtime = mapRuntime(openclawRuntimeId);
+
+  // Selectivity accounting: every OTHER channel is excluded; every agent model
+  // entry that is not the one we resolved is an excluded agent.
+  const excludedChannels = channelNames.filter((name) => name !== options.profile);
+  const modelEntryNames = defaultsModels ? Object.keys(defaultsModels) : [];
+  const excludedAgents = modelEntryNames.filter((name) => name !== rawModel).length;
+
+  const commandsMigrated = countCustomCommands(selected);
+
+  // Does this channel need a bot token to run? We only ever check for the
+  // PRESENCE of a secret-keyed field — never read its value.
+  let tokenEnvRef: string | undefined;
+  const needsBotToken = Object.keys(selected).some((key) => SECRET_KEY_PATTERN.test(key));
+  if (needsBotToken) tokenEnvRef = TELEGRAM_TOKEN_ENV;
+
+  // Build a MusterConfig whose default routing sends `muster run "<prompt>"` to
+  // the resolved runtime + model. A claude-code runtime shells to the local
+  // `claude` binary, so we give it an anthropic provider with apiKeyEnv pointing
+  // at ANTHROPIC_API_KEY (unused by the CLI path, but keeps planRun's provider
+  // lookup valid) and route EVERY task kind at the resolved model.
+  const base = defaultConfig();
+  const providerId = provider;
+  const config: MusterConfig = {
+    ...base,
+    providers: {
+      ...base.providers,
+      [providerId]: {
+        id: providerId,
+        kind: provider === "anthropic" ? "anthropic" : "openai-compatible",
+        defaultModel: model,
+        apiKeyEnv: "ANTHROPIC_API_KEY",
+        timeoutMs: 120_000,
+      },
+    },
+    runtimes: {
+      ...base.runtimes,
+      [runtime]: {
+        id: runtime,
+        enabled: true,
+        provider: providerId,
+        routes: {
+          simple_qa: { provider: providerId, model, reasoning: "low" },
+          research: { provider: providerId, model, reasoning: "medium" },
+          architecture: { provider: providerId, model, reasoning: "high" },
+          coding: { provider: providerId, model, reasoning: "high" },
+          private_analysis: { provider: providerId, model, reasoning: "medium" },
+        },
+      },
+    },
+    routing: {
+      ...base.routing,
+      defaultRuntime: runtime,
+    },
+  };
+
+  // Record (redacted) that this profile expects a channel bot token via env. We
+  // attach it under a non-routing key so the placeholder is visible to an
+  // operator inspecting the file, while the secret VALUE is never present.
+  const materialized: Record<string, unknown> = { ...config };
+  if (tokenEnvRef) {
+    materialized.channel = {
+      name: options.profile,
+      // The literal placeholder env reference — NEVER the real token value.
+      botToken: TELEGRAM_TOKEN_PLACEHOLDER,
+      tokenEnvRef,
+    };
+  }
+
+  // Refuse to clobber an existing profile (createProfile's mkdir is recursive and
+  // would silently overwrite the config otherwise).
+  if (existsSync(join(profilesRoot(cwd), options.outProfile))) {
+    throw new Error(`Profile "${options.outProfile}" already exists; choose a new --out name.`);
+  }
+  // Create the target profile dir, then write the config to ITS scoped path
+  // (not the active profile). createProfile makes the data dir; we make the
+  // config's parent dir defensively before writing.
+  await createProfile(options.outProfile, cwd);
+  const outPath = profileConfigWritePath(cwd, options.outProfile);
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, `${JSON.stringify(materialized, null, 2)}\n`, "utf8");
+
+  return {
+    outProfile: options.outProfile,
+    channel: options.profile,
+    provider,
+    model,
+    runtime,
+    commandsMigrated,
+    excludedChannels,
+    excludedAgents,
+    configPath: outPath,
+    tokenEnvRef,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
