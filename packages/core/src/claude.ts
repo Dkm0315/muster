@@ -5,6 +5,12 @@ const execFileAsync = promisify(execFile);
 
 export interface ClaudeCodeRunInput {
   readonly prompt: string;
+  /**
+   * Operating rules / recalled context to apply as the Claude CLI *system*
+   * prompt (via --append-system-prompt) rather than inlining into the user
+   * message — inlining makes the model narrate the rules back into its answer.
+   */
+  readonly systemPrompt?: string;
   readonly cwd?: string;
   readonly model?: string;
   readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
@@ -70,6 +76,7 @@ export function buildClaudeCodeArgs(input: ClaudeCodeRunInput): string[] {
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);
   if (input.allowedTools?.length) args.push("--allowedTools", input.allowedTools.join(","));
+  if (input.systemPrompt) args.push("--append-system-prompt", input.systemPrompt);
   args.push(input.prompt);
   return args;
 }

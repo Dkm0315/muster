@@ -126,16 +126,26 @@ interface AttemptResult {
   readonly piResult?: PiAgentRunResult;
 }
 
+interface PromptParts {
+  /** Preamble + user prompt concatenated (pi/native send this — behaviour unchanged). */
+  readonly combined: string;
+  /** Just the user's prompt (claude-code sends this as the user message). */
+  readonly user: string;
+  /** Operating rules / recalled context (claude-code sends this as the system prompt). */
+  readonly system: string;
+}
+
 async function attemptRoute(
   config: MusterConfig,
   plan: RunPlan,
   route: ModelRoute,
-  fullPrompt: string,
+  prompts: PromptParts,
   options: RunOptions,
 ): Promise<AttemptResult> {
   if (plan.runtimeId === "claude-code") {
     const claudeResult = await runClaudeCode({
-      prompt: fullPrompt,
+      prompt: prompts.user,
+      systemPrompt: prompts.system || undefined,
       cwd: options.cwd,
       model: route.model,
       timeoutMs: options.timeoutMs,
@@ -153,7 +163,7 @@ async function attemptRoute(
   }
   if (plan.runtimeId === "pi") {
     const piResult = await runPiEmbeddedAgent({
-      prompt: fullPrompt,
+      prompt: prompts.combined,
       cwd: options.cwd,
       provider: route.provider === "pi-default" ? undefined : route.provider,
       model: route.model === "pi-default" ? undefined : route.model,
@@ -176,7 +186,7 @@ async function attemptRoute(
     return { responseText: "", status: "failed", errorMessage: `Provider not configured: ${route.provider}`, route };
   }
   try {
-    const text = await completeChat({ provider, route, messages: [{ role: "user", content: fullPrompt }] });
+    const text = await completeChat({ provider, route, messages: [{ role: "user", content: prompts.combined }] });
     if (options.onDelta && text) {
       for (const chunk of synthesizeDeltas(text)) options.onDelta(chunk);
     }
@@ -205,7 +215,8 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const skills = await selectSkills(options.prompt, 500, cwd);
   if (skills.included.length) await recordSkillUse(skills.included, cwd);
   const preamble = [rules?.text, skills.block, recalledBlock].filter(Boolean).join("\n\n");
-  let fullPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
+  const assembledPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
+  let fullPrompt = assembledPrompt;
   const hooks = options.hooks ?? defaultHookBus;
   if (hooks.count("prompt.build")) {
     const hookOutcome = await hooks.emit("prompt.build", fullPrompt);
@@ -214,6 +225,16 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     }
     fullPrompt = hookOutcome.payload;
   }
+  // Route the preamble to the model's *system* prompt where the runtime supports it
+  // (claude-code), so the operating rules shape behaviour instead of being narrated
+  // back into the answer. If a prompt.build hook rewrote the assembled prompt we can
+  // no longer separate system from user, so send it as one combined message.
+  const hookRewrote = fullPrompt !== assembledPrompt;
+  const prompts: PromptParts = {
+    combined: fullPrompt,
+    user: hookRewrote ? fullPrompt : options.prompt,
+    system: hookRewrote ? "" : preamble,
+  };
 
   const rootSpan = startSpan("muster.run", {
     kind: "internal",
@@ -230,7 +251,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
       attributes: genAiAttributes({ operation: "chat", system: route.provider, requestModel: route.model }),
     });
     try {
-      const result = await attemptRoute(config, plan, route, fullPrompt, options);
+      const result = await attemptRoute(config, plan, route, prompts, options);
       await endSpan(span, {
         status: result.status === "completed" ? "ok" : "error",
         statusMessage: result.errorMessage,
