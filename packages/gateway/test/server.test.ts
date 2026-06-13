@@ -3,8 +3,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultConfig, runFlow } from "@dkm0315/core";
-import type { MusterConfig } from "@dkm0315/core";
+import { defaultConfig, runFlow } from "@musterhq/core";
+import type { MusterConfig } from "@musterhq/core";
 import { approvePairing, initGatewayConfig, startGatewayServer } from "../src/index.js";
 import type { GatewayConfig, PairingChallenge, SurfaceReply } from "../src/index.js";
 

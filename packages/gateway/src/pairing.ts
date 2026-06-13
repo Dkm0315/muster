@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { dataDir } from "@dkm0315/core";
-import type { MemoryScope } from "@dkm0315/core";
+import { dataDir } from "@musterhq/core";
+import type { MemoryScope } from "@musterhq/core";
 
 /**
  * Pairing lane (docs/SURFACE_GATEWAY_SPEC.md): a surface sender is anonymous

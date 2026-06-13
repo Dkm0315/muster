@@ -10,7 +10,7 @@ Build Muster v0 as an npm/pnpm-first, pi.dev-bedrock adaptive harness runtime wi
 | HC-001 | Done | Architect Agent | Product contract captured | `docs/ARCHITECTURE.md`, `README.md` | None | Product rules mention pi.dev bedrock, optional personas, one runtime per run, evidence-aware feedback |
 | HC-002 | Done | Backend Engineer | Core config/routing/provider foundations | `packages/core/src/config.ts`, `router.ts`, `provider.ts`, `types.ts` | HC-001 | `pnpm typecheck && pnpm test` |
 | HC-003 | Done | CLI Engineer | Initial CLI operator surface | `packages/cli/src/index.ts` | HC-002 | `pnpm hc init && pnpm hc doctor` |
-| HC-004 | Done | Frontend Engineer | Option 1 Terminal Cockpit skeleton | `packages/ui/*` | HC-001 | `pnpm --filter @dkm0315/ui build` |
+| HC-004 | Done | Frontend Engineer | Option 1 Terminal Cockpit skeleton | `packages/ui/*` | HC-001 | `pnpm --filter @musterhq/ui build` |
 | HC-005 | Done | Backend Engineer | Real migration dry-run scanners | `packages/core/src/migration.ts`, `packages/cli/src/index.ts`, tests | HC-002, HC-003 | `pnpm hc migrate openclaw --dry-run`, `hermes`, and `pi` return discovered/absent state without throwing |
 | HC-006 | Done | CLI Engineer | Provider add/list commands | `packages/core/src/config.ts`, `packages/cli/src/index.ts`, tests | HC-002 | Operator can add an OpenAI-compatible provider and list configured providers |
 | HC-007 | Done | Test Engineer | Eval candidate artifact output | `packages/core/src/feedback.ts`, `store.ts`, CLI feedback path, tests | HC-002, HC-003 | Negative/positive feedback emits persisted learning candidates and `pnpm test` covers classifications |
@@ -105,7 +105,7 @@ Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (in
 
 | HC-037 | Surface gateway slice 1: envelope, pairing lane, governed dispatch, per-surface tokens | Done |
 | HC-038 | Telegram + Slack adapters (pure mappers + webhook routes) | Done |
-| HC-039 | @dkm0315/surface zero-dep web client + HTML demo | Done |
+| HC-039 | @musterhq/surface zero-dep web client + HTML demo | Done |
 | HC-040 | Capability-pack loader with contractual permission enforcement | Done |
 | HC-041 | Discord + WhatsApp + Google Chat + Teams adapters (pure mappers, verification handshakes, webhook routes) | Done |
 | HC-042 | `muster status` mission-control overview + `muster doctor --fix` workspace bootstrap | Done |

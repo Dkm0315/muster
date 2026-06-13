@@ -25,7 +25,7 @@ Then set token below (from .muster/gateway.json) and chat.</span>
 </form>
 <script type="module">
 const log = (cls, text) => { const d = document.getElementById("log"); d.innerHTML += `\n<span class="${cls}">${text.replace(/</g,"&lt;")}</span>`; d.scrollTop = d.scrollHeight; };
-// Inlined minimal client (mirrors @dkm0315/surface createSurface)
+// Inlined minimal client (mirrors @musterhq/surface createSurface)
 const surface = (url, token) => ({
   async send(text) {
     const r = await fetch(url + "/v1/messages", { method: "POST",

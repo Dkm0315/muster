@@ -1,9 +1,9 @@
 /**
- * @dkm0315/surface — zero-dependency, framework-agnostic browser client for
+ * @musterhq/surface — zero-dependency, framework-agnostic browser client for
  * the Muster surface gateway. Works in React/Vue/Svelte/plain script tags;
  * everything goes through fetch against POST /v1/messages.
  *
- * Types are declared locally (not imported from @dkm0315/gateway) so the
+ * Types are declared locally (not imported from @musterhq/gateway) so the
  * package ships with zero dependencies; they mirror the gateway envelope.
  */
 

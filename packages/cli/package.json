@@ -1,5 +1,5 @@
 {
-  "name": "@dkm0315/cli",
+  "name": "@musterhq/cli",
   "version": "0.1.0",
   "type": "module",
   "bin": {
@@ -13,8 +13,8 @@
     "prepublishOnly": "rm -rf dist && tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@dkm0315/core": "workspace:*",
-    "@dkm0315/gateway": "workspace:*"
+    "@musterhq/core": "workspace:*",
+    "@musterhq/gateway": "workspace:*"
   },
   "description": "Muster CLI \u2014 the auditable agent harness you run from your terminal.",
   "license": "MIT",

@@ -1,8 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { createStreamEventChannel, executeRun, extractMediaTags, resumeFlow, runDraftLoop, StreamRun } from "@dkm0315/core";
-import type { DraftSink, FlowToolRegistry, MusterConfig } from "@dkm0315/core";
+import { createStreamEventChannel, executeRun, extractMediaTags, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
+import type { DraftSink, FlowToolRegistry, MusterConfig } from "@musterhq/core";
 import { conversationSessionId, isPairingChallenge, parseSurfaceMessage } from "./envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.js";
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";

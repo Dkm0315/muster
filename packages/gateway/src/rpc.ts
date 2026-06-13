@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
-import { executeRun, listTokenRecords } from "@dkm0315/core";
-import type { MusterConfig } from "@dkm0315/core";
+import { executeRun, listTokenRecords } from "@musterhq/core";
+import type { MusterConfig } from "@musterhq/core";
 
 /**
  * Muster gateway RPC — ONE newline-delimited JSON-RPC 2.0 protocol consumed

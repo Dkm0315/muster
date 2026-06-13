@@ -3,8 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultConfig } from "@dkm0315/core";
-import type { MusterConfig } from "@dkm0315/core";
+import { defaultConfig } from "@musterhq/core";
+import type { MusterConfig } from "@musterhq/core";
 import { createHmac } from "node:crypto";
 import {
   approvePairing,

@@ -241,7 +241,7 @@ export async function inspectPiRuntime(input: { readonly homeDir?: string } = {}
           "Use the Pi CLI only as an explicit diagnostic transport, never as the default harness runtime."
         ]
       : [
-          `Install ${PI_CODING_AGENT_NPX_SPEC} and its sibling pi packages in @dkm0315/core.`,
+          `Install ${PI_CODING_AGENT_NPX_SPEC} and its sibling pi packages in @musterhq/core.`,
           "Do not ship a fake local runner while the embedded Pi SDK is unavailable."
         ]
   };

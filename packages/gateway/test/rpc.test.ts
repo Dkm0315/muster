@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { defaultConfig } from "@dkm0315/core";
-import type { MusterConfig } from "@dkm0315/core";
+import { defaultConfig } from "@musterhq/core";
+import type { MusterConfig } from "@musterhq/core";
 import { RPC_CONTRACT_VERSION, attachStdioTransport, createRpcCore } from "../src/rpc.js";
 
 function startStubLlm(): Promise<{ url: string; close(): void }> {

@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultConfig, runDraftLoop } from "@dkm0315/core";
-import type { MusterConfig, StreamEvent } from "@dkm0315/core";
+import { defaultConfig, runDraftLoop } from "@musterhq/core";
+import type { MusterConfig, StreamEvent } from "@musterhq/core";
 import {
   approvePairing,
   classifySlackError,
