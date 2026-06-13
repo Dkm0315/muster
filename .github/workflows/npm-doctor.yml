@@ -8,6 +8,10 @@ name: npm doctor
 on:
   workflow_dispatch:
 
+# Run the JS actions on the Node 24 runtime instead of the deprecated Node 20.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   doctor:
     runs-on: ubuntu-latest
@@ -15,7 +19,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Who is this token?
