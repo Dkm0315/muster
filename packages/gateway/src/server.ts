@@ -241,6 +241,83 @@ async function handleTelegramWebhook(body: string, context: AdapterContext): Pro
   return { ok: true };
 }
 
+export interface TelegramPollOptions {
+  readonly config: MusterConfig;
+  readonly gateway: GatewayConfig;
+  readonly cwd?: string;
+  readonly fetcher?: typeof fetch;
+  readonly log?: (line: string) => void;
+  /** Abort to stop the loop. */
+  readonly signal?: AbortSignal;
+  /** Long-poll timeout in seconds (Telegram holds the request open). Default 25. */
+  readonly pollTimeoutSec?: number;
+  /** Bound the number of getUpdates iterations (mainly for tests). Default unbounded. */
+  readonly maxIterations?: number;
+}
+
+function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+/**
+ * Long-poll Telegram getUpdates and feed each text update through the SAME
+ * governed handleSurfaceMessage path as the webhook (pairing, scoped run,
+ * per-surface accounting). No public URL / webhook needed — telegram only
+ * allows getUpdates when no webhook is set, so we deleteWebhook first.
+ */
+export async function pollTelegram(options: TelegramPollOptions): Promise<void> {
+  const botToken = options.gateway.telegram?.botToken;
+  if (!botToken) throw new Error("Telegram adapter not configured. Add telegram.botToken to .muster/gateway.json.");
+  const fetcher = options.fetcher ?? fetch;
+  const log = options.log ?? ((line: string) => console.log(line));
+  const cwd = options.cwd ?? process.cwd();
+  const timeout = options.pollTimeoutSec ?? 25;
+  const base = `https://api.telegram.org/bot${botToken}`;
+  // getUpdates is rejected while a webhook is set; clear it first (best-effort).
+  try { await fetcher(`${base}/deleteWebhook`, { method: "POST" }); } catch { /* best-effort */ }
+  log("telegram long-poll started");
+  let offset = 0;
+  let iterations = 0;
+  const max = options.maxIterations ?? Number.POSITIVE_INFINITY;
+  while (!options.signal?.aborted && iterations < max) {
+    iterations += 1;
+    let updates: Array<Record<string, unknown>>;
+    try {
+      const res = await fetcher(`${base}/getUpdates?offset=${offset}&timeout=${timeout}`, { signal: options.signal });
+      if (!res.ok) { log(`telegram getUpdates HTTP ${res.status}`); await pollDelay(2000, options.signal); continue; }
+      const data = (await res.json()) as { result?: Array<Record<string, unknown>> };
+      updates = data.result ?? [];
+    } catch (error) {
+      if (options.signal?.aborted) break;
+      log(`telegram getUpdates error: ${error instanceof Error ? error.message : String(error)}`);
+      await pollDelay(2000, options.signal);
+      continue;
+    }
+    for (const update of updates) {
+      const updateId = typeof update.update_id === "number" ? update.update_id : 0;
+      offset = Math.max(offset, updateId + 1);
+      const message = telegramUpdateToSurfaceMessage(update);
+      if (!message) continue;
+      try {
+        const reply = await handleSurfaceMessage(message, { config: options.config, cwd });
+        const payload = surfaceReplyToTelegramSend(reply, message.conversationId);
+        const sendRes = await fetcher(`${base}/sendMessage`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!sendRes.ok) log(`telegram sendMessage failed: HTTP ${sendRes.status}`);
+      } catch (error) {
+        log(`telegram update handling failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+  log("telegram long-poll stopped");
+}
+
 /**
  * Slack Events API webhook: handles url_verification challenges, ignores bot
  * echoes, and posts replies via chat.postMessage (approval requests render as

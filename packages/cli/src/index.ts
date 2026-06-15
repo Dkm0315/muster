@@ -98,6 +98,7 @@ import {
   initGatewayConfig,
   loadGatewayConfig,
   loadPairings,
+  pollTelegram,
   startGatewayServer
 } from "@musterhq/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -279,6 +280,7 @@ Usage:
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
   muster gateway init
   muster gateway start [--port 7460]
+  muster gateway poll                 # Telegram long-poll (no public webhook URL needed)
   muster pairing list | approve <code>
   muster flow replay <run-id> [--live-agents]
   muster flow diff <run-id-a> <run-id-b>
@@ -1733,7 +1735,18 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     console.log("stop with Ctrl-C");
     return;
   }
-  throw new Error("Usage: muster gateway <init|start> [--port 7460]");
+  if (action === "poll") {
+    // Long-poll Telegram getUpdates instead of running a webhook — no public URL
+    // needed. Uses the active profile's config + .muster/gateway.json telegram.botToken.
+    const gateway = await loadGatewayConfig();
+    const config = await loadConfig();
+    const controller = new AbortController();
+    process.on("SIGINT", () => controller.abort());
+    console.log("telegram long-poll (no webhook). Message the bot; stop with Ctrl-C.");
+    await pollTelegram({ config, gateway, cwd: process.cwd(), signal: controller.signal, log: (line) => console.log(line) });
+    return;
+  }
+  throw new Error("Usage: muster gateway <init|start [--port 7460]|poll>");
 }
 
 async function pairingCommand(commandArgs: string[]): Promise<void> {
