@@ -402,8 +402,12 @@ export async function applyOpenclawProfile(options: {
     defaultsModels && isRecord(defaultsModels[rawModel]) ? defaultsModels[rawModel] : undefined;
   const agentRuntime =
     modelEntry && isRecord(modelEntry.agentRuntime) ? modelEntry.agentRuntime : undefined;
+  // When the channel's model has no explicit agentRuntime, leave the id empty so
+  // resolveTarget picks by the model's PROVIDER (anthropic -> claude-code, else
+  // native). Defaulting to "claude-cli" here forced even non-Anthropic models
+  // onto the claude-code runtime, silently running the wrong model.
   const openclawRuntimeId =
-    agentRuntime && typeof agentRuntime.id === "string" ? agentRuntime.id : "claude-cli";
+    agentRuntime && typeof agentRuntime.id === "string" ? agentRuntime.id : "";
   const target = resolveTarget(openclawRuntimeId, provider);
 
   // Selectivity accounting: every OTHER channel is excluded; every agent model

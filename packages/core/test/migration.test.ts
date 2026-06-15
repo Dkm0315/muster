@@ -305,3 +305,30 @@ test("applyOpenclawProfile maps a non-codex openai channel to openai-compatible 
   assert.equal(cfg.providers.openai?.apiKeyEnv, "OPENAI_API_KEY");
   assert.equal(cfg.providers.openai?.baseUrl, "https://api.openai.com/v1");
 });
+
+test("applyOpenclawProfile: a non-anthropic model with NO explicit runtime maps to native, not claude-code", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-noruntime-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-noruntime-cwd-"));
+  // openai model, but agents.defaults has no `models` map -> no agentRuntime.
+  await writeOpenclawConfig(home, {
+    agents: { defaults: { model: "openai/gpt-4o", workspace: "w" } },
+    channels: { web: { enabled: true } },
+  });
+  const result = await applyOpenclawProfile({ homeDir: home, profile: "web", outProfile: "web2", cwd });
+  assert.equal(result.runtime, "native", "a non-anthropic model must not be forced onto claude-code");
+  assert.equal(result.provider, "openai");
+  await useProfile("web2", cwd);
+  assert.equal((await loadConfig(cwd)).providers.openai?.kind, "openai-compatible");
+});
+
+test("applyOpenclawProfile: an anthropic model with NO explicit runtime still maps to claude-code", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-anth-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-anth-cwd-"));
+  await writeOpenclawConfig(home, {
+    agents: { defaults: { model: "anthropic/claude-opus-4-8", workspace: "w" } },
+    channels: { tg: { enabled: true } },
+  });
+  const result = await applyOpenclawProfile({ homeDir: home, profile: "tg", outProfile: "tg2", cwd });
+  assert.equal(result.runtime, "claude-code");
+  assert.equal(result.provider, "anthropic");
+});
