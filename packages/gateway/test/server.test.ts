@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { defaultConfig, runFlow } from "@musterhq/core";
 import type { MusterConfig } from "@musterhq/core";
-import { approvePairing, initGatewayConfig, startGatewayServer } from "../src/index.js";
+import { approvePairing, initGatewayConfig, pollTelegram, startGatewayServer } from "../src/index.js";
 import type { GatewayConfig, PairingChallenge, SurfaceReply } from "../src/index.js";
 
 function stubConfig(baseUrl: string): MusterConfig {
@@ -156,4 +156,33 @@ test("POST /v1/flows/:runId/approve resumes a gated flow run", async () => {
     await running.close();
     llm.close();
   }
+});
+
+test("pollTelegram clears the webhook, polls getUpdates, and replies via sendMessage", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-poll-"));
+  const calls = { deleteWebhook: 0, getUpdates: 0, sendMessage: [] as string[] };
+  let getUpdatesCall = 0;
+  const fetcher = (async (url: string | URL, init?: { body?: string }) => {
+    const u = String(url);
+    if (u.includes("/deleteWebhook")) { calls.deleteWebhook += 1; return { ok: true, json: async () => ({}) } as Response; }
+    if (u.includes("/getUpdates")) {
+      calls.getUpdates += 1;
+      getUpdatesCall += 1;
+      const result = getUpdatesCall === 1
+        ? [{ update_id: 10, message: { message_id: 1, text: "hello", chat: { id: 555, type: "private" }, from: { id: 777 } } }]
+        : [];
+      return { ok: true, json: async () => ({ ok: true, result }) } as Response;
+    }
+    if (u.includes("/sendMessage")) { calls.sendMessage.push(String(init?.body ?? "")); return { ok: true, json: async () => ({}) } as Response; }
+    return { ok: false, status: 404, json: async () => ({}) } as Response;
+  }) as typeof fetch;
+
+  const gateway: GatewayConfig = { token: "t", telegram: { botToken: "BOT" } };
+  await pollTelegram({ config: defaultConfig(), gateway, cwd, fetcher, log: () => {}, maxIterations: 1 });
+
+  assert.equal(calls.deleteWebhook, 1, "clears any webhook before long-polling");
+  assert.ok(calls.getUpdates >= 1, "polls getUpdates");
+  assert.equal(calls.sendMessage.length, 1, "replies to the single update");
+  // The unpaired sender gets a pairing challenge delivered to their chat (555).
+  assert.match(calls.sendMessage[0], /555/);
 });
