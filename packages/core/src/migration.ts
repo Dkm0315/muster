@@ -295,13 +295,41 @@ export interface ApplyOpenclawResult {
 const TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN";
 const TELEGRAM_TOKEN_PLACEHOLDER = "${TELEGRAM_BOT_TOKEN}";
 
-/** Map an OpenClaw agentRuntime.id to the muster runtime that can run it. */
-function mapRuntime(openclawRuntimeId: string | undefined): string {
-  if (openclawRuntimeId === "codex") return "codex-cli";
-  // "claude-cli" and anything unknown materialize to the claude-code runtime,
-  // which shells to the local `claude` binary (no ANTHROPIC_API_KEY required) —
-  // the only runtime that works on the migrate target server.
-  return "claude-code";
+/** A muster runtime + provider that can actually run an OpenClaw channel's model. */
+interface MigrationTarget {
+  readonly runtime: string;
+  readonly providerId: string;
+  readonly providerKind: "anthropic" | "openai-compatible" | "codex-cli";
+  readonly apiKeyEnv?: string;
+  readonly baseUrl?: string;
+}
+
+/**
+ * Map an OpenClaw agentRuntime.id (+ the model's provider) to the muster runtime
+ * and provider that actually run it on a server:
+ *  - claude-cli / any anthropic model -> the managed claude-code runtime, which
+ *    shells to the local `claude` binary (no API key needed).
+ *  - codex -> the native runtime with a codex-cli provider, which shells to the
+ *    local `codex` binary (subscription auth, no API key needed).
+ *  - anything else -> the native runtime with an openai-compatible provider keyed
+ *    on that provider's API-key env var.
+ * (A previous version returned the non-runtime id "codex-cli" as the runtime,
+ * which fell through to an unconfigured native path — a broken config.)
+ */
+function resolveTarget(openclawRuntimeId: string, provider: string): MigrationTarget {
+  if (openclawRuntimeId === "claude-cli" || provider === "anthropic") {
+    return { runtime: "claude-code", providerId: "anthropic", providerKind: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" };
+  }
+  if (openclawRuntimeId === "codex") {
+    return { runtime: "native", providerId: "codex", providerKind: "codex-cli" };
+  }
+  return {
+    runtime: "native",
+    providerId: provider,
+    providerKind: "openai-compatible",
+    apiKeyEnv: `${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`,
+    baseUrl: provider === "openai" ? "https://api.openai.com/v1" : undefined,
+  };
 }
 
 /** Split "<provider>/<model>" on the FIRST slash; default provider "anthropic". */
@@ -376,7 +404,7 @@ export async function applyOpenclawProfile(options: {
     modelEntry && isRecord(modelEntry.agentRuntime) ? modelEntry.agentRuntime : undefined;
   const openclawRuntimeId =
     agentRuntime && typeof agentRuntime.id === "string" ? agentRuntime.id : "claude-cli";
-  const runtime = mapRuntime(openclawRuntimeId);
+  const target = resolveTarget(openclawRuntimeId, provider);
 
   // Selectivity accounting: every OTHER channel is excluded; every agent model
   // entry that is not the one we resolved is an excluded agent.
@@ -398,38 +426,35 @@ export async function applyOpenclawProfile(options: {
   // at ANTHROPIC_API_KEY (unused by the CLI path, but keeps planRun's provider
   // lookup valid) and route EVERY task kind at the resolved model.
   const base = defaultConfig();
-  const providerId = provider;
+  const providerId = target.providerId;
+  const providerEntry = {
+    id: providerId,
+    kind: target.providerKind,
+    defaultModel: model,
+    timeoutMs: 120_000,
+    ...(target.apiKeyEnv ? { apiKeyEnv: target.apiKeyEnv } : {}),
+    ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
+  };
+  const route = { provider: providerId, model };
   const config: MusterConfig = {
     ...base,
-    providers: {
-      ...base.providers,
-      [providerId]: {
-        id: providerId,
-        kind: provider === "anthropic" ? "anthropic" : "openai-compatible",
-        defaultModel: model,
-        apiKeyEnv: "ANTHROPIC_API_KEY",
-        timeoutMs: 120_000,
-      },
-    },
+    providers: { ...base.providers, [providerId]: providerEntry },
     runtimes: {
       ...base.runtimes,
-      [runtime]: {
-        id: runtime,
+      [target.runtime]: {
+        id: target.runtime,
         enabled: true,
         provider: providerId,
         routes: {
-          simple_qa: { provider: providerId, model, reasoning: "low" },
-          research: { provider: providerId, model, reasoning: "medium" },
-          architecture: { provider: providerId, model, reasoning: "high" },
-          coding: { provider: providerId, model, reasoning: "high" },
-          private_analysis: { provider: providerId, model, reasoning: "medium" },
+          simple_qa: { ...route, reasoning: "low" },
+          research: { ...route, reasoning: "medium" },
+          architecture: { ...route, reasoning: "high" },
+          coding: { ...route, reasoning: "high" },
+          private_analysis: { ...route, reasoning: "medium" },
         },
       },
     },
-    routing: {
-      ...base.routing,
-      defaultRuntime: runtime,
-    },
+    routing: { ...base.routing, defaultRuntime: target.runtime },
   };
 
   // Record (redacted) that this profile expects a channel bot token via env. We
@@ -461,9 +486,9 @@ export async function applyOpenclawProfile(options: {
   return {
     outProfile: options.outProfile,
     channel: options.profile,
-    provider,
+    provider: providerId,
     model,
-    runtime,
+    runtime: target.runtime,
     commandsMigrated,
     excludedChannels,
     excludedAgents,
