@@ -268,3 +268,40 @@ test("applyOpenclawProfile throws on malformed openclaw.json without echoing fil
     },
   );
 });
+
+test("applyOpenclawProfile maps a codex channel to a runnable codex-cli provider, not a phantom runtime", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-codex-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-codex-cwd-"));
+  await writeOpenclawConfig(home, {
+    agents: { defaults: { model: "openai/gpt-5.4", workspace: "w", models: { "openai/gpt-5.4": { agentRuntime: { id: "codex" } } } } },
+    channels: { ops: { enabled: true } },
+  });
+  const result = await applyOpenclawProfile({ homeDir: home, profile: "ops", outProfile: "ops-mig", cwd });
+  // The previous bug set runtime "codex-cli" (not a real runtime) + an anthropic-keyed
+  // openai-compatible provider — an unrunnable config. It must be native + codex-cli.
+  assert.equal(result.runtime, "native");
+  assert.equal(result.provider, "codex");
+  await useProfile("ops-mig", cwd);
+  const cfg = await loadConfig(cwd);
+  assert.equal(cfg.routing.defaultRuntime, "native");
+  assert.equal(cfg.providers.codex?.kind, "codex-cli");
+  assert.equal(cfg.providers.codex?.defaultModel, "gpt-5.4");
+  assert.equal(cfg.providers.codex?.apiKeyEnv, undefined, "codex-cli (subscription) needs no API key env");
+});
+
+test("applyOpenclawProfile maps a non-codex openai channel to openai-compatible with the right key env", async () => {
+  const home = await mkdtemp(join(tmpdir(), "muster-apply-oai-"));
+  const cwd = await mkdtemp(join(tmpdir(), "muster-apply-oai-cwd-"));
+  await writeOpenclawConfig(home, {
+    agents: { defaults: { model: "openai/gpt-4o", workspace: "w", models: { "openai/gpt-4o": { agentRuntime: { id: "acpx" } } } } },
+    channels: { web: { enabled: true } },
+  });
+  const result = await applyOpenclawProfile({ homeDir: home, profile: "web", outProfile: "web-mig", cwd });
+  assert.equal(result.runtime, "native");
+  assert.equal(result.provider, "openai");
+  await useProfile("web-mig", cwd);
+  const cfg = await loadConfig(cwd);
+  assert.equal(cfg.providers.openai?.kind, "openai-compatible");
+  assert.equal(cfg.providers.openai?.apiKeyEnv, "OPENAI_API_KEY");
+  assert.equal(cfg.providers.openai?.baseUrl, "https://api.openai.com/v1");
+});
