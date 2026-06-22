@@ -103,6 +103,45 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const plugins = await runCli(["plugins", "list"], cwd);
   assert.match(plugins.stdout, /No plugin policy configured/);
 
+  const skillCatalog = await runCli(["skills", "catalog"], cwd);
+  assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes/);
+  assert.match(skillCatalog.stdout, /browser-control\s+openclaw/);
+
+  const enabledSkill = await runCli(["skills", "enable", "systematic-debugging"], cwd);
+  assert.match(enabledSkill.stdout, /enabled skill=systematic-debugging/);
+
+  const listedSkills = await runCli(["skills", "list"], cwd);
+  assert.match(listedSkills.stdout, /active\s+systematic-debugging/);
+
+  const disabledSkill = await runCli(["skills", "disable", "systematic-debugging"], cwd);
+  assert.match(disabledSkill.stdout, /disabled skill=systematic-debugging/);
+
+  const listedAfterDisable = await runCli(["skills", "list"], cwd);
+  assert.match(listedAfterDisable.stdout, /archived\s+systematic-debugging/);
+
+  const pluginCatalog = await runCli(["plugins", "catalog"], cwd);
+  assert.match(pluginCatalog.stdout, /frappe-federated-bridge\s+muster/);
+  assert.match(pluginCatalog.stdout, /aliases=frappe/);
+  assert.match(pluginCatalog.stdout, /browser\s+openclaw/);
+
+  const blockedPlugin = await runCliAllowFailure(["plugins", "enable", "frappe"], cwd);
+  assert.equal(blockedPlugin.code, 1);
+  assert.match(blockedPlugin.stderr, /requires --allow-high-risk/);
+
+  const enabledPlugin = await runCli(["plugins", "enable", "frappe", "--allow-high-risk"], cwd);
+  assert.match(enabledPlugin.stdout, /enabled plugin=frappe-federated-bridge/);
+
+  const listedPlugins = await runCli(["plugins", "list"], cwd);
+  assert.match(listedPlugins.stdout, /allow=frappe-federated-bridge/);
+  assert.match(listedPlugins.stdout, /entry=frappe-federated-bridge enabled=true/);
+
+  const disabledPlugin = await runCli(["plugins", "disable", "frappe"], cwd);
+  assert.match(disabledPlugin.stdout, /disabled plugin=frappe-federated-bridge/);
+
+  const listedPluginsAfterDisable = await runCli(["plugins", "list"], cwd);
+  assert.match(listedPluginsAfterDisable.stdout, /allow=-/);
+  assert.match(listedPluginsAfterDisable.stdout, /entry=frappe-federated-bridge enabled=false/);
+
   const dashboard = await runCli(["dashboard", "status"], cwd);
   assert.match(dashboard.stdout, /profile=default/);
   assert.match(dashboard.stdout, /configured=true/);

@@ -358,6 +358,41 @@ export async function writeCandidateSkill(
   return skill;
 }
 
+export async function writeBundledSkill(
+  input: {
+    name: string;
+    description: string;
+    body: string;
+    tags?: string[];
+    frontmatter?: SkillFrontmatter;
+    openclaw?: OpenClawSkillMetadata;
+  },
+  cwd = process.cwd(),
+): Promise<SkillRecord> {
+  if (!NAME_PATTERN.test(input.name)) throw new Error(`Invalid skill name "${input.name}" (lowercase, digits, ._- only).`);
+  if (input.body.length > 100_000) throw new Error("SKILL.md body exceeds 100K chars.");
+  const skill: SkillRecord = {
+    name: input.name,
+    description: input.description.trim(),
+    version: "0.1.0",
+    tags: input.tags ?? [],
+    status: "active",
+    provenance: { createdBy: "user", createdAt: new Date().toISOString() },
+    frontmatter: input.frontmatter ?? {},
+    openclaw: input.openclaw,
+    body: input.body,
+  };
+  await writeSkill(skill, cwd);
+  return skill;
+}
+
+export async function archiveSkill(name: string, cwd = process.cwd()): Promise<SkillRecord> {
+  const skill = await viewSkill(name, cwd);
+  const archived: SkillRecord = { ...skill, status: "archived" };
+  await writeSkill(archived, cwd);
+  return archived;
+}
+
 export function skillDiscoveryRoots(cwd = process.cwd(), options: SkillDiscoveryOptions = {}): readonly string[] {
   return buildSkillSearchRoots(cwd, options).map((root) => root.path);
 }

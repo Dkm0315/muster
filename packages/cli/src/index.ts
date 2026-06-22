@@ -23,6 +23,10 @@ import {
   appendFeedback,
   addOpenAICompatibleProvider,
   addCodexCliProvider,
+  enableBuiltinPlugin,
+  enableBuiltinSkill,
+  disableBuiltinPlugin,
+  disableBuiltinSkill,
   buildCockpitState,
   buildEpisodeContextGraph,
   completeChat,
@@ -55,6 +59,8 @@ import {
   listEpisodes,
   listMemory,
   listPiModels,
+  listBuiltinPlugins,
+  listBuiltinSkills,
   loadConfig,
   saveConfig,
   parseMemoryScope,
@@ -277,7 +283,7 @@ Usage:
   muster eval run [path-or-dir]
   muster capability inspect <path>
   muster capability load <path> [--allow-high-risk]
-  muster plugins list | policy | inspect <path> | load <path>
+  muster plugins list | catalog | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
@@ -304,7 +310,7 @@ Usage:
   muster migrate hermes --dry-run
   muster migrate pi --dry-run
   muster sessions search "query" | show <id> | recent
-  muster skills list | view <name> | index | curate
+  muster skills list | catalog | enable <id> | disable <id> | view <name> | index | curate
   muster pulse add "<cron>" [--kind heartbeat|task] [--prompt "..."] | list | resume <id> | run-due
   muster subagents list | reap [--ttl-min N]
   muster demo                         # provision a throwaway workspace + stub model, show the full pipeline
@@ -519,14 +525,19 @@ async function interactiveChat(state: ChatState): Promise<void> {
   await ensureDefaultConfig();
   printBanner();
   await printChatHeader(state);
-  const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
-  const hintState = { visible: false, key: "", active: true, baseLine: "", selectedIndex: 0, suggestions: [] as ChatSuggestion[] };
+  const rl = createInterface({ input, output, historySize: 0, completer: chatCompleter });
+  const hintState = { visible: false, key: "", active: true, baseLine: "", selectedIndex: 0, suggestions: [] as ChatSuggestion[], renderSeq: 0 };
   const historyState = { entries: [] as string[], index: undefined as number | undefined, draft: "" };
   emitKeypressEvents(input, rl);
-  const onKeypress = (_chunk: string, key: { name?: string } = {}): void => {
+  const onKeypress = (_chunk: string, key: { name?: string; ctrl?: boolean } = {}): void => {
     if (!hintState.active) return;
+    if (key.name === "return" || key.name === "enter" || key.name === "tab" || key.name === "escape" || (key.ctrl && (key.name === "c" || key.name === "d"))) return;
+    if ((key.name === "up" || key.name === "down") && hintState.visible) {
+      renderLiveSuggestions(rl, state, hintState, key.name).catch(() => {});
+      return;
+    }
     if ((key.name === "up" || key.name === "down") && !hintState.visible) {
-      setImmediate(() => navigateChatHistory(rl, historyState, key.name as "up" | "down"));
+      navigateChatHistory(rl, historyState, key.name as "up" | "down");
       return;
     }
     setImmediate(() => renderLiveSuggestions(rl, state, hintState, key.name).catch(() => {}));
@@ -538,11 +549,13 @@ async function interactiveChat(state: ChatState): Promise<void> {
     printChatInputFrame();
     rl.prompt();
     for await (const line of rl) {
+      clearLiveSuggestions(hintState);
       const promptLabel = pending ? color("... ", "dim") : chatPrompt(state);
-      const raw = line.endsWith("\\") ? line.slice(0, -1) : line;
+      const continues = hasLineContinuation(line);
+      const raw = continues ? line.slice(0, -1) : line.replace(/\\\\$/, "\\");
       pending = pending ? `${pending}\n${raw}` : raw;
-      if (line.endsWith("\\")) {
-        rl.setPrompt(color("... ", "dim"));
+      if (continues) {
+        rl.setPrompt(`${color("│", "accent")} ${color("...", "dim")} `);
         rl.prompt();
         continue;
       }
@@ -568,7 +581,15 @@ async function interactiveChat(state: ChatState): Promise<void> {
     input.off("keypress", onKeypress);
     clearLiveSuggestions(hintState);
     rl.close();
+    if (process.stdout.isTTY) output.write("\n");
   }
+}
+
+function hasLineContinuation(line: string): boolean {
+  if (!line.endsWith("\\")) return false;
+  let slashCount = 0;
+  for (let index = line.length - 1; index >= 0 && line[index] === "\\"; index -= 1) slashCount += 1;
+  return slashCount % 2 === 1;
 }
 
 function chatPrompt(_state: ChatState): string {
@@ -599,8 +620,13 @@ function navigateChatHistory(rl: Interface, historyState: { entries: string[]; i
     }
   }
   const next = historyState.index === undefined ? historyState.draft : historyState.entries[historyState.index] ?? "";
-  rl.write(null, { ctrl: true, name: "u" });
-  rl.write(next);
+  replaceReadlineLine(rl, next);
+}
+
+function replaceReadlineLine(rl: Interface, value: string): void {
+  (rl as Interface & { line: string; cursor: number }).line = value;
+  (rl as Interface & { line: string; cursor: number }).cursor = value.length;
+  rl.prompt(true);
 }
 
 async function printChatHeader(state: ChatState): Promise<void> {
@@ -642,7 +668,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
     " ",
     color(model, "accent"),
     color(cwd, "dim"),
-    color(`Session: ${state.sessionName}`, "dim"),
+    color(truncate(`Session: ${state.sessionName}`, leftWidth), "dim"),
   ];
   const rightLines = [
     color("Commands", "accent"),
@@ -681,11 +707,13 @@ function printChatInputFrame(): void {
   const width = chatFrameWidth();
   console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd(color("type / then Enter for commands, @ then Enter for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd("", width - 4) + color(" │", "accent"));
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
+  if (process.stdout.isTTY) output.write("\x1b[2A\r");
 }
 
 function printChatInputFrameBottom(): void {
-  const width = chatFrameWidth();
-  console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
+  if (process.stdout.isTTY) output.write("\x1b[1B\r");
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -736,7 +764,15 @@ function stripAnsi(value: string): string {
 async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
   const suggested = state.pendingSuggestion;
   state.pendingSuggestion = undefined;
-  if (suggested && matchesSelectedSuggestionInput(text, suggested.baseLine)) {
+  if (text === "/" || text === "@") {
+    state.pendingMenu = text === "/"
+      ? { kind: "commands", options: CHAT_COMMANDS.map((command) => command.name) }
+      : { kind: "agents", options: await chatAgentOptions() };
+    if (text === "/") printChatCommandCatalog({ numbered: true });
+    else await printChatAgents({ numbered: true });
+    return true;
+  }
+  if (suggested && text === suggested.value) {
     if (suggested.kind === "command") return handleChatCommand(suggested.value, state);
     if (suggested.kind === "completion") {
       console.log(color(`selected ${suggested.value}`, "dim"));
@@ -749,35 +785,25 @@ async function handleChatInput(text: string, state: ChatState): Promise<boolean>
   }
   const selected = await handlePendingChatMenu(text, state);
   if (selected !== undefined) return selected;
-  if (text === "/") {
-    state.pendingMenu = { kind: "commands", options: CHAT_COMMANDS.map((command) => command.name) };
-    printChatCommandCatalog({ numbered: true });
-    return true;
-  }
-  if (text === "@") {
-    state.pendingMenu = { kind: "agents", options: await chatAgentOptions() };
-    await printChatAgents({ numbered: true });
-    return true;
-  }
   state.pendingMenu = undefined;
   if (text.startsWith("/")) return handleChatCommand(text, state);
   await runChatTurn(text, state);
   return true;
 }
 
-function matchesSelectedSuggestionInput(text: string, baseLine: string): boolean {
-  if (text === baseLine) return true;
-  if (baseLine === "/" && /^\/+$/.test(text)) return true;
-  if (baseLine === "@" && /^@+$/.test(text)) return true;
-  return false;
-}
-
 async function handlePendingChatMenu(text: string, state: ChatState): Promise<boolean | undefined> {
   const menu = state.pendingMenu;
   if (!menu) return undefined;
-  state.pendingMenu = undefined;
   const index = Number(text);
-  if (!Number.isInteger(index) || index < 1 || index > menu.options.length) return undefined;
+  if (!Number.isInteger(index) || index < 1 || index > menu.options.length) {
+    if (text.startsWith("/") || text.startsWith("@")) {
+      state.pendingMenu = undefined;
+      return undefined;
+    }
+    console.log(color(`Invalid selection. Type 1-${menu.options.length}, or type /commands to browse commands.`, "yellow"));
+    return true;
+  }
+  state.pendingMenu = undefined;
   const selected = menu.options[index - 1];
   if (menu.kind === "commands") return handleChatCommand(`/${selected}`, state);
   console.log(color(`selected @${selected}. Type @${selected} <task> to route a turn.`, "dim"));
@@ -918,13 +944,15 @@ function chatCompletions(line: string): string[] {
 async function renderLiveSuggestions(
   rl: Interface,
   state: ChatState,
-  hintState: { visible: boolean; key: string; active: boolean; baseLine: string; selectedIndex: number; suggestions: ChatSuggestion[] },
+  hintState: { visible: boolean; key: string; active: boolean; baseLine: string; selectedIndex: number; suggestions: ChatSuggestion[]; renderSeq: number },
   keyName?: string,
 ): Promise<void> {
   if (!hintState.active || !process.stdout.isTTY) return;
+  const renderSeq = ++hintState.renderSeq;
   const isArrow = keyName === "up" || keyName === "down";
   const baseLine = isArrow && hintState.visible ? hintState.baseLine : rl.line;
   const suggestions = isArrow && hintState.visible ? hintState.suggestions : await liveSuggestions(baseLine, state);
+  if (renderSeq !== hintState.renderSeq || !hintState.active) return;
   if (!suggestions.length) {
     state.pendingSuggestion = undefined;
     clearLiveSuggestions(hintState);
@@ -933,8 +961,6 @@ async function renderLiveSuggestions(
   if (isArrow) {
     const direction = keyName === "up" ? -1 : 1;
     hintState.selectedIndex = (hintState.selectedIndex + direction + suggestions.length) % suggestions.length;
-    rl.write(null, { ctrl: true, name: "u" });
-    rl.write(baseLine);
   } else if (baseLine !== hintState.baseLine) {
     hintState.selectedIndex = 0;
   }
@@ -943,10 +969,13 @@ async function renderLiveSuggestions(
   hintState.selectedIndex = Math.min(hintState.selectedIndex, visibleSuggestions.length - 1);
   const selected = visibleSuggestions[hintState.selectedIndex];
   state.pendingSuggestion = { baseLine, value: selected.value, kind: selected.kind };
+  if (isArrow) {
+    replaceReadlineLine(rl, selected.value);
+  }
   const panel = renderSuggestionPanel(width, visibleSuggestions, hintState.selectedIndex);
   const key = `${baseLine}\n${hintState.selectedIndex}\n${panel}`;
   if (hintState.key === key) return;
-  output.write(`\n${panel}`);
+  output.write(`\x1b[s\x1b[2B\r\x1b[0J${panel}\x1b[u`);
   hintState.visible = true;
   hintState.key = key;
   hintState.baseLine = baseLine;
@@ -956,6 +985,8 @@ async function renderLiveSuggestions(
 }
 
 function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean; baseLine?: string; selectedIndex?: number; suggestions?: ChatSuggestion[] }): void {
+  if ("renderSeq" in hintState && typeof hintState.renderSeq === "number") hintState.renderSeq += 1;
+  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[2B\r\x1b[0J\x1b[u");
   hintState.visible = false;
   hintState.key = "";
   hintState.baseLine = "";
@@ -1019,7 +1050,10 @@ function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggesti
     ...suggestions.map((suggestion, index) => {
       const marker = index === selectedIndex ? color("› ", "highlight") : "  ";
       const row = `${marker}${suggestion.label}`;
-      return color("│ ", "accent") + visiblePadEnd(row, width - 4) + color(" │", "accent");
+      const content = index === selectedIndex
+        ? color(visiblePadEnd(stripAnsi(row), width - 4), "selection")
+        : visiblePadEnd(row, width - 4);
+      return color("│ ", "accent") + content + color(" │", "accent");
     }),
     color(`╰${"─".repeat(width - 2)}╯`, "accent"),
   ];
@@ -1503,6 +1537,24 @@ async function capability(args: string[]): Promise<void> {
 
 async function pluginsCommand(args: string[]): Promise<void> {
   const [action, path] = args;
+  if (action === "catalog") {
+    for (const plugin of listBuiltinPlugins()) {
+      const aliases = plugin.aliases?.length ? ` aliases=${plugin.aliases.join(",")}` : "";
+      console.log(`${plugin.id.padEnd(24)} ${plugin.source.padEnd(9)} ${plugin.category.padEnd(18)} risk=${plugin.risk.padEnd(6)} ${plugin.description}${aliases}`);
+    }
+    return;
+  }
+  if (action === "enable" && path) {
+    const plugin = await enableBuiltinPlugin(path, process.cwd(), { allowHighRisk: args.includes("--allow-high-risk") });
+    console.log(`enabled plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk}`);
+    if (!plugin.packPath) console.log("note=policy enabled; executable loading still requires a local capability pack.");
+    return;
+  }
+  if (action === "disable" && path) {
+    const plugin = await disableBuiltinPlugin(path);
+    console.log(`disabled plugin=${plugin.id}`);
+    return;
+  }
   if (action === "inspect" && path) {
     await capability(["inspect", path]);
     return;
@@ -1533,7 +1585,7 @@ async function pluginsCommand(args: string[]): Promise<void> {
     for (const [slot, owner] of slots) console.log(`slot=${slot} owner=${owner}`);
     return;
   }
-  throw new Error("Usage: muster plugins list|policy|inspect <path>|load <path> [--allow-high-risk]");
+  throw new Error("Usage: muster plugins list|catalog|enable <id>|disable <id>|policy|inspect <path>|load <path> [--allow-high-risk]");
 }
 
 async function mcpCommand(args: string[]): Promise<void> {
@@ -2483,7 +2535,7 @@ function wrapText(text: string, width: number): string[] {
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
-    if (`${current} ${word}`.trim().length > max) {
+    if (stripAnsi(`${current} ${word}`.trim()).length > max) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -2502,7 +2554,7 @@ function truncate(value: string, length: number): string {
   return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 3))}...`;
 }
 
-type ColorName = "cyan" | "green" | "yellow" | "accent" | "highlight" | "red" | "dim";
+type ColorName = "cyan" | "green" | "yellow" | "accent" | "highlight" | "selection" | "red" | "dim";
 
 function color(value: string, name: ColorName): string {
   if (process.env.NO_COLOR || !process.stdout.isTTY) return value;
@@ -2512,6 +2564,7 @@ function color(value: string, name: ColorName): string {
     yellow: "33",
     accent: "38;2;20;184;166",
     highlight: "38;2;103;232;249",
+    selection: "30;48;2;103;232;249",
     red: "31",
     dim: "2",
   };
@@ -3070,6 +3123,22 @@ async function sessionsCommand(commandArgs: string[]): Promise<void> {
 
 async function skillsCommand(commandArgs: string[]): Promise<void> {
   const [action, ...rest] = commandArgs;
+  if (action === "catalog") {
+    for (const skill of listBuiltinSkills()) {
+      console.log(`${skill.id.padEnd(28)} ${skill.source.padEnd(9)} ${skill.category.padEnd(22)} risk=${skill.risk.padEnd(6)} ${skill.description}`);
+    }
+    return;
+  }
+  if (action === "enable" && rest[0]) {
+    const skill = await enableBuiltinSkill(rest[0]);
+    console.log(`enabled skill=${skill.id} source=${skill.source} risk=${skill.risk}`);
+    return;
+  }
+  if (action === "disable" && rest[0]) {
+    const skill = await disableBuiltinSkill(rest[0]);
+    console.log(`disabled skill=${skill.id}`);
+    return;
+  }
   if (action === "list" || action === undefined) {
     const skills = await listSkills();
     if (!skills.length) { console.log("No skills yet."); return; }
@@ -3116,7 +3185,7 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
     console.log("This is intentional — skills cannot self-certify. See docs/FEATURE_PARITY_PLAN.md.");
     return;
   }
-  throw new Error("Usage: muster skills list|view <name>|index|curate");
+  throw new Error("Usage: muster skills list|catalog|enable <id>|disable <id>|view <name>|index|curate");
 }
 
 async function pulseCommand(commandArgs: string[]): Promise<void> {
