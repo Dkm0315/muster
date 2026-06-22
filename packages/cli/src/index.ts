@@ -360,6 +360,33 @@ interface ChatState {
 }
 
 const DEFAULT_CHAT_SESSION = "main";
+interface ChatCommandDef {
+  readonly name: string;
+  readonly usage: string;
+  readonly description: string;
+  readonly aliases?: readonly string[];
+}
+const CHAT_COMMANDS: readonly ChatCommandDef[] = [
+  { name: "help", usage: "/help", description: "show full chat help", aliases: ["?"] },
+  { name: "commands", usage: "/commands", description: "show compact command catalog", aliases: ["cmds"] },
+  { name: "shortcuts", usage: "/shortcuts", description: "show keyboard and routing shortcuts", aliases: ["keys"] },
+  { name: "status", usage: "/status", description: "show runtime, model, session, token usage" },
+  { name: "sessions", usage: "/sessions [limit]", description: "list recent named chats", aliases: ["ls"] },
+  { name: "resume", usage: "/resume <name|id>", description: "switch to a prior named chat or session id", aliases: ["use"] },
+  { name: "name", usage: "/name <name>", description: "switch current reference name" },
+  { name: "history", usage: "/history [limit]", description: "show current chat history" },
+  { name: "memory", usage: "/memory <query>", description: "search scoped memory" },
+  { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
+  { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
+  { name: "tokens", usage: "/tokens [limit]", description: "show token ledger" },
+  { name: "new", usage: "/new [name]", description: "start/switch to a fresh named chat and clear provider handles" },
+  { name: "reset", usage: "/reset", description: "clear provider handles for this named chat" },
+  { name: "clear", usage: "/clear", description: "clear the terminal screen", aliases: ["cls"] },
+  { name: "exit", usage: "/exit", description: "leave chat", aliases: ["quit", "q"] },
+] as const;
+const CHAT_COMMAND_NAMES = CHAT_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]);
+const CHAT_COMMAND_ALIASES = new Map(CHAT_COMMANDS.flatMap((command) => (command.aliases ?? []).map((alias) => [alias, command.name] as const)));
+const CHAT_TOOLSETS = ["core", "full", "files", "web", "memory", "sessions", "shell", "results", "discovery"];
 
 async function chat(commandArgs: string[]): Promise<void> {
   if (commandArgs.includes("--help") || commandArgs.includes("-h")) {
@@ -374,13 +401,33 @@ async function chat(commandArgs: string[]): Promise<void> {
     scopes: readFlags(commandArgs, "--scope").map(parseMemoryScope),
     recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
   };
-  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms"]).join(" ").trim();
+  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms", "--continue", "--tools", "--complete", "--limit"]).filter((arg) => !["--commands", "--shortcuts", "--list", "--sessions", "--history"].includes(arg)).join(" ").trim();
   if (commandArgs.includes("--list") || commandArgs.includes("--sessions")) {
     printChatSessions(readNumberFlag(commandArgs, "--limit") ?? 15);
     return;
   }
+  const continueIndex = commandArgs.indexOf("--continue");
+  if (continueIndex >= 0) {
+    const maybeName = commandArgs[continueIndex + 1];
+    const sessionName = maybeName && !maybeName.startsWith("--") ? maybeName : mostRecentChatSessionName() ?? DEFAULT_CHAT_SESSION;
+    state.sessionName = safeChatSessionName(sessionName);
+  }
   if (commandArgs.includes("--history")) {
     printChatHistory(state.sessionName, readNumberFlag(commandArgs, "--limit") ?? 40);
+    return;
+  }
+  if (commandArgs.includes("--commands")) {
+    printChatCommandCatalog();
+    return;
+  }
+  if (commandArgs.includes("--shortcuts")) {
+    printChatShortcuts();
+    return;
+  }
+  const completeIndex = commandArgs.indexOf("--complete");
+  if (completeIndex >= 0) {
+    const fragment = commandArgs[completeIndex + 1] ?? "";
+    console.log(chatCompletions(fragment).join("\n"));
     return;
   }
   const toolsIndex = commandArgs.indexOf("--tools");
@@ -406,35 +453,26 @@ Usage:
   muster chat                               # interactive terminal chat
   muster chat "your prompt"                 # one-shot turn in the main named session
   muster chat --session work "prompt"       # one-shot turn in a named session
+  muster chat --continue [name]             # resume by name, or most recent named chat
   muster chat --session work --history      # show a named session
   muster chat --tools [toolset]             # list built-in tools
+  muster chat --commands                    # show compact command catalog
   muster chat --list                        # list recent chat sessions
 
 In-chat commands:
-  /help                 show commands
-  /status               show runtime, model, session, token usage
-  /sessions             list recent named chats
-  /resume <name|id>     switch to a prior named chat or session id
-  /name <name>          switch current reference name
-  /history [limit]      show current chat history
-  /memory <query>       search scoped memory
-  /tools [toolset]      list built-in toolsets and tools
-  /agents               list configured runtimes and @agent ids
-  /tokens [limit]       show token ledger
-  /new [name]           start/switch to a fresh named chat and clear provider handles
-  /reset                clear provider handles for this named chat
-  /exit                 leave chat
+${CHAT_COMMANDS.map((command) => `  ${command.usage.padEnd(21)} ${command.description}`).join("\n")}
 
 Shortcuts:
-  @agent-name <task>    route this turn with agent id agent-name
-  End a line with \\ to continue multiline input.`);
+  Tab                  complete slash commands, toolsets, and session names
+  @agent-name <task>   route this turn with agent id agent-name
+  End a line with \\   continue multiline input.`);
 }
 
 async function interactiveChat(state: ChatState): Promise<void> {
   await ensureDefaultConfig();
   printBanner();
   printChatHeader(state);
-  const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true });
+  const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
   let pending = "";
   try {
     rl.setPrompt(`${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `);
@@ -482,7 +520,8 @@ async function handleChatInput(text: string, state: ChatState): Promise<boolean>
 
 async function handleChatCommand(text: string, state: ChatState): Promise<boolean> {
   const [nameWithSlash, ...rest] = text.split(/\s+/);
-  const name = nameWithSlash.slice(1).toLowerCase();
+  const rawName = nameWithSlash.slice(1).toLowerCase();
+  const name = CHAT_COMMAND_ALIASES.get(rawName) ?? rawName;
   const args = rest.join(" ").trim();
   switch (name) {
     case "exit":
@@ -492,6 +531,12 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       return false;
     case "help":
       printChatHelp();
+      return true;
+    case "commands":
+      printChatCommandCatalog();
+      return true;
+    case "shortcuts":
+      printChatShortcuts();
       return true;
     case "status":
       await printChatStatus(state);
@@ -544,10 +589,52 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       console.log(color(`provider_handles_cleared=${removed}`, "green"));
       return true;
     }
+    case "clear":
+      console.clear();
+      return true;
     default:
-      console.log(color(`Unknown command /${name}. Type /help.`, "yellow"));
+      console.log(color(`Unknown command /${rawName}. Type /commands.`, "yellow"));
       return true;
   }
+}
+
+function printChatCommandCatalog(): void {
+  console.log(color("command\taliases\tdescription", "cyan"));
+  for (const command of CHAT_COMMANDS) {
+    console.log(`${command.usage}\t${command.aliases?.join(",") || "-"}\t${command.description}`);
+  }
+}
+
+function printChatShortcuts(): void {
+  console.log(color("shortcut\taction", "cyan"));
+  console.log("Tab\tcomplete slash commands, /tools toolsets, and /resume sessions");
+  console.log("@agent-name <task>\troute this turn with agent id agent-name");
+  console.log("\\ at end of line\tcontinue multiline input");
+  console.log("Ctrl+C\tcancel the current terminal input");
+  console.log("Ctrl+D\texit when the input line is empty");
+}
+
+function chatCompleter(line: string): [string[], string] {
+  return [chatCompletions(line), line];
+}
+
+function chatCompletions(line: string): string[] {
+  const trimmed = line.trimStart();
+  if (!trimmed.startsWith("/")) return [];
+  const parts = trimmed.split(/\s+/);
+  if (parts.length <= 1 && !trimmed.endsWith(" ")) {
+    const fragment = trimmed.slice(1).toLowerCase();
+    return CHAT_COMMAND_NAMES.filter((name) => name.startsWith(fragment)).map((name) => `/${name}`);
+  }
+  const command = CHAT_COMMAND_ALIASES.get(parts[0].slice(1).toLowerCase()) ?? parts[0].slice(1).toLowerCase();
+  const fragment = parts.at(-1)?.toLowerCase() ?? "";
+  if (command === "tools") {
+    return CHAT_TOOLSETS.filter((toolset) => toolset.startsWith(fragment));
+  }
+  if (command === "resume" || command === "name") {
+    return recentChatSessionNames().filter((name) => name.toLowerCase().startsWith(fragment));
+  }
+  return [];
 }
 
 async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?: number } = {}): Promise<void> {
@@ -650,6 +737,21 @@ function printChatSessions(limit: number): void {
   } finally {
     store.close();
   }
+}
+
+function recentChatSessionNames(limit = 25): string[] {
+  const store = openSessionStore();
+  try {
+    const result = store.search({ limit });
+    if (result.shape !== "browse") return [];
+    return result.sessions.filter((session) => session.channel === "cli-chat").map((session) => session.peer);
+  } finally {
+    store.close();
+  }
+}
+
+function mostRecentChatSessionName(): string | undefined {
+  return recentChatSessionNames(1)[0];
 }
 
 function printChatHistory(sessionName: string, limit: number): void {

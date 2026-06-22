@@ -38,6 +38,8 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(help.stdout, /\/resume <name\|id>/);
   assert.match(help.stdout, /\/tools \[toolset\]/);
   assert.match(help.stdout, /\/agents/);
+  assert.match(help.stdout, /\/commands/);
+  assert.match(help.stdout, /Tab\s+complete slash commands/);
   assert.match(help.stdout, /@agent-name <task>/);
 
   const history = await runCli(["chat", "--session", "release-audit", "--history"], cwd);
@@ -51,6 +53,22 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(tools.stdout, /files\t.*read_file/);
   assert.match(tools.stdout, /web\t.*web_search/);
   assert.match(tools.stdout, /discovery\t.*tool_search/);
+
+  const commands = await runCli(["chat", "--commands"], cwd);
+  assert.match(commands.stdout, /command\taliases\tdescription/);
+  assert.match(commands.stdout, /\/sessions \[limit\]\tls/);
+
+  const commandCompletion = await runCli(["chat", "--complete", "/sta"], cwd);
+  assert.match(commandCompletion.stdout, /\/status/);
+
+  const toolCompletion = await runCli(["chat", "--complete", "/tools me"], cwd);
+  assert.match(toolCompletion.stdout, /memory/);
+
+  const sessionCompletion = await runCli(["chat", "--complete", "/resume rel"], cwd);
+  assert.match(sessionCompletion.stdout, /release-audit/);
+
+  const continued = await runCli(["chat", "--continue", "--history"], cwd);
+  assert.match(continued.stdout, /session=release-audit/);
 
   const blocked = await runCliAllowFailure(["chat"], cwd);
   assert.equal(blocked.code, 1);
