@@ -110,7 +110,7 @@ import {
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { createServer } from "node:http";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, McpServerConfig, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
 
@@ -392,6 +392,9 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "history", usage: "/history [limit]", description: "show current chat history" },
   { name: "memory", usage: "/memory <query>", description: "search scoped memory" },
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
+  { name: "skills", usage: "/skills", description: "show installed and active skills" },
+  { name: "plugins", usage: "/plugins", description: "show plugin policy and configured packs" },
+  { name: "mcp", usage: "/mcp", description: "show configured MCP servers" },
   { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
   { name: "tokens", usage: "/tokens [limit]", description: "show token ledger" },
   { name: "new", usage: "/new [name]", description: "start/switch to a fresh named chat and clear provider handles" },
@@ -488,6 +491,12 @@ async function interactiveChat(state: ChatState): Promise<void> {
   printBanner();
   await printChatHeader(state);
   const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
+  const hintState = { visible: false };
+  emitKeypressEvents(input, rl);
+  const onKeypress = (): void => {
+    setImmediate(() => renderLiveSuggestions(rl, state, hintState).catch(() => {}));
+  };
+  input.on("keypress", onKeypress);
   let pending = "";
   try {
     rl.setPrompt(chatPrompt(state));
@@ -514,12 +523,14 @@ async function interactiveChat(state: ChatState): Promise<void> {
       rl.prompt();
     }
   } finally {
+    input.off("keypress", onKeypress);
+    clearLiveSuggestions(hintState);
     rl.close();
   }
 }
 
 function chatPrompt(_state: ChatState): string {
-  return `${color("›", "amber")} `;
+  return `${color("│", "amber")} ${color("›", "amber")} `;
 }
 
 async function printChatHeader(state: ChatState): Promise<void> {
@@ -539,6 +550,9 @@ async function printChatHeader(state: ChatState): Promise<void> {
   const skills = await listSkills().catch(() => []);
   const activeSkills = skills.filter((skill) => skill.status === "active");
   const skillNames = (activeSkills.length ? activeSkills : skills).slice(0, 16).map((skill) => skill.name);
+  const pluginPolicy = config?.plugins;
+  const pluginCount = (pluginPolicy?.allow?.length ?? 0) + Object.keys(pluginPolicy?.entries ?? {}).length;
+  const mcpNames = Object.keys(config?.tools?.mcp?.servers ?? {});
   const middleLines = [
     color("Available Tools", "amber"),
     ...formatCatalogLines([
@@ -568,8 +582,10 @@ async function printChatHeader(state: ChatState): Promise<void> {
     `${color("/tools", "amber")} available tools`,
     `${color("@agent", "amber")} route a turn`,
     "",
-    color("Available Skills", "amber"),
-    ...formatSkillLines(skillNames, rightWidth),
+    color("Extensions", "amber"),
+    `${color("skills:", "amber")} ${skills.length ? formatSkillList(skillNames, rightWidth - 8) : "none installed"}`,
+    `${color("plugins:", "amber")} ${pluginCount ? `${pluginCount} configured` : "none configured"}`,
+    `${color("mcp:", "amber")} ${mcpNames.length ? truncate(mcpNames.join(", "), rightWidth - 5) : "no servers"}`,
   ];
   const rows = Math.max(leftLines.length, middleLines.length, rightLines.length);
   console.log(color(`╭${"─".repeat(width - 2)}╮`, "amber"));
@@ -580,11 +596,12 @@ async function printChatHeader(state: ChatState): Promise<void> {
     const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
     console.log(color("│ ", "amber") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "amber"));
   }
-  const footer = `${model} · ${providerId} · ${runtimeId} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · /help`;
+  const footer = `${model} · ${providerId} · ${runtimeId} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
   console.log(color("├" + "─".repeat(width - 2) + "┤", "amber"));
   console.log(color("│ ", "amber") + visiblePadEnd(color(footer, "amber"), width - 4) + color(" │", "amber"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
   console.log("");
+  console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "amber"));
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -612,6 +629,10 @@ function formatSkillLines(names: readonly string[], width: number): string[] {
   return lines.slice(0, 5);
 }
 
+function formatSkillList(names: readonly string[], width: number): string {
+  return truncate(names.join(", "), Math.max(12, width));
+}
+
 function panelTitle(width: number, title: string): string {
   const text = ` ${title} `;
   const left = Math.max(1, Math.floor((width - 2 - stripAnsi(text).length) / 2));
@@ -629,6 +650,7 @@ function stripAnsi(value: string): string {
 }
 
 async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
+  if (text === "/" || text === "@") return true;
   if (text.startsWith("/")) return handleChatCommand(text, state);
   await runChatTurn(text, state);
   return true;
@@ -687,6 +709,15 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       return true;
     case "tools":
       printChatTools(args);
+      return true;
+    case "skills":
+      await printChatSkills();
+      return true;
+    case "plugins":
+      await printChatPlugins();
+      return true;
+    case "mcp":
+      await printChatMcp();
       return true;
     case "agents":
       await printChatAgents();
@@ -752,6 +783,69 @@ function chatCompletions(line: string): string[] {
     return recentChatSessionNames().filter((name) => name.toLowerCase().startsWith(fragment));
   }
   return [];
+}
+
+async function renderLiveSuggestions(rl: Interface, state: ChatState, hintState: { visible: boolean }): Promise<void> {
+  if (!process.stdout.isTTY) return;
+  const rows = await liveSuggestionRows(rl.line, state);
+  if (!rows.length) {
+    clearLiveSuggestions(hintState);
+    return;
+  }
+  const width = Math.min(Math.max((process.stdout.columns || 100) - 8, 56), 110);
+  const panel = renderSuggestionPanel(width, rows.slice(0, 10));
+  output.write("\x1b7\x1b[0J");
+  output.write(`\n${panel}`);
+  output.write("\x1b8");
+  hintState.visible = true;
+}
+
+function clearLiveSuggestions(hintState: { visible: boolean }): void {
+  if (!hintState.visible || !process.stdout.isTTY) return;
+  output.write("\x1b7\x1b[0J\x1b8");
+  hintState.visible = false;
+}
+
+async function liveSuggestionRows(line: string, state: ChatState): Promise<string[]> {
+  const trimmed = line.trimStart();
+  if (trimmed === "/" || /^\/[a-z-]*$/i.test(trimmed)) {
+    const fragment = trimmed.slice(1).toLowerCase();
+    return CHAT_COMMANDS
+      .filter((command) => command.name.startsWith(fragment) || command.aliases?.some((alias) => alias.startsWith(fragment)))
+      .map((command) => `${color(command.usage.padEnd(20), "amber")} ${command.description}`);
+  }
+  if (/^\/tools\s+\S*$/i.test(trimmed)) {
+    const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
+    return CHAT_TOOLSETS
+      .filter((toolset) => toolset.startsWith(fragment))
+      .map((toolset) => `${color(toolset.padEnd(20), "amber")} toolset`);
+  }
+  if (/^\/resume\s+\S*$/i.test(trimmed) || /^\/name\s+\S*$/i.test(trimmed)) {
+    const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
+    return recentChatSessionNames()
+      .filter((name) => name.toLowerCase().startsWith(fragment))
+      .map((name) => `${color(name.padEnd(20), "amber")} chat session`);
+  }
+  if (trimmed === "@" || /^@[a-zA-Z0-9_.:-]*$/.test(trimmed)) {
+    const fragment = trimmed.slice(1).toLowerCase();
+    const config = await loadConfig().catch(() => undefined);
+    const namedAgents = config?.agents?.list?.map((agent) => agent.id) ?? [];
+    const runtimeAgents = Object.keys(config?.runtimes ?? {});
+    const suggested = ["research", "debug", "review", "frappe", ...runtimeAgents, ...namedAgents];
+    return [...new Set(suggested)]
+      .filter((agent) => agent.toLowerCase().startsWith(fragment))
+      .map((agent) => `${color(`@${agent}`.padEnd(20), "amber")} route this turn`);
+  }
+  return [];
+}
+
+function renderSuggestionPanel(width: number, rows: readonly string[]): string {
+  const lines = [
+    color(`╭─ suggestions ${"─".repeat(Math.max(1, width - 15))}╮`, "amber"),
+    ...rows.map((row) => color("│ ", "amber") + visiblePadEnd(row, width - 4) + color(" │", "amber")),
+    color(`╰${"─".repeat(width - 2)}╯`, "amber"),
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?: number } = {}): Promise<void> {
@@ -971,6 +1065,58 @@ function printChatTools(toolset?: string): void {
     ...[...grouped].map(([name, items]) => `${color(`${name}:`, "amber")} ${items.map((item) => item.name).join(", ")}`),
     color("Use /tools <toolset> to narrow the list.", "dim"),
   ]);
+}
+
+async function printChatSkills(): Promise<void> {
+  const skills = await listSkills().catch(() => []);
+  if (!skills.length) {
+    printChatPanel("Skills", [
+      color("No installed skills found for this profile.", "dim"),
+      `${color("Commands", "amber")} muster skills list · muster skills curate · muster skills promote`,
+    ]);
+    return;
+  }
+  printChatPanel("Skills", skills.slice(0, 20).map((skill) => {
+    const tags = skill.tags.length ? ` · ${skill.tags.slice(0, 4).join(", ")}` : "";
+    return `${color(skill.name.padEnd(24), "amber")} ${skill.status}${tags}`;
+  }));
+}
+
+async function printChatPlugins(): Promise<void> {
+  const config = await loadConfig();
+  const policy = config.plugins;
+  if (!policy) {
+    printChatPanel("Plugins", [
+      color("No plugin policy configured.", "dim"),
+      `${color("Commands", "amber")} muster plugins inspect <path> · muster plugins load <path>`,
+    ]);
+    return;
+  }
+  const entries = Object.entries(policy.entries ?? {});
+  printChatPanel("Plugins", [
+    `${color("allow", "amber")} ${(policy.allow ?? []).join(", ") || "-"}`,
+    `${color("deny", "amber")} ${(policy.deny ?? []).join(", ") || "-"}`,
+    `${color("load paths", "amber")} ${(policy.load?.paths ?? []).join(", ") || "-"}`,
+    ...entries.map(([id, entry]) => `${color(id.padEnd(24), "amber")} ${entry.enabled === false ? "disabled" : "enabled"}`),
+  ]);
+}
+
+async function printChatMcp(): Promise<void> {
+  const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
+  const entries = Object.entries(servers);
+  if (!entries.length) {
+    printChatPanel("MCP", [
+      color("No MCP servers configured.", "dim"),
+      `${color("Commands", "amber")} muster mcp add-stdio <name> <command> · muster mcp test <name>`,
+    ]);
+    return;
+  }
+  printChatPanel("MCP", entries.map(([name, server]) => {
+    const transport = server.transport.kind === "stdio"
+      ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
+      : `http ${server.transport.url}`;
+    return `${color(name.padEnd(24), "amber")} ${transport}`;
+  }));
 }
 
 async function printChatAgents(): Promise<void> {
