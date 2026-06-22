@@ -3,8 +3,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultConfig, runFlow } from "@musterhq/core";
-import type { MusterConfig } from "@musterhq/core";
+import { defaultConfig, loadSessionHandle, promoteSkill, runFlow, saveSessionHandle, writeCandidateSkill } from "@musterhq/core";
+import type { EvolveReport, MusterConfig } from "@musterhq/core";
 import { approvePairing, initGatewayConfig, pollTelegram, startGatewayServer } from "../src/index.js";
 import type { GatewayConfig, PairingChallenge, SurfaceReply } from "../src/index.js";
 
@@ -40,6 +40,15 @@ function startStubServer(handler: (body: string) => { status: number; payload: u
       resolvePromise({ url: `http://127.0.0.1:${port}/v1`, close: () => server.close() });
     });
   }));
+}
+
+function report(): EvolveReport {
+  return {
+    startedAt: new Date().toISOString(),
+    iterations: [{ iteration: 1, passed: 1, failed: 0, results: [{ taskId: "smoke", status: "passed", durationMs: 1 }] }],
+    harnessChecks: [],
+    converged: true,
+  };
 }
 
 async function startTestGateway(cwd: string, llmUrl: string): Promise<{ url: string; gateway: GatewayConfig; close: () => Promise<void> }> {
@@ -185,4 +194,190 @@ test("pollTelegram clears the webhook, polls getUpdates, and replies via sendMes
   assert.equal(calls.sendMessage.length, 1, "replies to the single update");
   // The unpaired sender gets a pairing challenge delivered to their chat (555).
   assert.match(calls.sendMessage[0], /555/);
+});
+
+test("a paired sender's /help is answered by the gateway dispatcher, never the model", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-cmd-"));
+  const llm = await startStubServer(() => ({ status: 200, payload: { choices: [{ message: { content: "MODEL_WAS_CALLED" } }] } }));
+  const gw = await startTestGateway(cwd, llm.url);
+  const send = (text: string) => fetch(`${gw.url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${gw.gateway.token}` },
+    body: JSON.stringify({ surfaceId: "web:demo", conversationId: "c1", senderId: "visitor-1", text }),
+  });
+  try {
+    const challenge = await (await send("hi")).json() as PairingChallenge;
+    await approvePairing(challenge.code, cwd);
+    const reply = await (await send("/help")).json() as SurfaceReply;
+    assert.match(reply.text, /\/start/, "builtin command list returned");
+    assert.doesNotMatch(reply.text, /MODEL_WAS_CALLED/, "the model must NOT be invoked for a builtin command");
+  } finally {
+    await gw.close();
+    llm.close();
+  }
+});
+
+test("a paired sender's /new clears provider session handles without invoking the model", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-new-"));
+  await saveSessionHandle({
+    conversationKey: "web:demo:c1",
+    backendId: "codex",
+    handle: "thread-abc",
+    cwd: "/ws/demo",
+    model: "gpt-5.5",
+    updatedAt: "2026-06-20T00:00:00Z",
+  }, cwd);
+  await saveSessionHandle({
+    conversationKey: "web:demo:c1",
+    backendId: "claude",
+    handle: "sess-abc",
+    cwd: "/ws/demo",
+    model: "sonnet",
+    updatedAt: "2026-06-20T00:00:00Z",
+  }, cwd);
+  let modelCalls = 0;
+  const llm = await startStubServer(() => {
+    modelCalls += 1;
+    return { status: 200, payload: { choices: [{ message: { content: "MODEL_WAS_CALLED" } }] } };
+  });
+  const gw = await startTestGateway(cwd, llm.url);
+  const send = (text: string) => fetch(`${gw.url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${gw.gateway.token}` },
+    body: JSON.stringify({ surfaceId: "web:demo", conversationId: "c1", senderId: "visitor-1", text }),
+  });
+  try {
+    const challenge = await (await send("hi")).json() as PairingChallenge;
+    await approvePairing(challenge.code, cwd);
+    const reply = await (await send("/new")).json() as SurfaceReply;
+    assert.equal(modelCalls, 0);
+    assert.match(reply.text, /fresh muster thread/i);
+    assert.equal(await loadSessionHandle("web:demo:c1", "codex", cwd), undefined);
+    assert.equal(await loadSessionHandle("web:demo:c1", "claude", cwd), undefined);
+  } finally {
+    await gw.close();
+    llm.close();
+  }
+});
+
+test("a paired sender's custom command rewrites the model prompt before native passthrough", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-custom-cmd-"));
+  let lastBody = "";
+  const llm = await startStubServer((body) => {
+    lastBody = body;
+    return { status: 200, payload: { choices: [{ message: { content: "custom answer" } }] } };
+  });
+  const init = await initGatewayConfig(cwd);
+  const gateway: GatewayConfig = {
+    ...init.config,
+    commands: {
+      entries: {
+        deploy: {
+          description: "Deploy selected site",
+          prompt: "Deploy using standard operating procedure. Args: {args}",
+          surfaces: ["web"],
+        },
+      },
+    },
+  };
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd }, 0);
+  const url = `http://127.0.0.1:${running.port}`;
+  const send = (text: string) => fetch(`${url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${gateway.token}` },
+    body: JSON.stringify({ surfaceId: "web:demo", conversationId: "c1", senderId: "visitor-1", text }),
+  });
+  try {
+    const challenge = await (await send("hi")).json() as PairingChallenge;
+    await approvePairing(challenge.code, cwd);
+    const reply = await (await send("/deploy site-a")).json() as SurfaceReply;
+    assert.equal(reply.text, "custom answer");
+    const request = JSON.parse(lastBody) as { messages: Array<{ role: string; content: string }> };
+    const userPrompt = request.messages.find((message) => message.role === "user")?.content ?? "";
+    assert.match(userPrompt, /Run custom surface command "\/deploy"/);
+    assert.match(userPrompt, /Deploy selected site/);
+    assert.match(userPrompt, /Deploy using standard operating procedure\. Args: site-a/);
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+test("a paired sender's tool-dispatch skill command runs the tool without invoking the model", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-skill-tool-"));
+  await writeCandidateSkill({
+    name: "make-record",
+    description: "Create a record",
+    body: "Use the configured creation tool.",
+    frontmatter: {
+      userInvocable: true,
+      disableModelInvocation: true,
+      commandDispatch: "tool",
+      commandTool: "skill.echo",
+      commandArgMode: "raw",
+    },
+  }, cwd);
+  await promoteSkill("make-record", report(), cwd);
+  let modelCalls = 0;
+  const llm = await startStubServer(() => {
+    modelCalls += 1;
+    return { status: 200, payload: { choices: [{ message: { content: "MODEL_WAS_CALLED" } }] } };
+  });
+  const init = await initGatewayConfig(cwd);
+  const registry = {
+    "skill.echo": async (args: Record<string, unknown>) => ({ ok: true, args }),
+  };
+  const running = await startGatewayServer({ config: stubConfig(llm.url), gateway: init.config, cwd, registry }, 0);
+  const url = `http://127.0.0.1:${running.port}`;
+  const send = (text: string) => fetch(`${url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${init.config.token}` },
+    body: JSON.stringify({ surfaceId: "web:demo", conversationId: "c1", senderId: "visitor-1", text }),
+  });
+  try {
+    const challenge = await (await send("hi")).json() as PairingChallenge;
+    await approvePairing(challenge.code, cwd);
+    const reply = await (await send("/make-record Task subject")).json() as SurfaceReply;
+    assert.equal(modelCalls, 0);
+    assert.match(reply.text, /"ok": true/);
+    assert.match(reply.text, /"command": "Task subject"/);
+    assert.match(reply.text, /"skillName": "make-record"/);
+  } finally {
+    await running.close();
+    llm.close();
+  }
+});
+
+test("a paired sender's prompt-dispatch skill command rewrites the model prompt", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-skill-prompt-"));
+  await writeCandidateSkill({
+    name: "deploy-frappe",
+    description: "Deploy Frappe safely",
+    body: "Backup first, migrate second.",
+    frontmatter: { userInvocable: true },
+  }, cwd);
+  await promoteSkill("deploy-frappe", report(), cwd);
+  let lastBody = "";
+  const llm = await startStubServer((body) => {
+    lastBody = body;
+    return { status: 200, payload: { choices: [{ message: { content: "skill answer" } }] } };
+  });
+  const gw = await startTestGateway(cwd, llm.url);
+  const send = (text: string) => fetch(`${gw.url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${gw.gateway.token}` },
+    body: JSON.stringify({ surfaceId: "web:demo", conversationId: "c1", senderId: "visitor-1", text }),
+  });
+  try {
+    const challenge = await (await send("hi")).json() as PairingChallenge;
+    await approvePairing(challenge.code, cwd);
+    const reply = await (await send("/deploy-frappe site-a")).json() as SurfaceReply;
+    assert.equal(reply.text, "skill answer");
+    assert.match(lastBody, /Run user-invocable skill/);
+    assert.match(lastBody, /Backup first, migrate second/);
+    assert.match(lastBody, /site-a/);
+  } finally {
+    await gw.close();
+    llm.close();
+  }
 });

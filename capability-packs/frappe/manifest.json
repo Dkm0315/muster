@@ -9,6 +9,7 @@
   "sandbox": "network_limited",
   "secrets": ["FRAPPE_SITE_URL", "FRAPPE_API_TOKEN"],
   "evals": ["evals/identity-resolution.json", "evals/permission-scoping.json"],
+  "digest": "sha256:607875fb97dbe1f1af028b24d9e3c28e10a5cc2af2f6c04e749720ebafb3be7c",
   "description": "Permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; Frappe remains the only authorization authority. Ported from the production frappe2-openclaw-gateway: identity resolution, customization context (custom fields, property setters, workflows, scripts), semantic data resolution with domain DocType priors validated against the live site index, error-aware fetch diagnostics, and artifact dataset export.",
   "implementedTools": [
     "frappe_identity_resolve",

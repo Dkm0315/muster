@@ -93,3 +93,20 @@ test("tool timeout produces a clear error, not a hang", async () => {
   assert.match(handle.error ?? "", /timed out/);
   handle.close();
 });
+
+// #34443 isolated supervision: a bad command (ENOENT spawn failure) emits an
+// async 'error' on the child. Without an error listener Node rethrows it as an
+// UNCAUGHT exception that crashes the whole host — this test would take the
+// runner down. It must instead resolve to a clean per-server "failed" handle.
+test("a non-existent MCP command fails cleanly and does NOT crash the host", async () => {
+  const handle = await connectMcpServer("ghost", {
+    transport: { kind: "stdio", command: "muster-no-such-binary-xyzzy", args: [] },
+    limits: { toolTimeoutMs: 1500 },
+  });
+  assert.equal(handle.status, "failed");
+  assert.match(handle.error ?? "", /ENOENT|spawn|not running|exited/i);
+  // The handle's call() still answers without throwing (registry stays alive).
+  const result = await handle.call("anything", {});
+  assert.equal(result.ok, false);
+  handle.close();
+});

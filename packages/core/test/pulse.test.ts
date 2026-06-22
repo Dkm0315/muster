@@ -41,6 +41,8 @@ const NOW = (() => {
   anchor.setHours(9, 0, 0, 0);
   return anchor;
 })();
+// Create pulses one minute before NOW so their nextRunAt lands exactly on NOW (due).
+const BEFORE = new Date(NOW.getTime() - 60_000);
 
 async function writeChecklist(cwd: string, content: string): Promise<void> {
   await mkdir(join(cwd, ".muster"), { recursive: true });
@@ -51,7 +53,7 @@ test("preflight gate: heartbeat with no checklist makes ZERO model calls", async
   const cwd = await mkdtemp(join(tmpdir(), "muster-pulse-pre-"));
   const llm = await startStubLlm("OK");
   try {
-    await addPulse({ cron: "* * * * *" }, cwd);
+    await addPulse({ cron: "* * * * *", now: BEFORE }, cwd);
     const results = await runDuePulses(stubConfig(llm.url), { cwd, now: NOW });
     assert.equal(results[0].action, "skipped_preflight");
     assert.equal(llm.calls(), 0, "the whole point: no due content, no API call");
@@ -65,7 +67,7 @@ test("quiet all-clear replies are suppressed; real findings surface", async () =
   await writeChecklist(cwd, "- check disk space\n- check failed deploys");
   const quiet = await startStubLlm("OK");
   try {
-    await addPulse({ cron: "* * * * *" }, cwd);
+    await addPulse({ cron: "* * * * *", now: BEFORE }, cwd);
     const results = await runDuePulses(stubConfig(quiet.url), { cwd, now: NOW });
     assert.equal(results[0].action, "quiet");
     assert.equal(quiet.calls(), 1);
@@ -77,7 +79,7 @@ test("quiet all-clear replies are suppressed; real findings surface", async () =
   await writeChecklist(cwd2, "- check failed deploys");
   const loud = await startStubLlm("Deploy pipeline has 3 failures since 08:00 — investigate runner disk space.");
   try {
-    await addPulse({ cron: "* * * * *" }, cwd2);
+    await addPulse({ cron: "* * * * *", now: BEFORE }, cwd2);
     const results = await runDuePulses(stubConfig(loud.url), { cwd: cwd2, now: NOW });
     assert.equal(results[0].action, "surfaced");
     assert.match(results[0].text ?? "", /3 failures/);
@@ -91,10 +93,16 @@ test("daily budget kill-switch pauses the pulse with a visible reason; resume cl
   await writeChecklist(cwd, "- anything");
   const llm = await startStubLlm("findings ".repeat(50));
   try {
-    const pulse = await addPulse({ cron: "* * * * *", maxTokensPerDay: 50 }, cwd);
-    const first = await runDuePulses(stubConfig(llm.url), { cwd, now: NOW });
+    // Anchor to real-now: the daily-budget check matches token records by date,
+    // and tokens are stamped with the real clock — a fixed injected hour can sit
+    // on a different UTC day than real-now in the post-local-midnight window
+    // (a known flake). Real-now keeps both on the same UTC date deterministically.
+    const budgetNow = new Date();
+    const budgetBefore = new Date(budgetNow.getTime() - 60_000);
+    const pulse = await addPulse({ cron: "* * * * *", maxTokensPerDay: 50, now: budgetBefore }, cwd);
+    const first = await runDuePulses(stubConfig(llm.url), { cwd, now: budgetNow });
     assert.equal(first[0].action, "surfaced", "first run fits the budget");
-    const second = await runDuePulses(stubConfig(llm.url), { cwd, now: new Date(NOW.getTime() + 60_000) });
+    const second = await runDuePulses(stubConfig(llm.url), { cwd, now: new Date(budgetNow.getTime() + 60_000) });
     assert.equal(second[0].action, "skipped_budget");
     assert.match(second[0].detail ?? "", /budget exhausted/);
     assert.equal(llm.calls(), 1, "no model call after the kill-switch");
@@ -111,12 +119,30 @@ test("task pulses skip preflight checklist requirements and not-due crons are sk
   const cwd = await mkdtemp(join(tmpdir(), "muster-pulse-task-"));
   const llm = await startStubLlm("Daily digest: nothing notable.");
   try {
-    await addPulse({ cron: "0 9 * * *", kind: "task", prompt: "Summarize open work." }, cwd);
-    await addPulse({ cron: "0 23 * * *", kind: "task", prompt: "never due now" }, cwd);
+    await addPulse({ cron: "0 9 * * *", kind: "task", prompt: "Summarize open work.", now: BEFORE }, cwd);
+    await addPulse({ cron: "0 23 * * *", kind: "task", prompt: "never due now", now: BEFORE }, cwd);
     const results = await runDuePulses(stubConfig(llm.url), { cwd, now: NOW });
     assert.equal(results[0].action, "surfaced");
     assert.equal(results[1].action, "skipped_not_due");
     assert.equal(llm.calls(), 1);
+  } finally {
+    llm.close();
+  }
+});
+
+test("a missed pulse occurrence catches up ONCE and fast-forwards (no burst)", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-pulse-missed-"));
+  const llm = await startStubLlm("something worth surfacing");
+  try {
+    // Created at 09:00 → nextRunAt 09:05. run-due not invoked for an hour, then 10:02.
+    await addPulse({ cron: "*/5 * * * *", kind: "task", prompt: "check", now: NOW }, cwd);
+    const at1002 = new Date(NOW.getTime() + 62 * 60_000);
+    const results = await runDuePulses(stubConfig(llm.url), { cwd, now: at1002 });
+    assert.equal(results[0].action, "surfaced");
+    assert.equal(llm.calls(), 1, "a backlog of ~12 missed */5 ticks runs ONCE, never bursts");
+    const pulse = (await listPulses(cwd))[0];
+    const expected = new Date(NOW.getTime()); expected.setHours(10, 5, 0, 0);
+    assert.equal(new Date(pulse.nextRunAt!).toISOString(), expected.toISOString(), "fast-forwarded to the next */5 after 10:02 → 10:05");
   } finally {
     llm.close();
   }

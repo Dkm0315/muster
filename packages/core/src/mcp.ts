@@ -48,6 +48,8 @@ class StdioTransport {
   private nextId = 1;
   private pending = new Map<number, { resolve: (value: JsonRpcResponse) => void; reject: (error: Error) => void }>();
   private buffer = "";
+  private dead = false;
+  private deadReason?: Error;
 
   constructor(command: string, args: string[], env?: Record<string, string>) {
     this.child = spawn(command, args, {
@@ -55,6 +57,14 @@ class StdioTransport {
       // filtered env: only what the server config declares, plus PATH — secrets never leak by default
       env: { PATH: process.env.PATH ?? "", ...(env ?? {}) },
     });
+    // An async spawn failure (ENOENT command-not-found, EACCES) emits 'error' on
+    // the child; with NO listener Node rethrows it as an UNCAUGHT exception that
+    // crashes the whole gateway host. Contain it to THIS one server so a single
+    // bad MCP config can never take down every other server (#34443).
+    this.child.on("error", (error: Error) => this.markDead(error));
+    // Writing to a dead child's stdin raises EPIPE on the stream — the same
+    // uncaught-crash hole without a listener.
+    this.child.stdin?.on("error", (error: Error) => this.markDead(error));
     this.child.stdout!.on("data", (chunk: Buffer) => {
       this.buffer += chunk.toString();
       let newline = this.buffer.indexOf("\n");
@@ -65,10 +75,22 @@ class StdioTransport {
         newline = this.buffer.indexOf("\n");
       }
     });
-    this.child.on("exit", () => {
-      for (const { reject } of this.pending.values()) reject(new Error("MCP server exited"));
-      this.pending.clear();
-    });
+    this.child.on("exit", () => this.markDead(new Error("MCP server exited")));
+  }
+
+  /** Mark the transport dead once and reject every in-flight request with the cause. Idempotent. */
+  private markDead(error: Error): void {
+    if (!this.dead) {
+      this.dead = true;
+      this.deadReason = error;
+    }
+    for (const { reject } of this.pending.values()) reject(this.deadReason ?? error);
+    this.pending.clear();
+  }
+
+  /** Whether the child has died (spawn failure, exit, or broken pipe) — for supervised respawn. */
+  isDead(): boolean {
+    return this.dead;
   }
 
   private dispatch(line: string): void {
@@ -85,6 +107,7 @@ class StdioTransport {
   }
 
   request(method: string, params: unknown, timeoutMs: number): Promise<JsonRpcResponse> {
+    if (this.dead) return Promise.reject(this.deadReason ?? new Error("MCP server is not running"));
     const id = this.nextId++;
     const payload = `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`;
     return new Promise((resolve, reject) => {
@@ -96,12 +119,23 @@ class StdioTransport {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
         reject: (error) => { clearTimeout(timer); reject(error); },
       });
-      this.child.stdin!.write(payload);
+      try {
+        this.child.stdin!.write(payload);
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(error as Error);
+      }
     });
   }
 
   notify(method: string, params: unknown): void {
-    this.child.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+    if (this.dead) return;
+    try {
+      this.child.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+    } catch {
+      // server is gone; a dropped notification is non-fatal
+    }
   }
 
   close(): void {

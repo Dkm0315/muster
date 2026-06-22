@@ -4,6 +4,18 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./store.js";
 import { estimateTokens } from "./tokens.js";
+import type { TranscriptMessage } from "./context-renderer.js";
+
+const TRANSCRIPT_ROLES = new Set(["system", "user", "assistant", "tool"]);
+
+/** Map stored message rows to renderer transcript messages (unknown roles → "user"). */
+export function messagesToTranscript(rows: readonly MessageRow[]): TranscriptMessage[] {
+  return rows.map((row) => ({
+    role: (TRANSCRIPT_ROLES.has(row.role) ? row.role : "user") as TranscriptMessage["role"],
+    content: row.content,
+    tokens: row.tokenCount,
+  }));
+}
 
 /**
  * SQLite session store + cross-session search (Hermes's cleanest subsystem,
@@ -71,10 +83,16 @@ interface SqliteDatabase {
 export interface SessionStore {
   readonly backend: "sqlite-fts5" | "sqlite-like";
   createSession(input: { channel: string; peer: string; title?: string; parentId?: string }): SessionRow;
+  /** Reuse the most recent session for (channel, peer), or create one — the conversation↔session mapping for multi-turn continuity. */
+  findOrCreateSession(input: { channel: string; peer: string; title?: string; parentId?: string }): SessionRow;
   appendMessage(sessionId: string, role: string, content: string): MessageRow;
   addUsage(sessionId: string, tokensIn: number, tokensOut: number, costUsd?: number): void;
   setTitle(sessionId: string, title: string): void;
   search(args: SessionSearchArgs): SessionSearchResult;
+  /** All active (non-compacted) messages for a session, oldest first — the prior turns the renderer budgets. */
+  loadActiveMessages(sessionId: string): MessageRow[];
+  /** Mark messages compacted-away (active = 0): they leave the rendered window but stay in searchable history. */
+  deactivate(messageIds: readonly number[]): void;
   close(): void;
 }
 
@@ -127,17 +145,27 @@ export function openSessionStore(cwd = process.cwd()): SessionStore {
     (db.prepare("SELECT * FROM messages WHERE session_id = ? AND id BETWEEN ? AND ? AND active = 1 ORDER BY id")
       .all(sessionId, messageId - span, messageId + span) as Record<string, unknown>[]).map(toMessage);
 
+  const makeSession = (input: { channel: string; peer: string; title?: string; parentId?: string }): SessionRow => {
+    const row: SessionRow = {
+      id: `sess_${randomUUID().slice(0, 12)}`, title: input.title ?? "", channel: input.channel,
+      peer: input.peer, createdAt: new Date().toISOString(), parentId: input.parentId,
+      tokensIn: 0, tokensOut: 0, costUsd: 0,
+    };
+    db.prepare("INSERT INTO sessions (id, title, channel, peer, created_at, parent_id) VALUES (?,?,?,?,?,?)")
+      .run(row.id, row.title, row.channel, row.peer, row.createdAt, row.parentId ?? null);
+    return row;
+  };
+
   return {
     backend,
-    createSession(input) {
-      const row: SessionRow = {
-        id: `sess_${randomUUID().slice(0, 12)}`, title: input.title ?? "", channel: input.channel,
-        peer: input.peer, createdAt: new Date().toISOString(), parentId: input.parentId,
-        tokensIn: 0, tokensOut: 0, costUsd: 0,
-      };
-      db.prepare("INSERT INTO sessions (id, title, channel, peer, created_at, parent_id) VALUES (?,?,?,?,?,?)")
-        .run(row.id, row.title, row.channel, row.peer, row.createdAt, row.parentId ?? null);
-      return row;
+    createSession: makeSession,
+    findOrCreateSession(input) {
+      // The conversation↔session mapping: reuse the most recent session for this
+      // (channel, peer) so a multi-turn chat accumulates ONE transcript instead
+      // of a fresh session per turn. Foundation of the renderer's prior-turn load.
+      const rows = db.prepare("SELECT * FROM sessions WHERE channel = ? AND peer = ? ORDER BY created_at DESC LIMIT 1")
+        .all(input.channel, input.peer) as Record<string, unknown>[];
+      return rows.length ? toSession(rows[0]) : makeSession(input);
     },
     appendMessage(sessionId, role, content) {
       const createdAt = new Date().toISOString();
@@ -152,6 +180,15 @@ export function openSessionStore(cwd = process.cwd()): SessionStore {
     },
     setTitle(sessionId, title) {
       db.prepare("UPDATE sessions SET title = ? WHERE id = ?").run(title.slice(0, 80), sessionId);
+    },
+    loadActiveMessages(sessionId) {
+      return (db.prepare("SELECT * FROM messages WHERE session_id = ? AND active = 1 ORDER BY id")
+        .all(sessionId) as Record<string, unknown>[]).map(toMessage);
+    },
+    deactivate(messageIds) {
+      if (!messageIds.length) return;
+      const stmt = db.prepare("UPDATE messages SET active = 0 WHERE id = ?");
+      for (const id of messageIds) stmt.run(id);
     },
     search(args) {
       const limit = args.limit ?? 10;

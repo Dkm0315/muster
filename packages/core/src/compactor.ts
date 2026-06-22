@@ -1,4 +1,5 @@
 import { estimateTokens } from "./tokens.js";
+import { renderContext } from "./context-renderer.js";
 import type { TranscriptMessage } from "./context-renderer.js";
 
 /**
@@ -116,4 +117,36 @@ export async function compact(
   if (hardTruncated > 0) strategy.push("hard_truncate");
 
   return { messages: working, strategy, summarized, droppedToolResults, hardTruncated, tokensBefore, tokensAfter: tokensOf(working) };
+}
+
+export interface RenderConversationInput {
+  /** Operating rules / memory / skills — kept verbatim, never demoted. */
+  readonly system?: string;
+  /** Prior conversation turns (user/assistant/tool), oldest first. */
+  readonly prior: readonly TranscriptMessage[];
+  /** The new user turn. */
+  readonly userPrompt: string;
+  readonly budgetTokens: number;
+  readonly summarizer?: Summarizer;
+}
+
+/**
+ * Compose a provider-direct conversation transcript that fits the token budget:
+ * [system?, ...prior turns, new user turn] → stub oversized old tool results
+ * (lossless, fetch-by-id) → compact if still over budget (never-wedge). This is
+ * the single place the budgeted renderer and the compactor are joined for the
+ * API-direct path; executeRun's native route calls this to realize the 57-82%
+ * cut. Pure and deterministic (model summary is optional and falls back), so it
+ * is safe to wire into the hot path. Native CLI runtimes (codex/claude) own
+ * their OWN compaction and must NOT route through here.
+ */
+export async function renderConversation(input: RenderConversationInput): Promise<TranscriptMessage[]> {
+  const assembled: TranscriptMessage[] = [
+    ...(input.system?.trim() ? [{ role: "system" as const, content: input.system }] : []),
+    ...input.prior,
+    { role: "user" as const, content: input.userPrompt },
+  ];
+  const rendered = renderContext(assembled, input.budgetTokens);
+  const compacted = await compact(rendered.messages, input.budgetTokens, { summarizer: input.summarizer });
+  return compacted.messages;
 }

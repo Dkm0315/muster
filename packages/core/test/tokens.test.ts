@@ -121,3 +121,36 @@ test("estimateTokens rounds up", () => {
   assert.equal(estimateTokens("abc"), 1);
   assert.equal(estimateTokens("abcde"), 2);
 });
+
+test("buildTokenRecord stamps skill@version receipts for cost attribution (#11692)", () => {
+  const record = buildTokenRecord({
+    runId: "run_sk",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    prompt: "do the thing",
+    responseText: "done",
+    durationMs: 5,
+    skills: ["pdf-generator@0.2.0", "spreadsheet@1.0.0"],
+  });
+  assert.deepEqual(record.skills, ["pdf-generator@0.2.0", "spreadsheet@1.0.0"]);
+});
+
+test("renderTokenTable folds subagent spend by parent (attributable child cost)", () => {
+  const base = { model: "claude-opus-4-8", prompt: "x", responseText: "y", durationMs: 1, inputTokens: 100, outputTokens: 50, provider: "anthropic" };
+  const parent = buildTokenRecord({ ...base, runId: "r_parent", surfaceId: "telegram:bot" });
+  const child1 = buildTokenRecord({ ...base, runId: "r_c1", surfaceId: "subagent:r_parent" });
+  const child2 = buildTokenRecord({ ...base, runId: "r_c2", surfaceId: "subagent:r_parent" });
+  const table = renderTokenTable([parent, child1, child2]);
+  assert.match(table, /subagent spend folded by parent/);
+  assert.match(table, /r_parent\s+2 run\(s\)/);
+});
+
+test("renderTokenTable is LOUD that unpriced-model totals are a lower bound (not silently $0)", () => {
+  const base = { provider: "local", model: "mystery-model-9000", prompt: "x", responseText: "y", durationMs: 1, inputTokens: 100, outputTokens: 50 };
+  const priced = buildTokenRecord({ ...base, runId: "r_priced", model: "claude-opus-4-8" });
+  const unpriced = buildTokenRecord({ ...base, runId: "r_unpriced" });
+  assert.equal(unpriced.costUsd, undefined, "an unknown model has no price match");
+  const table = renderTokenTable([priced, unpriced]);
+  assert.match(table, /LOWER BOUND/);
+  assert.match(table, /1 run\(s\)/);
+});

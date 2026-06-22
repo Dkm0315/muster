@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { runSubprocess } from "./subprocess.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,8 +16,16 @@ export interface ClaudeCodeRunInput {
   readonly model?: string;
   readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
   readonly allowedTools?: readonly string[];
+  readonly pluginDirs?: readonly string[];
   readonly timeoutMs?: number;
   readonly command?: string;
+  /**
+   * A muster-managed session id (UUID). When set, the session is persisted so a
+   * follow-up turn can resume it — muster pins its OWN id (`--session-id`) rather
+   * than parsing one out of Claude's output, keeping the text output format.
+   */
+  readonly sessionId?: string;
+  readonly resume?: boolean;
 }
 
 export interface ClaudeCodeRunResult {
@@ -44,9 +53,9 @@ export async function runClaudeCode(input: ClaudeCodeRunInput): Promise<ClaudeCo
   const args = buildClaudeCodeArgs(input);
   const started = Date.now();
   try {
-    const result = await execFileAsync(command, args, {
+    const result = await runSubprocess(command, args, {
       cwd: input.cwd ?? process.cwd(),
-      timeout: input.timeoutMs ?? 120_000,
+      timeoutMs: input.timeoutMs ?? 120_000,
       maxBuffer: 1024 * 1024 * 8
     });
     return {
@@ -72,10 +81,17 @@ export async function runClaudeCode(input: ClaudeCodeRunInput): Promise<ClaudeCo
 }
 
 export function buildClaudeCodeArgs(input: ClaudeCodeRunInput): string[] {
-  const args = ["--print", "--output-format", "text", "--no-session-persistence"];
+  const args = ["--print", "--output-format", "text"];
+  // Persist the session only when muster is managing a session id; otherwise keep
+  // the original stateless behaviour. Resume an existing session, or pin a fresh
+  // one with the muster-generated id so the next turn can resume it.
+  if (input.resume && input.sessionId) args.push("--resume", input.sessionId);
+  else if (input.sessionId) args.push("--session-id", input.sessionId);
+  else args.push("--no-session-persistence");
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);
   if (input.allowedTools?.length) args.push("--allowedTools", input.allowedTools.join(","));
+  for (const pluginDir of input.pluginDirs ?? []) args.push("--plugin-dir", pluginDir);
   if (input.systemPrompt) args.push("--append-system-prompt", input.systemPrompt);
   args.push(input.prompt);
   return args;

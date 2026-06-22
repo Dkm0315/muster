@@ -369,3 +369,87 @@ test("runFlow refuses flows that fail preflight", async () => {
   );
   await assert.rejects(getFlowRun("flowrun_missing", cwd), /Flow run not found/);
 });
+
+test("a tool step retries a transient failure and ultimately succeeds", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-flow-retry-"));
+  let attempts = 0;
+  const registry: FlowToolRegistry = {
+    flaky: async () => {
+      attempts += 1;
+      if (attempts < 3) throw new Error("transient blip");
+      return { ok: true, attempts };
+    },
+  };
+  const flow = parseFlow({ id: "retry-ok", steps: [{ id: "s", kind: "tool", tool: "flaky", retry: 2 }] });
+  const result = await runFlow(flow, { config: defaultConfig(), registry, cwd });
+  assert.equal(result.status, "completed");
+  assert.equal(attempts, 3, "1 initial attempt + 2 retries");
+  assert.deepEqual(result.outputs.s, { ok: true, attempts: 3 });
+});
+
+test("a tool step that keeps failing fails after exhausting retries", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-flow-retry-fail-"));
+  let attempts = 0;
+  const registry: FlowToolRegistry = { always: async () => { attempts += 1; throw new Error("persistent boom"); } };
+  const flow = parseFlow({ id: "retry-fail", steps: [{ id: "s", kind: "tool", tool: "always", retry: 2 }] });
+  const result = await runFlow(flow, { config: defaultConfig(), registry, cwd });
+  assert.equal(result.status, "failed");
+  assert.equal(attempts, 3, "tried 1 + 2 retries, then gave up");
+  assert.match(result.error ?? "", /persistent boom/);
+});
+
+test("validateFlow rejects an out-of-range retry", () => {
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "a", kind: "tool", tool: "echo", retry: -1 }] }), /retry.*between 0 and 10/);
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "a", kind: "tool", tool: "echo", retry: 11 }] }), /retry.*between 0 and 10/);
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "a", kind: "tool", tool: "echo", retry: 1.5 }] }), /retry.*between 0 and 10/);
+});
+
+test("a foreach step runs the tool per item (item passed through) and collects the outputs", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-flow-foreach-"));
+  const seen: unknown[] = [];
+  const registry: FlowToolRegistry = {
+    list: async () => ({ items: [{ n: 1 }, { n: 2 }, { n: 3 }] }),
+    double: async (args) => { seen.push(args.item); return { doubled: (args.item as { n: number }).n * 2, tag: args.tag }; },
+  };
+  const flow = parseFlow({
+    id: "foreach-ok",
+    steps: [
+      { id: "list", kind: "tool", tool: "list" },
+      { id: "each", kind: "foreach", over: "list.items", tool: "double", args: { tag: "x" } },
+    ],
+  });
+  const result = await runFlow(flow, { config: defaultConfig(), registry, cwd });
+  assert.equal(result.status, "completed");
+  assert.deepEqual(seen, [{ n: 1 }, { n: 2 }, { n: 3 }], "tool ran once per item, item bound");
+  assert.deepEqual(result.outputs.each, [{ doubled: 2, tag: "x" }, { doubled: 4, tag: "x" }, { doubled: 6, tag: "x" }]);
+});
+
+test("a foreach step accepts a bare step reference whose output is an array", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-flow-foreach-bare-"));
+  const registry: FlowToolRegistry = { nums: async () => [10, 20], inc: async (args) => (args.item as number) + 1 };
+  const flow = parseFlow({ id: "foreach-bare", steps: [
+    { id: "nums", kind: "tool", tool: "nums" },
+    { id: "each", kind: "foreach", over: "nums", tool: "inc" },
+  ] });
+  const result = await runFlow(flow, { config: defaultConfig(), registry, cwd });
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.outputs.each, [11, 21]);
+});
+
+test("a foreach step fails when 'over' does not resolve to an array", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-flow-foreach-bad-"));
+  const registry: FlowToolRegistry = { obj: async () => ({ notArray: true }), t: async () => 1 };
+  const flow = parseFlow({ id: "foreach-nonarray", steps: [
+    { id: "obj", kind: "tool", tool: "obj" },
+    { id: "each", kind: "foreach", over: "obj.notArray", tool: "t" },
+  ] });
+  const result = await runFlow(flow, { config: defaultConfig(), registry, cwd });
+  assert.equal(result.status, "failed");
+  assert.match(result.error ?? "", /did not resolve to an array/);
+});
+
+test("validateFlow rejects a foreach without a valid over/tool", () => {
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "a", kind: "tool", tool: "x" }, { id: "b", kind: "foreach", tool: "y" }] }), /requires "over"/);
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "a", kind: "tool", tool: "x" }, { id: "b", kind: "foreach", over: "a.items" }] }), /requires a non-empty "tool"/);
+  assert.throws(() => parseFlow({ id: "f", steps: [{ id: "b", kind: "foreach", over: "later.items", tool: "y" }, { id: "later", kind: "tool", tool: "x" }] }), /references a later step/);
+});

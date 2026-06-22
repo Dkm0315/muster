@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,10 +22,37 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /--transport sdk\|cli/);
   assert.match(stdout, /--session memory\|create\|continue/);
   assert.match(stdout, /muster claude inspect/);
+  assert.match(stdout, /muster chat "your prompt"/);
+  assert.match(stdout, /muster chat --session work/);
   assert.match(stdout, /muster runtime use-provider/);
   assert.match(stdout, /muster capability inspect/);
   assert.match(stdout, /muster memory add/);
   assert.match(stdout, /muster eval seed/);
+});
+
+test("CLI chat exposes a real named terminal chat surface without hanging in non-TTY tests", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-chat-"));
+
+  const help = await runCli(["chat", "--help"], cwd);
+  assert.match(help.stdout, /muster chat/);
+  assert.match(help.stdout, /\/resume <name\|id>/);
+  assert.match(help.stdout, /@agent-name <task>/);
+
+  const history = await runCli(["chat", "--session", "release-audit", "--history"], cwd);
+  assert.match(history.stdout, /session=release-audit/);
+  assert.match(history.stdout, /messages=0/);
+
+  const listed = await runCli(["chat", "--list"], cwd);
+  assert.match(listed.stdout, /release-audit/);
+
+  const blocked = await runCliAllowFailure(["chat"], cwd);
+  assert.equal(blocked.code, 1);
+  assert.match(blocked.stderr, /Interactive chat requires a TTY/);
+
+  const bare = await runCliAllowFailure([], cwd);
+  assert.equal(bare.code, 1);
+  assert.match(bare.stderr, /Interactive chat requires a TTY/);
+  assert.doesNotMatch(bare.stdout, /Usage:/);
 });
 
 test("CLI can initialize, add codex provider, switch runtime, and render tui", async () => {
@@ -129,6 +157,8 @@ test("CLI pi ask prints lifecycle trace when provider auth fails", async () => {
 
 test("CLI capability inspect reports safe manifest status", async () => {
   const pack = await mkdtemp(join(tmpdir(), "muster-capability-"));
+  const skillBody = "Be careful with Redis operational runbooks.\n";
+  await writeFile(join(pack, "SKILL.md"), skillBody, "utf8");
   await writeFile(
     join(pack, "muster.capability.json"),
     JSON.stringify(
@@ -142,7 +172,7 @@ test("CLI capability inspect reports safe manifest status", async () => {
         permissions: ["filesystem:read"],
         sandbox: "read_only",
         evals: ["evals/redis-runbook.jsonl"],
-        digest: "sha256:test"
+        digest: `sha256:${createHash("sha256").update(skillBody).digest("hex")}`
       },
       null,
       2
@@ -154,6 +184,72 @@ test("CLI capability inspect reports safe manifest status", async () => {
   assert.match(stdout, /status=ready/);
   assert.match(stdout, /risk=low/);
   assert.match(stdout, /id=redis-runbook/);
+});
+
+test("CLI capability load honors configured plugin deny policy", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-capability-policy-"));
+  const pack = await mkdtemp(join(tmpdir(), "muster-capability-policy-pack-"));
+  const entrypoint = "export const tools = { noop: async () => ({ ok: true }) };\n";
+  await mkdir(join(cwd, ".muster"), { recursive: true });
+  await writeFile(
+    join(cwd, ".muster", "config.json"),
+    `${JSON.stringify({ version: 1, plugins: { deny: ["policy-pack"] } }, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(join(pack, "index.mjs"), entrypoint, "utf8");
+  await writeFile(
+    join(pack, "muster.capability.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "policy-pack",
+        name: "Policy Pack",
+        version: "0.1.0",
+        kind: "tool",
+        entrypoint: "index.mjs",
+        permissions: [],
+        sandbox: "none",
+        evals: ["evals/noop.json"],
+        digest: `sha256:${createHash("sha256").update(entrypoint).digest("hex")}`
+      },
+      null,
+      2
+    ),
+    "utf8",
+  );
+
+  const result = await runCliAllowFailure(["capability", "load", pack], cwd);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /denied by plugins\.deny/);
+});
+
+test("CLI skills index renders pinned skill digests", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-skills-index-"));
+  await mkdir(join(cwd, ".muster", "skills"), { recursive: true });
+  await writeFile(
+    join(cwd, ".muster", "skills", ".index.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: "2026-06-19T00:00:00.000Z",
+      skills: {
+        "audit-frappe": {
+          name: "audit-frappe",
+          description: "Audit Frappe deployments",
+          version: "0.1.0",
+          status: "active",
+          digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          provenance: { createdBy: "user", createdAt: "2026-06-19T00:00:00.000Z" },
+        },
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const { stdout } = await runCli(["skills", "index"], cwd);
+
+  assert.match(stdout, /audit-frappe/);
+  assert.match(stdout, /sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
 });
 
 test("CLI context graph exports graph JSON from episode and scoped memory ledgers", async () => {

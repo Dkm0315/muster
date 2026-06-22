@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { FlowToolRegistry } from "./flow.js";
 
@@ -13,6 +14,8 @@ export interface CapabilityPackManifest {
   readonly name: string;
   readonly version: string;
   readonly kind: CapabilityPackKind;
+  /** Optional exclusive plugin slot, e.g. "memory", "channel", "browser". */
+  readonly slot?: string;
   readonly entrypoint: string;
   readonly description?: string;
   readonly permissions: CapabilityPermission[];
@@ -31,6 +34,28 @@ export interface CapabilityPackInspection {
   readonly warnings: string[];
 }
 
+export interface CapabilityPluginEntry {
+  readonly enabled?: boolean;
+  readonly config?: Readonly<Record<string, string>>;
+}
+
+export interface CapabilityPluginLoadPolicy {
+  readonly paths?: readonly string[];
+}
+
+export interface CapabilityPluginPolicy {
+  /**
+   * Non-empty allowlist: only these pack ids may load. Empty/undefined means no
+   * allowlist gate. `deny` always wins over `allow`.
+   */
+  readonly allow?: readonly string[];
+  readonly deny?: readonly string[];
+  /** Exclusive slot owner map, e.g. { "memory": "memory-core" }. */
+  readonly slots?: Readonly<Record<string, string>>;
+  readonly load?: CapabilityPluginLoadPolicy;
+  readonly entries?: Readonly<Record<string, CapabilityPluginEntry>>;
+}
+
 export async function inspectCapabilityPack(path: string): Promise<CapabilityPackInspection> {
   // Canonical manifest name first; "manifest.json" is accepted as a fallback
   // (capability-packs/* in this repo use it).
@@ -42,7 +67,18 @@ export async function inspectCapabilityPack(path: string): Promise<CapabilityPac
     raw = await readFile(join(path, "manifest.json"), "utf8");
   }
   const parsed = JSON.parse(raw) as unknown;
-  return inspectCapabilityManifest(path, parsed);
+  const inspection = inspectCapabilityManifest(path, parsed);
+  if (inspection.status === "blocked" || !inspection.manifest?.digest) return inspection;
+
+  const digestBlocker = await verifyEntrypointDigest(path, inspection.manifest);
+  if (!digestBlocker) return inspection;
+  return {
+    ...inspection,
+    manifest: undefined,
+    status: "blocked",
+    risk: "high",
+    blockers: [...inspection.blockers, digestBlocker],
+  };
 }
 
 export function inspectCapabilityManifest(path: string, value: unknown): CapabilityPackInspection {
@@ -57,6 +93,7 @@ export function inspectCapabilityManifest(path: string, value: unknown): Capabil
   if (!isNonEmpty(value.name)) blockers.push("name is required.");
   if (!isSemverLike(value.version)) blockers.push("version must be semver-like.");
   if (!isKind(value.kind)) blockers.push("kind is invalid.");
+  if (value.slot !== undefined && !isPluginSlot(value.slot)) blockers.push("slot must be lowercase kebab-case, 2-64 chars.");
   if (!isNonEmpty(value.entrypoint)) blockers.push("entrypoint is required.");
   if (!Array.isArray(value.permissions) || !value.permissions.every(isPermission)) blockers.push("permissions must be valid permission strings.");
   if (!isSandbox(value.sandbox)) blockers.push("sandbox is invalid.");
@@ -83,6 +120,7 @@ export function inspectCapabilityManifest(path: string, value: unknown): Capabil
         name: value.name as string,
         version: value.version as string,
         kind: value.kind as CapabilityPackKind,
+        slot: typeof value.slot === "string" ? value.slot : undefined,
         entrypoint: value.entrypoint as string,
         description: typeof value.description === "string" ? value.description : undefined,
         permissions,
@@ -114,6 +152,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSafeId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z][a-z0-9-]{2,79}$/.test(value);
+}
+
+function isPluginSlot(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(value);
 }
 
 function isNonEmpty(value: unknown): value is string {
@@ -149,6 +191,23 @@ function isEnvName(value: unknown): value is string {
   return typeof value === "string" && /^[A-Z_][A-Z0-9_]*$/.test(value);
 }
 
+async function verifyEntrypointDigest(path: string, manifest: CapabilityPackManifest): Promise<string | undefined> {
+  const match = /^sha256:([a-f0-9]{64})$/i.exec(manifest.digest ?? "");
+  if (!match) return `Capability digest must be sha256:<64 hex chars>; got ${JSON.stringify(manifest.digest)}.`;
+  const entrypoint = isAbsolute(manifest.entrypoint) ? manifest.entrypoint : join(path, manifest.entrypoint);
+  let raw: Buffer;
+  try {
+    raw = await readFile(entrypoint);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `Capability digest could not read entrypoint ${entrypoint}: ${detail}`;
+  }
+  const actual = createHash("sha256").update(raw).digest("hex");
+  const expected = match[1].toLowerCase();
+  if (actual !== expected) return `Capability digest mismatch for ${manifest.entrypoint}: expected sha256:${expected}, got sha256:${actual}.`;
+  return undefined;
+}
+
 // --- capability-pack loader (HC-012) ---
 
 /**
@@ -182,6 +241,10 @@ export interface LoadCapabilityPackOptions {
   readonly registry: FlowToolRegistry;
   /** High-risk packs (secrets/shell/full_trust) refuse to load without this. */
   readonly allowHighRisk?: boolean;
+  /** Optional OpenClaw-style plugin policy, enforced before dynamic import. */
+  readonly pluginPolicy?: CapabilityPluginPolicy;
+  /** Mutable slot owner table shared across multiple pack loads in one process. */
+  readonly slotClaims?: Record<string, string>;
   /** Env source for `manifest.secrets`; defaults to process.env (injectable for tests). */
   readonly env?: Record<string, string | undefined>;
 }
@@ -209,6 +272,7 @@ export async function loadCapabilityPack(dir: string, options: LoadCapabilityPac
     );
   }
   const manifest = inspection.manifest;
+  enforceCapabilityPluginPolicy(dir, manifest, options.pluginPolicy, options.slotClaims);
   const entrypoint = isAbsolute(manifest.entrypoint) ? manifest.entrypoint : join(dir, manifest.entrypoint);
   let module: Record<string, unknown>;
   try {
@@ -230,10 +294,14 @@ export async function loadCapabilityPack(dir: string, options: LoadCapabilityPac
   }
 
   const env = options.env ?? process.env;
+  const entryConfig = options.pluginPolicy?.entries?.[manifest.id]?.config ?? {};
   const context: CapabilityToolContext = Object.freeze({
     // Permission gate: packs that do not declare `network` get no fetch.
     fetch: manifest.permissions.includes("network") ? globalThis.fetch.bind(globalThis) : undefined,
-    config: Object.freeze(Object.fromEntries((manifest.secrets ?? []).map((name) => [name, env[name]]))),
+    config: Object.freeze({
+      ...entryConfig,
+      ...Object.fromEntries((manifest.secrets ?? []).map((name) => [name, env[name]])),
+    }),
   });
 
   const toolNames: string[] = [];
@@ -243,4 +311,46 @@ export async function loadCapabilityPack(dir: string, options: LoadCapabilityPac
     toolNames.push(namespaced);
   }
   return { manifest, toolNames, warnings: inspection.warnings };
+}
+
+function enforceCapabilityPluginPolicy(
+  dir: string,
+  manifest: CapabilityPackManifest,
+  policy: CapabilityPluginPolicy | undefined,
+  slotClaims: Record<string, string> | undefined,
+): void {
+  if (!policy) return;
+
+  if (policy.load?.paths?.length) {
+    const resolvedDir = resolve(dir);
+    const allowed = policy.load.paths.map((candidate) => resolve(candidate));
+    if (!allowed.includes(resolvedDir)) {
+      throw new Error(`Capability pack "${manifest.id}" path ${resolvedDir} is not present in plugins.load.paths.`);
+    }
+  }
+
+  if (policy.deny?.includes(manifest.id)) {
+    throw new Error(`Capability pack "${manifest.id}" is denied by plugins.deny.`);
+  }
+
+  if (policy.allow?.length && !policy.allow.includes(manifest.id)) {
+    throw new Error(`Capability pack "${manifest.id}" is not present in plugins.allow.`);
+  }
+
+  if (policy.entries?.[manifest.id]?.enabled === false) {
+    throw new Error(`Capability pack "${manifest.id}" is disabled by plugins.entries.${manifest.id}.enabled=false.`);
+  }
+
+  if (!manifest.slot) return;
+  const configuredOwner = policy.slots?.[manifest.slot];
+  if (configuredOwner && configuredOwner !== manifest.id) {
+    throw new Error(`Capability slot "${manifest.slot}" is assigned to "${configuredOwner}", not "${manifest.id}".`);
+  }
+
+  if (!slotClaims) return;
+  const currentOwner = slotClaims[manifest.slot];
+  if (currentOwner && currentOwner !== manifest.id) {
+    throw new Error(`Capability slot "${manifest.slot}" is already claimed by "${currentOwner}".`);
+  }
+  slotClaims[manifest.slot] = manifest.id;
 }

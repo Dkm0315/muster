@@ -1,9 +1,19 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defaultConfig } from "./config.js";
 import { createProfile, profileConfigWritePath, profilesRoot } from "./profiles.js";
-import type { MusterConfig } from "./types.js";
+import type {
+  AgentsConfig,
+  MusterConfig,
+  SkillRuntimeConfig,
+  SkillRuntimeEntryConfig,
+  ToolRuntimeConfig,
+  ToolRuntimeEntryConfig
+} from "./types.js";
+import type { CapabilityPluginEntry, CapabilityPluginPolicy } from "./capability.js";
+import type { McpServerConfig } from "./mcp.js";
 
 export type MigrationSource = "openclaw" | "hermes" | "pi";
 
@@ -260,11 +270,71 @@ async function expandOpenclawConfig(
 }
 
 function countCustomCommands(channel: unknown): number {
-  if (!isRecord(channel)) return 0;
-  const commands = channel.commands;
-  if (Array.isArray(commands)) return commands.length;
-  if (isRecord(commands)) return Object.keys(commands).length;
-  return 0;
+  return extractCustomCommands(channel, "").length;
+}
+
+interface MigratedCustomCommand {
+  readonly name: string;
+  readonly description?: string;
+  readonly prompt?: string;
+  readonly surfaces: readonly string[];
+}
+
+function extractCustomCommands(channel: unknown, surface: string): MigratedCustomCommand[] {
+  if (!isRecord(channel)) return [];
+  const rawCommands = isRecord(channel.customCommands) || Array.isArray(channel.customCommands)
+    ? channel.customCommands
+    : channel.commands;
+  const commands: MigratedCustomCommand[] = [];
+  if (Array.isArray(rawCommands)) {
+    for (const entry of rawCommands) {
+      const parsed = commandFromArrayEntry(entry, surface);
+      if (parsed) commands.push(parsed);
+    }
+    return commands;
+  }
+  if (isRecord(rawCommands)) {
+    for (const [key, value] of Object.entries(rawCommands)) {
+      const name = normalizeCommandName(key);
+      if (!name) continue;
+      const details = commandDetails(value);
+      commands.push({ name, surfaces: surface ? [surface] : [], ...details });
+    }
+  }
+  return commands;
+}
+
+function commandFromArrayEntry(entry: unknown, surface: string): MigratedCustomCommand | undefined {
+  if (typeof entry === "string") {
+    const name = normalizeCommandName(entry);
+    return name ? { name, surfaces: surface ? [surface] : [] } : undefined;
+  }
+  if (!isRecord(entry)) return undefined;
+  const rawName = stringField(entry, "name") ?? stringField(entry, "command");
+  const name = normalizeCommandName(rawName ?? "");
+  if (!name) return undefined;
+  return { name, surfaces: surface ? [surface] : [], ...commandDetails(entry) };
+}
+
+function commandDetails(value: unknown): { description?: string; prompt?: string } {
+  if (typeof value === "string") return { prompt: value };
+  if (!isRecord(value)) return {};
+  const description = stringField(value, "description");
+  const prompt = stringField(value, "prompt") ?? stringField(value, "intent") ?? stringField(value, "instruction");
+  return {
+    ...(description ? { description } : {}),
+    ...(prompt ? { prompt } : {}),
+  };
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  if (SECRET_KEY_PATTERN.test(key)) return undefined;
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeCommandName(raw: string): string {
+  return raw.trim().replace(/^\//, "").toLowerCase().replace(/_/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 /**
@@ -283,6 +353,10 @@ export interface ApplyOpenclawResult {
   readonly excludedChannels: string[];
   readonly excludedAgents: number;
   readonly configPath: string;
+  readonly skillsCarried: number;
+  readonly toolsCarried: number;
+  readonly pluginsCarried: number;
+  readonly devicesCarried: number;
   /**
    * When the selected channel needs a bot token to actually run (e.g. telegram),
    * this names the env var the materialized config expects. The secret VALUE is
@@ -309,19 +383,21 @@ interface MigrationTarget {
  * and provider that actually run it on a server:
  *  - claude-cli / any anthropic model -> the managed claude-code runtime, which
  *    shells to the local `claude` binary (no API key needed).
- *  - codex -> the native runtime with a codex-cli provider, which shells to the
- *    local `codex` binary (subscription auth, no API key needed).
+ *  - codex -> the first-class `codex` runtime, which drives the local `codex`
+ *    binary at full native power via `codex exec --json` (subscription auth, no
+ *    API key needed) — preserving the user's provider, NOT swapping to Claude.
  *  - anything else -> the native runtime with an openai-compatible provider keyed
  *    on that provider's API-key env var.
  * (A previous version returned the non-runtime id "codex-cli" as the runtime,
- * which fell through to an unconfigured native path — a broken config.)
+ * which fell through to an unconfigured native path; another mapped codex to the
+ * stripped one-shot native path. The `codex` runtime runs it at full power.)
  */
 function resolveTarget(openclawRuntimeId: string, provider: string): MigrationTarget {
   if (openclawRuntimeId === "claude-cli" || provider === "anthropic") {
     return { runtime: "claude-code", providerId: "anthropic", providerKind: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY" };
   }
   if (openclawRuntimeId === "codex") {
-    return { runtime: "native", providerId: "codex", providerKind: "codex-cli" };
+    return { runtime: "codex", providerId: "codex", providerKind: "codex-cli" };
   }
   return {
     runtime: "native",
@@ -416,7 +492,13 @@ export async function applyOpenclawProfile(options: {
   const modelEntryNames = defaultsModels ? Object.keys(defaultsModels) : [];
   const excludedAgents = modelEntryNames.filter((name) => name !== rawModel).length;
 
-  const commandsMigrated = countCustomCommands(selected);
+  const customCommands = extractCustomCommands(selected, options.profile);
+  const commandsMigrated = customCommands.length;
+  const agentSkillVisibility = carryOpenclawAgentSkillVisibility(parsed, options.profile);
+  const skills = carryOpenclawSkills(parsed, options.profile);
+  const tools = carryOpenclawTools(parsed);
+  const plugins = carryOpenclawPlugins(parsed);
+  const devices = carryOpenclawDevices(parsed, options.profile);
 
   // Does this channel need a bot token to run? We only ever check for the
   // PRESENCE of a secret-keyed field — never read its value.
@@ -459,6 +541,18 @@ export async function applyOpenclawProfile(options: {
       },
     },
     routing: { ...base.routing, defaultRuntime: target.runtime },
+    // Faithful identity so the migrated agent knows what it is (injected at the
+    // SYSTEM level by run.ts, never narrated). Carries the source channel, not a
+    // Claude default.
+    identity: {
+      name: options.outProfile,
+      description: `muster profile "${options.outProfile}", migrated from the OpenClaw "${options.profile}" channel, running ${model} via the ${target.runtime} runtime.`,
+      ...(tokenEnvRef ? { persona: "You operate as a chat assistant over a messaging surface; keep replies concise and chat-friendly." } : {}),
+    },
+    ...(agentSkillVisibility ? { agents: agentSkillVisibility } : {}),
+    ...(skills ? { skills } : {}),
+    ...(tools ? { tools } : {}),
+    ...(plugins ? { plugins } : {}),
   };
 
   // Record (redacted) that this profile expects a channel bot token via env. We
@@ -486,6 +580,13 @@ export async function applyOpenclawProfile(options: {
   const outPath = profileConfigWritePath(cwd, options.outProfile);
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, `${JSON.stringify(materialized, null, 2)}\n`, "utf8");
+  if (customCommands.length || devices.length) {
+    await upsertGatewayMigrationData(cwd, {
+      commands: customCommands,
+      devices,
+      sourceChannel: options.profile,
+    });
+  }
 
   return {
     outProfile: options.outProfile,
@@ -498,7 +599,337 @@ export async function applyOpenclawProfile(options: {
     excludedAgents,
     configPath: outPath,
     tokenEnvRef,
+    skillsCarried: countSkillCarry(skills),
+    toolsCarried: countToolCarry(tools),
+    pluginsCarried: countPluginCarry(plugins),
+    devicesCarried: devices.length,
   };
+}
+
+interface MigratedDeviceRecord {
+  readonly id: string;
+  readonly sourceId?: string;
+  readonly surfaceId?: string;
+  readonly accountId?: string;
+  readonly scopes: readonly string[];
+}
+
+async function upsertGatewayMigrationData(
+  cwd: string,
+  input: {
+    readonly commands: readonly MigratedCustomCommand[];
+    readonly devices: readonly MigratedDeviceRecord[];
+    readonly sourceChannel: string;
+  }
+): Promise<void> {
+  const path = join(cwd, ".muster", "gateway.json");
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  } catch {
+    parsed = { token: randomBytes(24).toString("hex") };
+  }
+  if (typeof parsed.token !== "string" || !parsed.token.trim()) {
+    parsed.token = randomBytes(24).toString("hex");
+  }
+  const commandsRoot = isRecord(parsed.commands) ? parsed.commands : {};
+  const entries: Record<string, unknown> = isRecord(commandsRoot.entries) ? { ...commandsRoot.entries } : {};
+  for (const command of input.commands) {
+    const existing: Record<string, unknown> = isRecord(entries[command.name]) ? entries[command.name] as Record<string, unknown> : {};
+    entries[command.name] = {
+      ...existing,
+      ...(command.description ? { description: command.description } : {}),
+      ...(command.prompt ? { prompt: command.prompt } : {}),
+      surfaces: command.surfaces,
+      source: "openclaw",
+      sourceChannel: input.sourceChannel,
+    };
+  }
+  if (input.commands.length) parsed.commands = { ...commandsRoot, entries };
+
+  const devicesRoot = isRecord(parsed.devices) ? parsed.devices : {};
+  const deviceEntries: Record<string, unknown> = isRecord(devicesRoot.entries) ? { ...devicesRoot.entries } : {};
+  const migratedAt = new Date().toISOString();
+  for (const device of input.devices) {
+    const existing: Record<string, unknown> = isRecord(deviceEntries[device.id]) ? deviceEntries[device.id] as Record<string, unknown> : {};
+    deviceEntries[device.id] = {
+      ...existing,
+      source: "openclaw",
+      ...(device.sourceId ? { sourceId: device.sourceId } : {}),
+      ...(device.surfaceId ? { surfaceId: device.surfaceId } : {}),
+      ...(device.accountId ? { accountId: device.accountId } : {}),
+      scopes: device.scopes,
+      approved: false,
+      migratedAt,
+    };
+  }
+  if (input.devices.length) parsed.devices = { ...devicesRoot, entries: deviceEntries };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
+function carryOpenclawAgentSkillVisibility(config: Record<string, unknown>, profile: string): AgentsConfig | undefined {
+  const agents = isRecord(config.agents) ? config.agents : undefined;
+  const defaults = agents && isRecord(agents.defaults) ? agents.defaults : undefined;
+  const list = agents && Array.isArray(agents.list) ? agents.list : undefined;
+  const profileAgent = list?.find((entry): entry is Record<string, unknown> => isRecord(entry) && entry.id === profile);
+  const defaultSkills = stringArray(defaults?.skills);
+  const profileSkills = stringArray(profileAgent?.skills);
+  const next: AgentsConfig = {
+    ...(defaultSkills.length ? { defaults: { skills: defaultSkills } } : {}),
+    ...(profileSkills.length ? { list: [{ id: profile, skills: profileSkills }] } : {}),
+  };
+  return Object.keys(next).length ? next : undefined;
+}
+
+function carryOpenclawSkills(config: Record<string, unknown>, _profile: string): SkillRuntimeConfig | undefined {
+  const source = isRecord(config.skills) ? config.skills : undefined;
+
+  const load = isRecord(source?.load)
+    ? {
+        ...(stringArray(source.load.extraDirs).length ? { extraDirs: stringArray(source.load.extraDirs) } : {}),
+        ...(typeof source.load.includeHomeDirs === "boolean" ? { includeHomeDirs: source.load.includeHomeDirs } : {}),
+      }
+    : undefined;
+  const entries = isRecord(source?.entries) ? skillEntriesFrom(source.entries) : undefined;
+
+  const next: SkillRuntimeConfig = {
+    ...(load && Object.keys(load).length ? { load } : {}),
+    ...(entries && Object.keys(entries).length ? { entries } : {}),
+  };
+  return Object.keys(next).length ? next : undefined;
+}
+
+function skillEntriesFrom(entries: Record<string, unknown>): Record<string, SkillRuntimeEntryConfig> {
+  const carried: Record<string, SkillRuntimeEntryConfig> = {};
+  for (const [rawName, rawEntry] of Object.entries(entries)) {
+    const name = normalizeConfigKey(rawName);
+    if (!name || !isRecord(rawEntry)) continue;
+    const config = sanitizeRecord(rawEntry.config);
+    const apiKey = migrateApiKey(rawEntry.apiKey, rawName);
+    const entry: SkillRuntimeEntryConfig = {
+      ...(typeof rawEntry.enabled === "boolean" ? { enabled: rawEntry.enabled } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(config && Object.keys(config).length ? { config } : {}),
+    };
+    if (Object.keys(entry).length) carried[name] = entry;
+  }
+  return carried;
+}
+
+function carryOpenclawPlugins(config: Record<string, unknown>): CapabilityPluginPolicy | undefined {
+  const source = isRecord(config.plugins) ? config.plugins : undefined;
+  if (!source) return undefined;
+  const allow = stringArray(source.allow);
+  const deny = stringArray(source.deny);
+  const loadPaths = stringArray(isRecord(source.load) ? source.load.paths : undefined);
+  const slots = stringRecord(source.slots);
+  const entriesSource = isRecord(source.entries) ? source.entries : {};
+  const entries: Record<string, CapabilityPluginEntry> = {};
+  for (const [rawName, rawEntry] of Object.entries(entriesSource)) {
+    const name = normalizeConfigKey(rawName);
+    if (!name || !isRecord(rawEntry)) continue;
+    const configBag = stringRecord(rawEntry.config);
+    const entry: CapabilityPluginEntry = {
+      // Migrated executable plugins are visible but disabled until a local pack
+      // path and review policy are chosen.
+      enabled: rawEntry.enabled === true ? false : rawEntry.enabled === false ? false : false,
+      ...(Object.keys(configBag).length ? { config: configBag } : {}),
+    };
+    entries[name] = entry;
+  }
+  const policy: CapabilityPluginPolicy = {
+    ...(allow.length ? { allow } : {}),
+    ...(deny.length ? { deny } : {}),
+    ...(Object.keys(slots).length ? { slots } : {}),
+    ...(loadPaths.length ? { load: { paths: loadPaths } } : {}),
+    ...(Object.keys(entries).length ? { entries } : {}),
+  };
+  return Object.keys(policy).length ? policy : undefined;
+}
+
+function carryOpenclawTools(config: Record<string, unknown>): ToolRuntimeConfig | undefined {
+  const source = isRecord(config.tools) ? config.tools : undefined;
+  const allow = stringArray(source?.allow ?? source?.include);
+  const deny = stringArray(source?.deny ?? source?.exclude);
+  const entries = isRecord(source?.entries) ? toolEntriesFrom(source.entries) : undefined;
+  const servers = extractMcpServers(config);
+  const carried: ToolRuntimeConfig = {
+    ...(allow.length ? { allow } : {}),
+    ...(deny.length ? { deny } : {}),
+    ...(entries && Object.keys(entries).length ? { entries } : {}),
+    ...(Object.keys(servers).length ? { mcp: { servers } } : {}),
+  };
+  return Object.keys(carried).length ? carried : undefined;
+}
+
+function toolEntriesFrom(entries: Record<string, unknown>): Record<string, ToolRuntimeEntryConfig> {
+  const carried: Record<string, ToolRuntimeEntryConfig> = {};
+  for (const [rawName, rawEntry] of Object.entries(entries)) {
+    const name = normalizeConfigKey(rawName);
+    if (!name || !isRecord(rawEntry)) continue;
+    const config = sanitizeRecord(rawEntry.config);
+    const entry: ToolRuntimeEntryConfig = {
+      ...(typeof rawEntry.enabled === "boolean" ? { enabled: rawEntry.enabled } : {}),
+      ...(typeof rawEntry.source === "string" ? { source: rawEntry.source } : { source: "openclaw" }),
+      ...(config && Object.keys(config).length ? { config } : {}),
+    };
+    carried[name] = entry;
+  }
+  return carried;
+}
+
+function extractMcpServers(config: Record<string, unknown>): Record<string, McpServerConfig> {
+  const mcp = isRecord(config.mcp) ? config.mcp : undefined;
+  const sourceServers = isRecord(mcp?.servers) ? mcp.servers : isRecord(mcp) ? mcp : {};
+  const servers: Record<string, McpServerConfig> = {};
+  for (const [rawName, rawServer] of Object.entries(sourceServers)) {
+    const name = normalizeConfigKey(rawName);
+    if (!name || !isRecord(rawServer)) continue;
+    const server = migrateMcpServer(rawServer);
+    if (server) servers[name] = server;
+  }
+  return servers;
+}
+
+function migrateMcpServer(raw: Record<string, unknown>): McpServerConfig | undefined {
+  const transport = isRecord(raw.transport) ? raw.transport : raw;
+  const kind = typeof transport.kind === "string" ? transport.kind : typeof transport.url === "string" ? "http" : "stdio";
+  const tools = isRecord(raw.tools)
+    ? {
+        ...(stringArray(raw.tools.include).length ? { include: stringArray(raw.tools.include) } : {}),
+        ...(stringArray(raw.tools.exclude).length ? { exclude: stringArray(raw.tools.exclude) } : {}),
+      }
+    : undefined;
+  const limits = isRecord(raw.limits)
+    ? {
+        ...(numberField(raw.limits, "toolTimeoutMs") ? { toolTimeoutMs: numberField(raw.limits, "toolTimeoutMs") } : {}),
+        ...(numberField(raw.limits, "maxResultChars") ? { maxResultChars: numberField(raw.limits, "maxResultChars") } : {}),
+        ...(numberField(raw.limits, "maxCallsPerTurn") ? { maxCallsPerTurn: numberField(raw.limits, "maxCallsPerTurn") } : {}),
+      }
+    : undefined;
+
+  if (kind === "http" && typeof transport.url === "string") {
+    return {
+      transport: { kind: "http", url: transport.url, ...(stringRecord(transport.headers) ? { headers: stringRecord(transport.headers) } : {}) },
+      ...(tools && Object.keys(tools).length ? { tools } : {}),
+      ...(limits && Object.keys(limits).length ? { limits } : {}),
+    };
+  }
+  if (typeof transport.command !== "string" || !transport.command.trim()) return undefined;
+  return {
+    transport: {
+      kind: "stdio",
+      command: transport.command,
+      ...(stringArray(transport.args).length ? { args: stringArray(transport.args) } : {}),
+      ...(Object.keys(stringRecord(transport.env)).length ? { env: stringRecord(transport.env) } : {}),
+    },
+    ...(tools && Object.keys(tools).length ? { tools } : {}),
+    ...(limits && Object.keys(limits).length ? { limits } : {}),
+  };
+}
+
+function carryOpenclawDevices(config: Record<string, unknown>, profile: string): MigratedDeviceRecord[] {
+  const devices = isRecord(config.devices) ? config.devices : undefined;
+  const entries = Array.isArray(devices?.entries)
+    ? devices.entries
+    : isRecord(devices?.entries)
+      ? Object.entries(devices.entries).map(([id, value]) => isRecord(value) ? { id, ...value } : { id })
+      : [];
+  const carried: MigratedDeviceRecord[] = [];
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const sourceId = stringField(entry, "id") ?? stringField(entry, "deviceId") ?? stringField(entry, "pairingId");
+    const surfaceId = stringField(entry, "surfaceId") ?? stringField(entry, "channel") ?? profile;
+    const accountId = stringField(entry, "accountId");
+    const id = normalizeConfigKey(sourceId ?? `${surfaceId}-${accountId ?? "default"}`);
+    if (!id) continue;
+    carried.push({
+      id,
+      ...(sourceId ? { sourceId } : {}),
+      ...(surfaceId ? { surfaceId } : {}),
+      ...(accountId ? { accountId } : {}),
+      scopes: stringArray(entry.scopes),
+    });
+  }
+  return carried;
+}
+
+function migrateApiKey(value: unknown, nameHint: string): SkillRuntimeEntryConfig["apiKey"] | undefined {
+  if (isRecord(value) && value.source === "env" && typeof value.id === "string") {
+    return {
+      source: "env",
+      ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
+      id: value.id,
+    };
+  }
+  if (typeof value === "string" && value.trim()) {
+    return { source: "env", id: `${normalizeEnvPrefix(nameHint)}_API_KEY` };
+  }
+  return undefined;
+}
+
+function sanitizeRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (SECRET_KEY_PATTERN.test(key)) {
+      out[key] = `\${${normalizeEnvPrefix(key)}}`;
+      continue;
+    }
+    if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean" || raw === null) {
+      out[key] = raw;
+    } else if (Array.isArray(raw)) {
+      out[key] = raw.filter((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean" || item === null);
+    } else if (isRecord(raw)) {
+      const nested = sanitizeRecord(raw);
+      if (nested && Object.keys(nested).length) out[key] = nested;
+    }
+  }
+  return out;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (SECRET_KEY_PATTERN.test(key)) {
+      out[key] = `\${${normalizeEnvPrefix(key)}}`;
+    } else if (typeof raw === "string") {
+      out[key] = SECRET_KEY_PATTERN.test(raw) ? `\${${normalizeEnvPrefix(key)}}` : raw;
+    }
+  }
+  return out;
+}
+
+function numberField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function normalizeConfigKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[_./:@]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+function normalizeEnvPrefix(raw: string): string {
+  const value = raw.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return value || "MIGRATED_SECRET";
+}
+
+function countSkillCarry(skills: SkillRuntimeConfig | undefined): number {
+  return (skills?.load ? 1 : 0) + Object.keys(skills?.entries ?? {}).length;
+}
+
+function countToolCarry(tools: ToolRuntimeConfig | undefined): number {
+  return (tools?.allow?.length ?? 0) + (tools?.deny?.length ?? 0) + Object.keys(tools?.entries ?? {}).length + Object.keys(tools?.mcp?.servers ?? {}).length;
+}
+
+function countPluginCarry(plugins: CapabilityPluginPolicy | undefined): number {
+  return (plugins?.allow?.length ?? 0) + (plugins?.deny?.length ?? 0) + Object.keys(plugins?.entries ?? {}).length + Object.keys(plugins?.slots ?? {}).length + (plugins?.load?.paths?.length ?? 0);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

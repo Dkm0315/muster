@@ -15,6 +15,13 @@ export interface ScheduleJob {
   readonly lastRunId?: string;
   readonly lastStatus?: "completed" | "failed";
   readonly disabled?: boolean;
+  /**
+   * The next occurrence this job is due, ISO. Due detection compares this to
+   * now (not "does the current minute match"), so a missed tick is not a lost
+   * occurrence — it's caught the next time run-due fires. Advanced to the next
+   * FUTURE occurrence before running, so a backlog never bursts (at-most-once).
+   */
+  readonly nextRunAt?: string;
 }
 
 export function schedulesPath(cwd = process.cwd()): string {
@@ -75,6 +82,26 @@ export function parseCron(expression: string): { matches(date: Date): boolean } 
   };
 }
 
+/**
+ * The first minute STRICTLY AFTER `from` that satisfies the cron. Forward-scans
+ * minute by minute (bounded to a year so an unsatisfiable expression throws
+ * instead of looping forever). This is the at-most-once / no-lost-occurrence
+ * primitive: advance to this before running and a backlog of missed ticks
+ * collapses to a single next occurrence rather than bursting.
+ */
+export function computeNextRun(cron: string, from: Date): Date {
+  const parsed = parseCron(cron);
+  const next = new Date(from);
+  next.setSeconds(0, 0);
+  next.setMinutes(next.getMinutes() + 1);
+  const maxMinutes = 366 * 24 * 60;
+  for (let i = 0; i < maxMinutes; i += 1) {
+    if (parsed.matches(next)) return new Date(next);
+    next.setMinutes(next.getMinutes() + 1);
+  }
+  throw new Error(`Cron "${cron}" has no matching time within a year.`);
+}
+
 async function readJobs(cwd: string): Promise<ScheduleJob[]> {
   // Missing file -> no jobs yet; corrupt file -> throw so the corruption is
   // visible instead of silently dropping every schedule.
@@ -87,16 +114,18 @@ async function writeJobs(jobs: ScheduleJob[], cwd: string): Promise<void> {
   await writeFile(path, JSON.stringify(jobs, null, 2));
 }
 
-export async function addSchedule(cron: string, prompt: string, options: { profile?: string; cwd?: string; flowId?: string } = {}): Promise<ScheduleJob> {
+export async function addSchedule(cron: string, prompt: string, options: { profile?: string; cwd?: string; flowId?: string; now?: Date } = {}): Promise<ScheduleJob> {
   parseCron(cron);
   const cwd = options.cwd ?? process.cwd();
+  const createdAt = options.now ?? new Date();
   const job: ScheduleJob = {
     id: `sched_${randomUUID().slice(0, 8)}`,
     cron,
     prompt,
     flowId: options.flowId,
     profile: options.profile,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
+    nextRunAt: computeNextRun(cron, createdAt).toISOString(),
   };
   const jobs = await readJobs(cwd);
   jobs.push(job);
@@ -124,9 +153,14 @@ export interface DueJobRun {
 }
 
 /**
- * Executes all jobs whose cron matches the current minute and which have not
- * already run in this minute. There is no daemon: invoke this from external
- * cron (e.g. `* * * * * cd <repo> && pnpm hc schedule run-due`).
+ * Executes every job that is DUE (nextRunAt <= now) — not merely "the current
+ * minute matches" — so a missed tick (host asleep, a skipped cron minute, a
+ * restart) is caught the next time this runs rather than lost. Each due job's
+ * nextRunAt is advanced to its next FUTURE occurrence and PERSISTED before any
+ * runner executes: that gives at-most-once (a crash or an overlapping run-due
+ * invocation can't double-fire) and collapses a backlog to one occurrence (no
+ * burst). There is no daemon: invoke from external cron
+ * (e.g. `* * * * * cd <repo> && pnpm hc schedule run-due`).
  */
 export async function runDueSchedules(
   runner: (job: ScheduleJob) => Promise<{ runId: string; status: "completed" | "failed" }>,
@@ -134,21 +168,31 @@ export async function runDueSchedules(
 ): Promise<DueJobRun[]> {
   const cwd = options.cwd ?? process.cwd();
   const now = options.now ?? new Date();
-  const currentMinute = new Date(now);
-  currentMinute.setSeconds(0, 0);
   const jobs = await readJobs(cwd);
   const results: DueJobRun[] = [];
+
+  // Phase 1: select due jobs and advance their nextRunAt past `now`, then
+  // persist BEFORE running anything (the at-most-once barrier).
+  const due: number[] = [];
   for (let index = 0; index < jobs.length; index += 1) {
     const job = jobs[index];
     if (job.disabled) {
       results.push({ job, status: "skipped", detail: "disabled" });
       continue;
     }
-    if (!parseCron(job.cron).matches(now)) continue;
-    if (job.lastRunAt && new Date(job.lastRunAt) >= currentMinute) {
-      results.push({ job, status: "skipped", detail: "already ran this minute" });
-      continue;
-    }
+    // Legacy jobs (created before nextRunAt) derive it from their last run/creation.
+    const nextRunAt = job.nextRunAt
+      ? new Date(job.nextRunAt)
+      : computeNextRun(job.cron, new Date(job.lastRunAt ?? job.createdAt));
+    if (nextRunAt > now) continue; // not due yet
+    jobs[index] = { ...job, nextRunAt: computeNextRun(job.cron, now).toISOString() };
+    due.push(index);
+  }
+  if (due.length) await writeJobs(jobs, cwd);
+
+  // Phase 2: run each due job (advance already persisted, so no double-fire).
+  for (const index of due) {
+    const job = jobs[index];
     try {
       const result = await runner(job);
       jobs[index] = { ...job, lastRunAt: now.toISOString(), lastRunId: result.runId, lastStatus: result.status };
@@ -158,6 +202,6 @@ export async function runDueSchedules(
       results.push({ job: jobs[index], status: "failed", detail: error instanceof Error ? error.message : String(error) });
     }
   }
-  await writeJobs(jobs, cwd);
+  if (due.length) await writeJobs(jobs, cwd);
   return results;
 }

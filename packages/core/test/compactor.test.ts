@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compact, estimateTokens } from "../src/index.js";
+import { compact, estimateTokens, renderConversation } from "../src/index.js";
 import type { TranscriptMessage } from "../src/index.js";
 
 function bigTranscript(turns: number): TranscriptMessage[] {
@@ -69,4 +69,27 @@ test("recent tail stays verbatim", async () => {
   const tail = messages.slice(-4).map((message) => message.content);
   const planTail = plan.messages.slice(-4).map((message) => message.content);
   assert.deepEqual(planTail, tail);
+});
+
+const tokenTotal = (msgs: TranscriptMessage[]): number => msgs.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+
+test("renderConversation: small conversation passes through with system + the new turn last", async () => {
+  const out = await renderConversation({
+    system: "operating rules + recalled memory",
+    prior: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }],
+    userPrompt: "what's next?",
+    budgetTokens: 1_000_000,
+  });
+  assert.equal(out[0].role, "system");
+  assert.equal(out[0].content, "operating rules + recalled memory");
+  assert.equal(out.at(-1)?.role, "user");
+  assert.equal(out.at(-1)?.content, "what's next?");
+});
+
+test("renderConversation: over-budget transcript is cut to fit, keeping the system head and the new turn", async () => {
+  const budget = 800;
+  const out = await renderConversation({ prior: bigTranscript(40), userPrompt: "FINAL QUESTION", budgetTokens: budget });
+  assert.ok(tokenTotal(out) <= budget, `rendered ${tokenTotal(out)} tokens must fit budget ${budget}`);
+  assert.equal(out[0].role, "system", "system head is protected through compaction");
+  assert.equal(out.at(-1)?.content, "FINAL QUESTION", "the new user turn is always preserved");
 });

@@ -21,6 +21,8 @@ export interface ToolFlowStep {
   readonly tool: string;
   readonly args?: Record<string, unknown>;
   readonly when?: string;
+  /** Extra attempts on failure before the step fails (0 = no retry). Bounded backoff between tries. Lobster has no error recovery; muster does. */
+  readonly retry?: number;
 }
 
 export interface AgentFlowStep {
@@ -40,7 +42,20 @@ export interface GateFlowStep {
   readonly when?: string;
 }
 
-export type FlowStep = ToolFlowStep | AgentFlowStep | GateFlowStep;
+export interface ForeachFlowStep {
+  readonly id: string;
+  readonly kind: "foreach";
+  /** Reference to a prior step output that must be an array, e.g. "fetch.items". */
+  readonly over: string;
+  /** Tool run once per array element; receives `{ item, ...args }` (item = the current element). */
+  readonly tool: string;
+  readonly args?: Record<string, unknown>;
+  readonly when?: string;
+  /** Per-item retry, same semantics as a tool step. */
+  readonly retry?: number;
+}
+
+export type FlowStep = ToolFlowStep | AgentFlowStep | GateFlowStep | ForeachFlowStep;
 
 export interface FlowDefinition {
   readonly id: string;
@@ -121,7 +136,7 @@ export interface ResumeFlowOptions extends RunFlowOptions {
 const STEP_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const FLOW_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const TEMPLATE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
-const STEP_KINDS = ["tool", "agent", "gate"] as const;
+const STEP_KINDS = ["tool", "agent", "gate", "foreach"] as const;
 
 export function flowsDir(cwd = process.cwd()): string {
   return join(cwd, ".muster", "flows");
@@ -209,6 +224,31 @@ export function validateFlow(value: unknown): FlowIssue[] {
       } else if (step.args) {
         issues.push(...validateTemplateRefs(name, stepId, JSON.stringify(step.args), priorIds, allIds));
       }
+      if (step.retry !== undefined && (!Number.isInteger(step.retry) || step.retry < 0 || step.retry > 10)) {
+        issues.push({ stepId, message: `Tool step "${name}": "retry" must be an integer between 0 and 10 when present.` });
+      }
+    }
+
+    if (step.kind === "foreach") {
+      const overRef = typeof step.over === "string" && step.over
+        ? (STEP_ID_PATTERN.test(step.over) ? { stepId: step.over } : parseReference(step.over))
+        : undefined;
+      if (!overRef) {
+        issues.push({ stepId, message: `Foreach step "${name}" requires "over" to reference a prior step's array output (e.g. "fetch.items" or "fetch").` });
+      } else if (!priorIds.has(overRef.stepId)) {
+        issues.push({ stepId, message: `Foreach step "${name}": "over" references ${allIds.has(overRef.stepId) ? "a later step" : "nonexistent step"} "${overRef.stepId}".` });
+      }
+      if (typeof step.tool !== "string" || !step.tool.trim()) {
+        issues.push({ stepId, message: `Foreach step "${name}" requires a non-empty "tool" name.` });
+      }
+      if (step.args !== undefined && (typeof step.args !== "object" || step.args === null || Array.isArray(step.args))) {
+        issues.push({ stepId, message: `Foreach step "${name}": "args" must be an object when present.` });
+      } else if (step.args) {
+        issues.push(...validateTemplateRefs(name, stepId, JSON.stringify(step.args), priorIds, allIds));
+      }
+      if (step.retry !== undefined && (!Number.isInteger(step.retry) || step.retry < 0 || step.retry > 10)) {
+        issues.push({ stepId, message: `Foreach step "${name}": "retry" must be an integer between 0 and 10 when present.` });
+      }
     }
 
     if (step.kind === "agent") {
@@ -274,7 +314,7 @@ export function preflightFlow(flow: unknown, registry: FlowToolRegistry, config:
   if (!issues.length) {
     const definition = flow as FlowDefinition;
     for (const step of definition.steps) {
-      if (step.kind === "tool" && !registry[step.tool]) {
+      if ((step.kind === "tool" || step.kind === "foreach") && !registry[step.tool]) {
         issues.push({ stepId: step.id, message: `Step "${step.id}": tool "${step.tool}" is not registered.` });
       }
     }
@@ -541,6 +581,65 @@ async function executeStepsTraced(context: ExecutionContext, fromIndex: number, 
       return { runId, flowId: flow.id, status: "awaiting_approval", outputs: context.outputs, gateId: step.id, show };
     }
 
+    if (step.kind === "foreach") {
+      let items: unknown;
+      try {
+        items = STEP_ID_PATTERN.test(step.over) && step.over in context.outputs
+          ? context.outputs[step.over]
+          : lookupReference(step.over, context.outputs);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await endStep("error", message);
+        return failStep(context, step.id, message);
+      }
+      if (!Array.isArray(items)) {
+        const message = `Foreach step "${step.id}": "over" (${step.over}) did not resolve to an array.`;
+        await endStep("error", message);
+        return failStep(context, step.id, message);
+      }
+      const tool = context.registry[step.tool];
+      if (!tool) {
+        const message = `Tool "${step.tool}" is not registered.`;
+        await endStep("error", message);
+        return failStep(context, step.id, message);
+      }
+      await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
+      const results: unknown[] = [];
+      const maxAttempts = 1 + (step.retry ?? 0);
+      for (const item of items) {
+        let baseArgs: Record<string, unknown>;
+        try {
+          baseArgs = resolveTemplates(step.args ?? {}, context.outputs) as Record<string, unknown>;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await endStep("error", message);
+          return failStep(context, step.id, message);
+        }
+        // The current element wins over any args.item, so the binding is reliable.
+        const itemArgs = { ...baseArgs, item };
+        let lastError: string | undefined;
+        let ok = false;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            results.push(await tool(itemArgs));
+            ok = true;
+            break;
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+            if (attempt < maxAttempts) await new Promise((resolve) => setTimeout(resolve, Math.min(20 * attempt, 200)));
+          }
+        }
+        if (!ok) {
+          await endStep("error", lastError);
+          return failStep(context, step.id, lastError ?? `Foreach tool "${step.tool}" failed.`);
+        }
+      }
+      context.outputs[step.id] = results;
+      await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output: results }, cwd, onEvent);
+      await endStep("ok");
+      continue;
+    }
+
     if (step.kind === "tool") {
       let args: Record<string, unknown>;
       try {
@@ -557,14 +656,30 @@ async function executeStepsTraced(context: ExecutionContext, fromIndex: number, 
         return failStep(context, step.id, message);
       }
       await appendEvent(runId, { type: "step_started", at: now(), stepId: step.id }, cwd, onEvent);
-      try {
-        const output = await tool(args);
+      {
+        // Retry a transient tool failure up to `retry` extra times with bounded
+        // backoff (lobster has no error recovery; muster does). A step that
+        // ultimately succeeds is recorded once; only persistent failure fails it.
+        const maxAttempts = 1 + (step.retry ?? 0);
+        let lastError: string | undefined;
+        let output: unknown;
+        let ok = false;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            output = await tool(args);
+            ok = true;
+            break;
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+            if (attempt < maxAttempts) await new Promise((resolve) => setTimeout(resolve, Math.min(20 * attempt, 200)));
+          }
+        }
+        if (!ok) {
+          await endStep("error", lastError);
+          return failStep(context, step.id, lastError ?? `Tool "${step.tool}" failed.`);
+        }
         context.outputs[step.id] = output;
         await appendEvent(runId, { type: "step_completed", at: now(), stepId: step.id, output }, cwd, onEvent);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await endStep("error", message);
-        return failStep(context, step.id, message);
       }
       await endStep("ok");
       continue;
@@ -811,10 +926,10 @@ export async function diffFlowRuns(runIdA: string, runIdB: string, cwd = process
  * Binds a saved flow to the existing scheduler: `muster flow loop <id> --cron`.
  * The job carries `flowId`, so run-due executes runFlow instead of executeRun.
  */
-export async function scheduleFlowLoop(flowId: string, cron: string, options: { cwd?: string } = {}): Promise<ScheduleJob> {
+export async function scheduleFlowLoop(flowId: string, cron: string, options: { cwd?: string; now?: Date } = {}): Promise<ScheduleJob> {
   const cwd = options.cwd ?? process.cwd();
   const flow = await loadFlow(flowId, cwd); // refuses unknown flows up front
-  return addSchedule(cron, `flow-loop: run flow "${flow.id}"`, { cwd, flowId: flow.id });
+  return addSchedule(cron, `flow-loop: run flow "${flow.id}"`, { cwd, flowId: flow.id, now: options.now });
 }
 
 /**

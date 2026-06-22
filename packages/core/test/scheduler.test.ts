@@ -38,10 +38,11 @@ test("addSchedule validates the cron expression up front", async () => {
   await assert.rejects(() => addSchedule("not a cron", "do things", { cwd }), /5 fields/);
 });
 
-test("runDueSchedules executes due jobs once per minute and records state", async () => {
+test("runDueSchedules runs due jobs, advances nextRunAt, and does not double-fire", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-sched-run-"));
-  await addSchedule("* * * * *", "always due", { cwd });
-  await addSchedule("0 0 1 1 *", "new year only", { cwd });
+  const created = new Date("2026-06-10T09:40:00");
+  await addSchedule("* * * * *", "always due", { cwd, now: created });
+  await addSchedule("0 0 1 1 *", "new year only", { cwd, now: created });
 
   const now = new Date("2026-06-10T09:41:30");
   const ran: string[] = [];
@@ -54,22 +55,40 @@ test("runDueSchedules executes due jobs once per minute and records state", asyn
   assert.equal(results.length, 1);
   assert.equal(results[0].status, "completed");
 
-  // Re-running in the same minute must skip, not double-fire.
+  // Re-running in the same minute must NOT double-fire — nextRunAt advanced past now.
   const second = await runDueSchedules(async () => {
-    throw new Error("should not run again this minute");
+    throw new Error("should not run again — nextRunAt is in the future");
   }, { now: new Date("2026-06-10T09:41:55"), cwd });
-  assert.equal(second.length, 1);
-  assert.equal(second[0].status, "skipped");
+  assert.equal(second.length, 0, "no job is due again this minute");
 
   const jobs = await listSchedules(cwd);
   const due = jobs.find((job) => job.prompt === "always due");
   assert.equal(due?.lastStatus, "completed");
   assert.equal(due?.lastRunId, "run_x");
+  assert.ok(new Date(due!.nextRunAt!) > now, "nextRunAt advanced to a future occurrence");
+});
+
+test("runDueSchedules catches a missed occurrence and fast-forwards (no burst)", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sched-missed-"));
+  // Created at 09:00; nextRunAt = 09:05. Then run-due is not invoked for an hour
+  // (host asleep). At 10:02 the job is overdue by ~12 missed */5 ticks.
+  await addSchedule("*/5 * * * *", "every five", { cwd, now: new Date("2026-06-10T09:00:00") });
+  let runs = 0;
+  const results = await runDueSchedules(async () => {
+    runs += 1;
+    return { runId: "r", status: "completed" };
+  }, { now: new Date("2026-06-10T10:02:00"), cwd });
+
+  assert.equal(runs, 1, "a backlog of missed ticks runs ONCE, never bursts");
+  assert.equal(results[0].status, "completed");
+  const job = (await listSchedules(cwd))[0];
+  // Fast-forwarded to the next FUTURE */5 after 10:02 → 10:05, not replaying 09:05..10:00.
+  assert.equal(new Date(job.nextRunAt!).toISOString(), new Date("2026-06-10T10:05:00").toISOString());
 });
 
 test("runDueSchedules records runner failures without losing the job", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-sched-fail-"));
-  await addSchedule("* * * * *", "will fail", { cwd });
+  await addSchedule("* * * * *", "will fail", { cwd, now: new Date("2026-06-10T09:59:00") });
   const results = await runDueSchedules(async () => {
     throw new Error("provider exploded");
   }, { now: new Date("2026-06-10T10:00:00"), cwd });

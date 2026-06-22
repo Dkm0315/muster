@@ -21,6 +21,8 @@ export interface TokenRecord {
   readonly costUsd?: number;
   /** Surface that originated the run (gateway runs only); enables per-surface budgets. */
   readonly surfaceId?: string;
+  /** `name@version` of each skill injected into this run — makes cost attributable to a skill version (#11692). */
+  readonly skills?: string[];
 }
 
 // Rough public list prices per 1M tokens (input, output). Used only for the
@@ -68,6 +70,7 @@ export interface BuildTokenRecordInput {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly surfaceId?: string;
+  readonly skills?: string[];
 }
 
 export function buildTokenRecord(input: BuildTokenRecordInput): TokenRecord {
@@ -98,6 +101,7 @@ export function buildTokenRecord(input: BuildTokenRecordInput): TokenRecord {
     wasteRatio,
     costUsd: estimateCostUsd(input.model, inputTokens, outputTokens),
     surfaceId: input.surfaceId,
+    skills: input.skills,
   };
 }
 
@@ -144,13 +148,14 @@ export function renderTokenTable(records: readonly TokenRecord[], limit = 20): s
     ].join(" "));
   }
   lines.push("");
-  const byModel = new Map<string, { input: number; output: number; cost: number; runs: number; waste: number }>();
+  const byModel = new Map<string, { input: number; output: number; cost: number; runs: number; waste: number; unpriced: number }>();
   for (const record of records) {
     const key = `${record.provider}/${record.model}`;
-    const entry = byModel.get(key) ?? { input: 0, output: 0, cost: 0, runs: 0, waste: 0 };
+    const entry = byModel.get(key) ?? { input: 0, output: 0, cost: 0, runs: 0, waste: 0, unpriced: 0 };
     entry.input += record.inputTokens;
     entry.output += record.outputTokens;
     entry.cost += record.costUsd ?? 0;
+    if (record.costUsd === undefined) entry.unpriced += 1;
     entry.runs += 1;
     if (record.wasteRatio !== undefined) entry.waste += 1;
     byModel.set(key, entry);
@@ -163,7 +168,7 @@ export function renderTokenTable(records: readonly TokenRecord[], limit = 20): s
       pad(String(entry.runs), 6),
       pad(num(entry.input), 10),
       pad(num(entry.output), 10),
-      pad(entry.cost ? entry.cost.toFixed(4) : "-", 10),
+      pad(entry.unpriced ? (entry.cost ? `${entry.cost.toFixed(4)}+` : "?") : (entry.cost ? entry.cost.toFixed(4) : "-"), 10),
       pad(entry.waste ? `${entry.waste} !` : "0", 10),
     ].join(" "));
   }
@@ -171,6 +176,35 @@ export function renderTokenTable(records: readonly TokenRecord[], limit = 20): s
   if (wasteRuns.length) {
     lines.push("");
     lines.push(`replay-waste detected on ${wasteRuns.length} run(s): continued sessions whose input volume exceeded ${WASTE_FACTOR}x the fresh prompt+context. Consider branching a new session or compacting.`);
+  }
+  // Loud about silent undercount: unlike a stderr-only warning, surface that any
+  // unpriced-model runs make the cost totals a lower bound (counted as $0).
+  const unpricedRuns = records.filter((record) => record.costUsd === undefined).length;
+  if (unpricedRuns) {
+    lines.push("");
+    lines.push(`note: ${unpricedRuns} run(s) ran on models with no price match — cost totals above are a LOWER BOUND (those runs counted as $0). "+" marks a model whose total excludes unpriced runs.`);
+  }
+  // Subagent spend folded by parent: child runs are tagged surfaceId
+  // "subagent:<parentKey>", so their cost is attributable to the parent that
+  // spawned them (the standing rule: subagent spend folds into parents).
+  const SUB_PREFIX = "subagent:";
+  const subByParent = new Map<string, { runs: number; input: number; output: number; cost: number }>();
+  for (const record of records) {
+    if (!record.surfaceId?.startsWith(SUB_PREFIX)) continue;
+    const parent = record.surfaceId.slice(SUB_PREFIX.length) || "(unknown)";
+    const entry = subByParent.get(parent) ?? { runs: 0, input: 0, output: 0, cost: 0 };
+    entry.runs += 1;
+    entry.input += record.inputTokens;
+    entry.output += record.outputTokens;
+    entry.cost += record.costUsd ?? 0;
+    subByParent.set(parent, entry);
+  }
+  if (subByParent.size) {
+    lines.push("");
+    lines.push("subagent spend folded by parent:");
+    for (const [parent, entry] of subByParent) {
+      lines.push(`  ${pad(parent.slice(0, 28), 28)} ${pad(`${entry.runs} run(s)`, 9)} in ${pad(num(entry.input), 8)} out ${pad(num(entry.output), 8)} cost$ ${entry.cost ? entry.cost.toFixed(4) : "-"}`);
+    }
   }
   return lines.join("\n");
 }

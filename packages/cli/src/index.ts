@@ -2,6 +2,7 @@
 import { printBanner } from "./banner.js";
 import {
   openSessionStore,
+  clearConversationSessionHandles,
   listSkills,
   viewSkill,
   promoteSkill,
@@ -74,6 +75,7 @@ import {
   renderTokenTable,
   listSpans,
   renderTracesTable,
+  skillsIndexPath,
   activeProfile,
   dataDir,
   parseCron,
@@ -103,13 +105,17 @@ import {
 } from "@musterhq/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MigrationSource } from "@musterhq/core";
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
 
 const [, , command, ...args] = process.argv;
 
 async function main(): Promise<void> {
   switch (command) {
     case undefined:
+      await chat(args);
+      return;
     case "help":
     case "--help":
     case "-h":
@@ -126,7 +132,7 @@ async function main(): Promise<void> {
       await statusCommand();
       return;
     case "chat":
-      await chat(args.join(" ").trim());
+      await chat(args);
       return;
     case "claude":
       await claude(args);
@@ -227,10 +233,14 @@ function printHelp(): void {
   console.log(`Muster v0
 
 Usage:
+  muster                                    # open interactive chat
   muster init
   muster doctor [--fix]
   muster status
+  muster chat
   muster chat "your prompt"
+  muster chat --session work "your prompt"
+  muster chat --session work --history
   muster claude inspect
   muster claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
   muster episodes
@@ -264,7 +274,7 @@ Usage:
   muster migrate hermes --dry-run
   muster migrate pi --dry-run
   muster sessions search "query" | show <id> | recent
-  muster skills list | view <name> | curate
+  muster skills list | view <name> | index | curate
   muster pulse add "<cron>" [--kind heartbeat|task] [--prompt "..."] | list | resume <id> | run-due
   muster subagents list | reap [--ttl-min N]
   muster demo                         # provision a throwaway workspace + stub model, show the full pipeline
@@ -338,11 +348,356 @@ async function doctor(commandArgs: string[] = []): Promise<void> {
   }
 }
 
-async function chat(prompt: string): Promise<void> {
-  if (!prompt) {
-    throw new Error('Missing prompt. Example: muster chat "Summarize this repo"');
+interface ChatState {
+  sessionName: string;
+  runtime?: string;
+  provider?: string;
+  model?: string;
+  scopes: MemoryScope[];
+  recallLimit?: number;
+}
+
+const DEFAULT_CHAT_SESSION = "main";
+
+async function chat(commandArgs: string[]): Promise<void> {
+  if (commandArgs.includes("--help") || commandArgs.includes("-h")) {
+    printChatHelp();
+    return;
   }
-  await runPrompt(prompt);
+  const state: ChatState = {
+    sessionName: safeChatSessionName(readFlag(commandArgs, "--session") ?? readFlag(commandArgs, "--name") ?? DEFAULT_CHAT_SESSION),
+    runtime: readFlag(commandArgs, "--runtime"),
+    provider: readFlag(commandArgs, "--provider"),
+    model: readFlag(commandArgs, "--model"),
+    scopes: readFlags(commandArgs, "--scope").map(parseMemoryScope),
+    recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
+  };
+  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms"]).join(" ").trim();
+  if (commandArgs.includes("--list") || commandArgs.includes("--sessions")) {
+    printChatSessions(readNumberFlag(commandArgs, "--limit") ?? 15);
+    return;
+  }
+  if (commandArgs.includes("--history")) {
+    printChatHistory(state.sessionName, readNumberFlag(commandArgs, "--limit") ?? 40);
+    return;
+  }
+  if (prompt) {
+    await runChatTurn(prompt, state, { timeoutMs: readNumberFlag(commandArgs, "--timeout-ms") });
+    return;
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Interactive chat requires a TTY. Use: muster chat "your prompt" or muster chat --history --session main.');
+  }
+  await interactiveChat(state);
+}
+
+function printChatHelp(): void {
+  console.log(`muster chat
+
+Usage:
+  muster chat                               # interactive terminal chat
+  muster chat "your prompt"                 # one-shot turn in the main named session
+  muster chat --session work "prompt"       # one-shot turn in a named session
+  muster chat --session work --history      # show a named session
+  muster chat --list                        # list recent chat sessions
+
+In-chat commands:
+  /help                 show commands
+  /status               show runtime, model, session, token usage
+  /sessions             list recent named chats
+  /resume <name|id>     switch to a prior named chat or session id
+  /name <name>          switch current reference name
+  /history [limit]      show current chat history
+  /memory <query>       search scoped memory
+  /tokens [limit]       show token ledger
+  /new [name]           start/switch to a fresh named chat and clear provider handles
+  /reset                clear provider handles for this named chat
+  /exit                 leave chat
+
+Shortcuts:
+  @agent-name <task>    route this turn with agent id agent-name
+  End a line with \\ to continue multiline input.`);
+}
+
+async function interactiveChat(state: ChatState): Promise<void> {
+  await ensureDefaultConfig();
+  printBanner();
+  printChatHeader(state);
+  const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true });
+  let pending = "";
+  try {
+    while (true) {
+      const promptLabel = pending ? color("... ", "dim") : `${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `;
+      const line = await rl.question(promptLabel);
+      const raw = line.endsWith("\\") ? line.slice(0, -1) : line;
+      pending = pending ? `${pending}\n${raw}` : raw;
+      if (line.endsWith("\\")) continue;
+      const text = pending.trim();
+      pending = "";
+      if (!text) continue;
+      const keepGoing = await handleChatInput(text, state);
+      if (!keepGoing) break;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function printChatHeader(state: ChatState): void {
+  const width = Math.min(process.stdout.columns || 100, 120);
+  console.log(color(boxLine("top", width), "cyan"));
+  console.log(color(boxText(`Muster Chat  session=${state.sessionName}  cwd=${truncate(process.cwd(), width - 36)}`, width), "cyan"));
+  console.log(color(boxLine("mid", width), "cyan"));
+  console.log(color(boxText("Type normal text to run the agent. Type /help for commands, /exit to leave.", width), "dim"));
+  console.log(color(boxLine("bottom", width), "cyan"));
+}
+
+async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
+  if (text.startsWith("/")) return handleChatCommand(text, state);
+  await runChatTurn(text, state);
+  return true;
+}
+
+async function handleChatCommand(text: string, state: ChatState): Promise<boolean> {
+  const [nameWithSlash, ...rest] = text.split(/\s+/);
+  const name = nameWithSlash.slice(1).toLowerCase();
+  const args = rest.join(" ").trim();
+  switch (name) {
+    case "exit":
+    case "quit":
+    case "q":
+      console.log(color("bye", "dim"));
+      return false;
+    case "help":
+      printChatHelp();
+      return true;
+    case "status":
+      await printChatStatus(state);
+      return true;
+    case "sessions":
+    case "resume-list":
+      printChatSessions(args ? Number(args) || 15 : 15);
+      return true;
+    case "resume":
+      if (!args) {
+        console.log(color("Usage: /resume <name|session-id>", "yellow"));
+        return true;
+      }
+      state.sessionName = safeChatSessionName(resolveChatSessionName(args));
+      console.log(color(`session=${state.sessionName}`, "green"));
+      return true;
+    case "name":
+      if (!args) {
+        console.log(color("Usage: /name <reference-name>", "yellow"));
+        return true;
+      }
+      state.sessionName = safeChatSessionName(args);
+      ensureNamedChatSession(state.sessionName);
+      console.log(color(`session=${state.sessionName}`, "green"));
+      return true;
+    case "history":
+      printChatHistory(state.sessionName, args ? Number(args) || 40 : 40);
+      return true;
+    case "memory":
+      await printChatMemory(args, state);
+      return true;
+    case "tokens":
+      console.log(renderTokenTable(await listTokenRecords(), args ? Number(args) || 20 : 20));
+      return true;
+    case "new": {
+      state.sessionName = safeChatSessionName(args || `chat-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
+      const removed = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+      ensureNamedChatSession(state.sessionName);
+      console.log(color(`session=${state.sessionName} provider_handles_cleared=${removed}`, "green"));
+      return true;
+    }
+    case "reset": {
+      const removed = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+      console.log(color(`provider_handles_cleared=${removed}`, "green"));
+      return true;
+    }
+    default:
+      console.log(color(`Unknown command /${name}. Type /help.`, "yellow"));
+      return true;
+  }
+}
+
+async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?: number } = {}): Promise<void> {
+  await ensureDefaultConfig();
+  const routed = parseAgentMention(text);
+  const prompt = routed ? routed.prompt : text;
+  const agentId = routed?.agentId;
+  const config = await loadConfig();
+  const started = Date.now();
+  process.stdout.write(color(`\n${agentId ? `@${agentId} ` : ""}working`, "cyan"));
+  const timer = setInterval(() => process.stdout.write(color(".", "dim")), 500);
+  let outcome: RunOutcome;
+  try {
+    outcome = await executeRun(config, {
+      prompt: agentId ? `Agent route: ${agentId}\n\n${prompt}` : prompt,
+      runtime: state.runtime,
+      provider: state.provider,
+      model: state.model,
+      scopes: state.scopes.length ? state.scopes : undefined,
+      recallLimit: state.recallLimit,
+      cwd: process.cwd(),
+      conversationKey: chatConversationKey(state.sessionName),
+      surfaceId: "cli-chat",
+      agentId,
+      timeoutMs: options.timeoutMs,
+    });
+  } finally {
+    clearInterval(timer);
+    process.stdout.write("\n");
+  }
+  persistChatTranscriptIfMissing(state.sessionName, prompt, outcome);
+  printAssistantResponse(outcome, Date.now() - started);
+  if (outcome.episode.outcome?.kind === "failed") {
+    console.log(color(outcome.episode.outcome.detail ?? "Run failed", "red"));
+  }
+}
+
+function parseAgentMention(text: string): { agentId: string; prompt: string } | undefined {
+  const match = text.match(/^@([a-zA-Z0-9_.:-]+)\s+([\s\S]+)$/);
+  if (!match) return undefined;
+  return { agentId: match[1], prompt: match[2].trim() };
+}
+
+function printAssistantResponse(outcome: RunOutcome, elapsedMs: number): void {
+  const status = outcome.episode.outcome?.kind ?? "unknown";
+  const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status} ${elapsedMs}ms`;
+  console.log(color(header, status === "completed" ? "green" : "red"));
+  if (outcome.recalled.length) console.log(color(`recalled ${outcome.recalled.length} scoped memories`, "dim"));
+  if (outcome.fallbackUsed) console.log(color(`fallback=${outcome.fallbackUsed}`, "yellow"));
+  console.log("");
+  for (const line of wrapPreserveLines(outcome.episode.responseText || "(empty response)", Math.min(process.stdout.columns || 100, 120) - 2)) {
+    console.log(line);
+  }
+  console.log(color(`\ntokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}`, "dim"));
+}
+
+function persistChatTranscriptIfMissing(sessionName: string, prompt: string, outcome: RunOutcome): void {
+  const store = openSessionStore();
+  try {
+    const session = store.findOrCreateSession({ channel: "cli-chat", peer: sessionName, title: sessionName });
+    store.setTitle(session.id, sessionName);
+    const messages = store.loadActiveMessages(session.id);
+    const lastTwo = messages.slice(-2);
+    const alreadyStored = lastTwo[0]?.role === "user" && lastTwo[0].content === prompt && lastTwo[1]?.role === "assistant" && lastTwo[1].content === outcome.episode.responseText;
+    if (!alreadyStored) {
+      store.appendMessage(session.id, "user", prompt);
+      store.appendMessage(session.id, "assistant", outcome.episode.responseText);
+    }
+    store.addUsage(session.id, outcome.tokens.inputTokens, outcome.tokens.outputTokens, outcome.tokens.costUsd ?? 0);
+  } finally {
+    store.close();
+  }
+}
+
+function ensureNamedChatSession(sessionName: string): void {
+  const store = openSessionStore();
+  try {
+    const session = store.findOrCreateSession({ channel: "cli-chat", peer: sessionName, title: sessionName });
+    store.setTitle(session.id, sessionName);
+  } finally {
+    store.close();
+  }
+}
+
+function printChatSessions(limit: number): void {
+  const store = openSessionStore();
+  try {
+    const result = store.search({ limit });
+    if (result.shape !== "browse") return;
+    const sessions = result.sessions.filter((session) => session.channel === "cli-chat");
+    if (!sessions.length) {
+      console.log("No named chat sessions yet.");
+      return;
+    }
+    console.log(color("name\tupdated\tmessages\tusage", "cyan"));
+    for (const session of sessions) {
+      const messages = store.loadActiveMessages(session.id).length;
+      console.log(`${session.peer}\t${session.createdAt.slice(0, 16)}\t${messages}\tin=${session.tokensIn} out=${session.tokensOut}`);
+    }
+  } finally {
+    store.close();
+  }
+}
+
+function printChatHistory(sessionName: string, limit: number): void {
+  const store = openSessionStore();
+  try {
+    const session = store.findOrCreateSession({ channel: "cli-chat", peer: sessionName, title: sessionName });
+    const messages = store.loadActiveMessages(session.id).slice(-Math.max(1, limit));
+    console.log(color(`session=${sessionName} messages=${messages.length}`, "cyan"));
+    for (const message of messages) printChatMessage(message);
+  } finally {
+    store.close();
+  }
+}
+
+function printChatMessage(message: MessageRow): void {
+  const roleColor = message.role === "assistant" ? "green" : message.role === "user" ? "cyan" : "dim";
+  console.log(color(`${message.role.padEnd(9)} ${message.createdAt.slice(11, 19)}`, roleColor));
+  for (const line of wrapPreserveLines(message.content, Math.min(process.stdout.columns || 100, 120) - 4).slice(0, 12)) {
+    console.log(`  ${line}`);
+  }
+}
+
+async function printChatStatus(state: ChatState): Promise<void> {
+  const config = await loadConfig();
+  const runtime = state.runtime ?? config.routing.defaultRuntime;
+  const rt = config.runtimes[runtime];
+  const provider = rt ? config.providers[rt.provider] : undefined;
+  const store = openSessionStore();
+  try {
+    const session = store.findOrCreateSession({ channel: "cli-chat", peer: state.sessionName, title: state.sessionName });
+    const messages = store.loadActiveMessages(session.id).length;
+    console.log(color(`session=${state.sessionName} id=${session.id}`, "cyan"));
+    console.log(`runtime=${runtime} provider=${provider?.id ?? state.provider ?? "-"} model=${state.model ?? provider?.defaultModel ?? "-"}`);
+    console.log(`messages=${messages} tokens_in=${session.tokensIn} tokens_out=${session.tokensOut}`);
+  } finally {
+    store.close();
+  }
+}
+
+async function printChatMemory(query: string, state: ChatState): Promise<void> {
+  if (!query) {
+    console.log(color("Usage: /memory <query>", "yellow"));
+    return;
+  }
+  const scopes = state.scopes.length ? state.scopes : [parseMemoryScope(`user:${process.env.USER || process.env.USERNAME || "local"}`)];
+  const results = await searchMemory({ query, scopes, includeGlobal: true }, process.cwd());
+  if (!results.length) {
+    console.log("No matching scoped memory.");
+    return;
+  }
+  for (const memory of results.slice(0, 8)) {
+    console.log(color(`${memory.id} ${memory.kind} ${memory.observedAt}`, "cyan"));
+    console.log(`  ${memory.summary}`);
+  }
+}
+
+function resolveChatSessionName(value: string): string {
+  if (!value.startsWith("sess_")) return value;
+  const store = openSessionStore();
+  try {
+    const result = store.search({ sessionId: value });
+    if (result.shape === "read" && result.session.channel === "cli-chat") return result.session.peer;
+    return value;
+  } finally {
+    store.close();
+  }
+}
+
+function chatConversationKey(sessionName: string): string {
+  return `cli-chat:${sessionName}`;
+}
+
+function safeChatSessionName(value: string): string {
+  const cleaned = value.trim().replace(/[^a-zA-Z0-9_.:-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!cleaned) return DEFAULT_CHAT_SESSION;
+  return cleaned.slice(0, 80);
 }
 
 async function episodes(): Promise<void> {
@@ -438,9 +793,11 @@ async function capability(args: string[]): Promise<void> {
   if (subcommand === "load") {
     if (!path) throw new Error("Usage: muster capability load <path> [--allow-high-risk]");
     const registry = builtinFlowRegistry();
+    const pluginPolicy = await loadPluginPolicy();
     const loaded = await loadCapabilityPack(resolve(process.cwd(), path), {
       registry,
-      allowHighRisk: args.includes("--allow-high-risk")
+      allowHighRisk: args.includes("--allow-high-risk"),
+      pluginPolicy
     });
     console.log(`pack=${loaded.manifest.id} version=${loaded.manifest.version}`);
     console.log(`permissions=${loaded.manifest.permissions.join(",") || "none"}`);
@@ -1081,6 +1438,10 @@ async function migrate(args: string[]): Promise<void> {
     console.log(`model=${result.model}`);
     console.log(`runtime=${result.runtime}`);
     console.log(`commands_migrated=${result.commandsMigrated}`);
+    console.log(`skills_carried=${result.skillsCarried}`);
+    console.log(`tools_carried=${result.toolsCarried}`);
+    console.log(`plugins_carried=${result.pluginsCarried}`);
+    console.log(`devices_carried=${result.devicesCarried}`);
     if (result.tokenEnvRef) console.log(`token_env_ref=${result.tokenEnvRef}`);
     // Make selectivity explicit: exactly ONE channel/profile was migrated.
     console.log(
@@ -1273,8 +1634,26 @@ function wrapText(text: string, width: number): string[] {
   return lines.length ? lines.slice(0, 12) : [""];
 }
 
+function wrapPreserveLines(text: string, width: number): string[] {
+  return text.split("\n").flatMap((line) => wrapText(line || " ", width));
+}
+
 function truncate(value: string, length: number): string {
   return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 3))}...`;
+}
+
+type ColorName = "cyan" | "green" | "yellow" | "red" | "dim";
+
+function color(value: string, name: ColorName): string {
+  if (process.env.NO_COLOR || !process.stdout.isTTY) return value;
+  const codes: Record<ColorName, string> = {
+    cyan: "36",
+    green: "32",
+    yellow: "33",
+    red: "31",
+    dim: "2",
+  };
+  return `\u001b[${codes[name]}m${value}\u001b[0m`;
 }
 
 function formatCompactNumber(value: number): string {
@@ -1471,14 +1850,27 @@ function builtinFlowRegistry(): FlowToolRegistry {
 /** Built-in registry plus any capability packs requested via --pack <dir> (repeatable). */
 async function flowRegistryWithPacks(commandArgs: string[]): Promise<FlowToolRegistry> {
   const registry = builtinFlowRegistry();
+  const pluginPolicy = await loadPluginPolicy();
+  const slotClaims: Record<string, string> = {};
   for (const packDir of readFlags(commandArgs, "--pack")) {
     const loaded = await loadCapabilityPack(resolve(process.cwd(), packDir), {
       registry,
-      allowHighRisk: commandArgs.includes("--allow-high-risk")
+      allowHighRisk: commandArgs.includes("--allow-high-risk"),
+      pluginPolicy,
+      slotClaims
     });
     console.log(`pack_loaded=${loaded.manifest.id} tools=${loaded.toolNames.join(",")}`);
   }
   return registry;
+}
+
+async function loadPluginPolicy(): Promise<CapabilityPluginPolicy | undefined> {
+  try {
+    return (await loadConfig(process.cwd())).plugins;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 function printFlowEvent(event: FlowRunEvent): void {
@@ -1829,6 +2221,29 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
     console.log(`# ${skill.name} (${skill.status}, v${skill.version})\n${skill.description}\n\n${skill.body}`);
     return;
   }
+  if (action === "index") {
+    const path = skillsIndexPath();
+    let index: { skills?: Record<string, { digest?: string; status?: string; version?: string }> };
+    try {
+      index = JSON.parse(await readFile(path, "utf8")) as typeof index;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        console.log("No skill index yet.");
+        return;
+      }
+      throw error;
+    }
+    const entries = Object.entries(index.skills ?? {}).sort(([left], [right]) => left.localeCompare(right));
+    console.log(`path=${path}`);
+    if (!entries.length) {
+      console.log("No indexed skills.");
+      return;
+    }
+    for (const [name, entry] of entries) {
+      console.log(`${entry.status ?? "unknown"} ${name} v${entry.version ?? "unknown"} ${entry.digest ?? "digest=missing"}`);
+    }
+    return;
+  }
   if (action === "curate") {
     const result = await curateSkills();
     console.log(`staled: ${result.staled.join(", ") || "none"}; archived: ${result.archived.join(", ") || "none"}`);
@@ -1839,7 +2254,7 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
     console.log("This is intentional — skills cannot self-certify. See docs/FEATURE_PARITY_PLAN.md.");
     return;
   }
-  throw new Error("Usage: muster skills list|view <name>|curate");
+  throw new Error("Usage: muster skills list|view <name>|index|curate");
 }
 
 async function pulseCommand(commandArgs: string[]): Promise<void> {
@@ -1991,4 +2406,3 @@ async function benchmarkCommand(): Promise<void> {
   console.log(`\nMuster reduced naive token cost by ${report.aggregate.musterReductionPct}% across these scenarios.`);
   console.log("Deterministic — no model calls. Regenerate the published table with: node benchmark/run.mjs");
 }
-

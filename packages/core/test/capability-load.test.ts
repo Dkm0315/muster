@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ const ENTRYPOINT_SOURCE = `export const tools = {
 
 async function writeFixturePack(overrides: Record<string, unknown> = {}, manifestName = "muster.capability.json"): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "muster-pack-"));
+  const digest = `sha256:${createHash("sha256").update(ENTRYPOINT_SOURCE).digest("hex")}`;
   const manifest = {
     schemaVersion: 1,
     id: "test-pack",
@@ -29,7 +31,7 @@ async function writeFixturePack(overrides: Record<string, unknown> = {}, manifes
     permissions: [],
     sandbox: "none",
     evals: ["evals/smoke.json"],
-    digest: "sha256:test",
+    digest,
     ...overrides,
   };
   await writeFile(join(dir, manifestName), JSON.stringify(manifest, null, 2));
@@ -104,11 +106,11 @@ test("packs without the network permission get a context without fetch (contract
 });
 
 test("entrypoints without a tools record are refused", async () => {
-  const dir = await writeFixturePack();
+  const dir = await writeFixturePack({ digest: undefined });
   await writeFile(join(dir, "index.mjs"), "export const notTools = {};\n");
   await assert.rejects(loadCapabilityPack(dir, { registry: {} }), /must export a non-empty `tools` record/);
 
-  const dir2 = await writeFixturePack({ entrypoint: "bad.mjs" });
+  const dir2 = await writeFixturePack({ entrypoint: "bad.mjs", digest: undefined });
   await writeFile(join(dir2, "bad.mjs"), "export const tools = { \"bad-name!\": async () => ({}) };\n");
   await assert.rejects(loadCapabilityPack(dir2, { registry: {} }), /tool name "bad-name!"/);
 });
@@ -133,6 +135,115 @@ test("the tool context is frozen", async () => {
   await loadCapabilityPack(dir, { registry });
   const output = (await registry["frozen-pack__probe"]({})) as { frozen: boolean };
   assert.equal(output.frozen, true);
+});
+
+test("plugin policy denies explicit deny entries before registration", async () => {
+  const dir = await writeFixturePack();
+  const registry: FlowToolRegistry = {};
+
+  await assert.rejects(
+    loadCapabilityPack(dir, {
+      registry,
+      pluginPolicy: {
+        allow: ["test-pack"],
+        deny: ["test-pack"],
+      },
+    }),
+    /denied by plugins\.deny/,
+  );
+
+  assert.equal(registry["test-pack__greet"], undefined);
+});
+
+test("plugin policy allowlist blocks packs not explicitly allowed", async () => {
+  const dir = await writeFixturePack();
+
+  await assert.rejects(
+    loadCapabilityPack(dir, {
+      registry: {},
+      pluginPolicy: {
+        allow: ["other-pack"],
+      },
+    }),
+    /not present in plugins\.allow/,
+  );
+});
+
+test("plugin policy disabled entries block packs before import", async () => {
+  const dir = await writeFixturePack();
+
+  await assert.rejects(
+    loadCapabilityPack(dir, {
+      registry: {},
+      pluginPolicy: {
+        entries: {
+          "test-pack": { enabled: false },
+        },
+      },
+    }),
+    /disabled by plugins\.entries/,
+  );
+});
+
+test("plugin policy load paths constrain pack directories", async () => {
+  const dir = await writeFixturePack();
+
+  await assert.rejects(
+    loadCapabilityPack(dir, {
+      registry: {},
+      pluginPolicy: {
+        load: {
+          paths: [join(tmpdir(), "different-pack-root")],
+        },
+      },
+    }),
+    /not present in plugins\.load\.paths/,
+  );
+});
+
+test("plugin policy enforces exclusive slot ownership", async () => {
+  const dir = await writeFixturePack({ slot: "memory" });
+  const registry: FlowToolRegistry = {};
+  const slotClaims: Record<string, string> = {};
+
+  await assert.rejects(
+    loadCapabilityPack(dir, {
+      registry,
+      pluginPolicy: {
+        slots: {
+          memory: "memory-core",
+        },
+      },
+      slotClaims,
+    }),
+    /slot "memory" is assigned to "memory-core"/,
+  );
+
+  const loaded = await loadCapabilityPack(dir, {
+    registry,
+    pluginPolicy: {
+      slots: {
+        memory: "test-pack",
+      },
+    },
+    slotClaims,
+  });
+  assert.deepEqual(loaded.toolNames, ["test-pack__greet"]);
+  assert.deepEqual(slotClaims, { memory: "test-pack" });
+
+  const rival = await writeFixturePack({ id: "rival-pack", slot: "memory" });
+  await assert.rejects(
+    loadCapabilityPack(rival, {
+      registry,
+      pluginPolicy: {
+        slots: {
+          memory: "rival-pack",
+        },
+      },
+      slotClaims,
+    }),
+    /slot "memory" is already claimed by "test-pack"/,
+  );
 });
 
 // type-level sanity: CapabilityToolContext is exported for pack authors

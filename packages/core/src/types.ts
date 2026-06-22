@@ -1,3 +1,6 @@
+import type { CapabilityPluginPolicy } from "./capability.js";
+import type { McpServerConfig } from "./mcp.js";
+
 export type RuntimeKind = "native" | "codex" | "claude-code" | "cursor-sdk" | "openhands" | "pi";
 
 export type TaskKind =
@@ -65,6 +68,96 @@ export interface MusterConfig {
   readonly providers: Record<string, ProviderConfig>;
   readonly runtimes: Record<string, RuntimeConfig>;
   readonly routing: RoutingPolicy;
+  /**
+   * Agent-specific overlays. For skills, defaults.skills is the inherited
+   * baseline; an agent entry with skills set is final and does not merge.
+   */
+  readonly agents?: AgentsConfig;
+  /**
+   * Skill runtime configuration. Env/API-key values are scoped to the host
+   * process for a selected skill's run and restored afterward.
+   */
+  readonly skills?: SkillRuntimeConfig;
+  /**
+   * In-repo plugin/capability policy. Deny wins over allow; non-empty allow is
+   * final; slot owners are exclusive. This replaces OpenClaw-style live plugin
+   * installs with auditable local manifests.
+   */
+  readonly plugins?: CapabilityPluginPolicy;
+  /**
+   * Tool exposure policy. This keeps migrated tool/MCP intent explicit without
+   * auto-enabling broad ambient tool access.
+   */
+  readonly tools?: ToolRuntimeConfig;
+  /**
+   * Optional per-profile identity. Injected into the model's SYSTEM prompt (never
+   * the user turn) so the agent knows what it is — closing the "didn't know it's
+   * muster" gap — without being narrated back (agent-rules rule 6). Populated by
+   * migration from the source OpenClaw channel; absent on the default profile.
+   */
+  readonly identity?: ProfileIdentity;
+}
+
+export interface AgentsConfig {
+  readonly defaults?: AgentDefaultsConfig;
+  readonly list?: readonly AgentConfig[];
+}
+
+export interface AgentDefaultsConfig {
+  readonly skills?: readonly string[];
+}
+
+export interface AgentConfig {
+  readonly id: string;
+  readonly skills?: readonly string[];
+}
+
+export interface SkillRuntimeConfig {
+  readonly load?: SkillLoadConfig;
+  readonly entries?: Record<string, SkillRuntimeEntryConfig>;
+}
+
+export interface SkillLoadConfig {
+  readonly extraDirs?: readonly string[];
+  /**
+   * Disabled by default: shared home skill roots are useful for migration, but
+   * profile/workspace-local roots are safer and more reproducible.
+   */
+  readonly includeHomeDirs?: boolean;
+}
+
+export interface SkillSecretRef {
+  readonly source: "env";
+  readonly provider?: string;
+  readonly id: string;
+}
+
+export interface SkillRuntimeEntryConfig {
+  readonly enabled?: boolean;
+  readonly env?: Record<string, string>;
+  readonly apiKey?: string | SkillSecretRef;
+  readonly config?: Record<string, unknown>;
+}
+
+export interface ToolRuntimeConfig {
+  readonly allow?: readonly string[];
+  readonly deny?: readonly string[];
+  readonly mcp?: {
+    readonly servers?: Readonly<Record<string, McpServerConfig>>;
+  };
+  readonly entries?: Readonly<Record<string, ToolRuntimeEntryConfig>>;
+}
+
+export interface ToolRuntimeEntryConfig {
+  readonly enabled?: boolean;
+  readonly source?: string;
+  readonly config?: Record<string, unknown>;
+}
+
+export interface ProfileIdentity {
+  readonly name: string;
+  readonly description?: string;
+  readonly persona?: string;
 }
 
 export interface RunRequest {

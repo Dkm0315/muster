@@ -1,8 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { createStreamEventChannel, executeRun, extractMediaTags, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
+import { activeProfile, createStreamEventChannel, executeRun, extractMediaTags, profileWorkspaceDir, resolveAgentSkillAllowlist, resolveSkillCommand, resumeFlow, runDraftLoop, StreamRun } from "@musterhq/core";
 import type { DraftSink, FlowToolRegistry, MusterConfig } from "@musterhq/core";
+import { dispatchCommand, parseCommand, resolveCustomCommand } from "./commands.js";
 import { conversationSessionId, isPairingChallenge, parseSurfaceMessage } from "./envelope.js";
 import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.js";
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
@@ -50,6 +52,14 @@ function defaultRegistry(): FlowToolRegistry {
   return { echo: async (args) => args };
 }
 
+/** Per-profile workspace dirs already ensured this process — skip the mkdir syscall on the hot path. */
+const ensuredWorkspaces = new Set<string>();
+async function ensureWorkspaceOnce(dir: string): Promise<void> {
+  if (ensuredWorkspaces.has(dir)) return;
+  await mkdir(dir, { recursive: true });
+  ensuredWorkspaces.add(dir);
+}
+
 /** Emit an "adapter is unauthenticated" warning at most once per adapter per process. */
 const unauthenticatedWarned = new Set<string>();
 function warnUnauthenticatedOnce(adapter: string, log: (line: string) => void): void {
@@ -94,6 +104,9 @@ export function idempotencyStore(key: string | undefined, reply: SurfaceReply | 
 export async function handleSurfaceMessage(
   message: SurfaceMessage,
   options: Pick<GatewayServerOptions, "config" | "cwd"> & {
+    readonly gateway?: GatewayConfig;
+    /** Tool registry used for skill commands that dispatch directly to tools. */
+    readonly registry?: FlowToolRegistry;
     /**
      * Channel draft sink. When provided AND message.stream === "draft", the
      * reply is streamed as a live-edited draft through the core draft loop;
@@ -109,6 +122,35 @@ export async function handleSurfaceMessage(
     const pending = await requestPairing(message.surfaceId, message.senderId, cwd);
     return { status: "pairing_required", code: pending.code };
   }
+  const profile = activeProfile(cwd);
+  // muster builtin slash-commands and tool-dispatch skills are answered here
+  // with NO model call; prompt-dispatch skills rewrite the prompt, and unknown
+  // commands fall through to the native provider CLI.
+  const sessionKey = conversationSessionId(message);
+  const command = await dispatchCommand(message, { config: options.config, profile, paired, cwd, conversationKey: sessionKey });
+  if (command) return command;
+  const customCommand = resolveCustomCommand(message, options.gateway);
+  const parsedCommand = parseCommand(message.text);
+  let runText = customCommand?.prompt ?? message.text;
+  if (parsedCommand && !customCommand) {
+    const skillCommand = await resolveSkillCommand(parsedCommand.name, parsedCommand.args, cwd, {
+      skillAllowlist: resolveAgentSkillAllowlist(options.config, profile),
+      discovery: options.config.skills?.load,
+    });
+    if (skillCommand?.dispatch === "tool") {
+      const tool = options.registry?.[skillCommand.tool];
+      if (!tool) return { text: `Skill command /${parsedCommand.name} is unavailable: tool "${skillCommand.tool}" is not registered.` };
+      const output = await tool(skillCommand.args);
+      return { text: typeof output === "string" ? output : JSON.stringify(output, null, 2) };
+    }
+    if (skillCommand?.dispatch === "prompt") {
+      runText = skillCommand.prompt;
+    }
+  }
+  // Native provider CLIs (codex/claude) execute in the PROFILE WORKSPACE, never
+  // the muster install root — closes the cwd-escape and isolates per profile.
+  const workspaceDir = profileWorkspaceDir(cwd, profile);
+  await ensureWorkspaceOnce(workspaceDir);
   const streaming = options.sink !== undefined && message.stream === "draft";
   const channel = streaming ? createStreamEventChannel() : undefined;
   const streamRun = channel ? new StreamRun({ onEvent: channel.push }) : undefined;
@@ -117,12 +159,16 @@ export async function handleSurfaceMessage(
     : undefined;
   try {
     const outcome = await executeRun(options.config, {
-      prompt: message.text,
+      prompt: runText,
       cwd,
+      workspaceDir,
+      conversationKey: sessionKey,
+      agentId: profile,
+      ...(process.env.MUSTER_CODEX_HOME ? { codexHome: process.env.MUSTER_CODEX_HOME } : {}),
       surfaceId: message.surfaceId,
       scopes: [
         ...pairingScopes(paired),
-        { kind: "session", id: conversationSessionId(message) },
+        { kind: "session", id: sessionKey },
       ],
       onDelta: streamRun ? (text) => {
         if (streamRun.state === "streaming") streamRun.pushDelta(text);
@@ -183,6 +229,7 @@ interface AdapterContext {
   readonly headers: Record<string, string | string[] | undefined>;
   /** Shared per-chat outbound queue (retry_after backoff) for draft streaming. */
   readonly queue: OutboundQueue;
+  readonly registry?: FlowToolRegistry;
 }
 
 /**
@@ -246,6 +293,7 @@ export interface TelegramPollOptions {
   readonly gateway: GatewayConfig;
   readonly cwd?: string;
   readonly fetcher?: typeof fetch;
+  readonly registry?: FlowToolRegistry;
   readonly log?: (line: string) => void;
   /** Abort to stop the loop. */
   readonly signal?: AbortSignal;
@@ -302,7 +350,7 @@ export async function pollTelegram(options: TelegramPollOptions): Promise<void> 
       const message = telegramUpdateToSurfaceMessage(update);
       if (!message) continue;
       try {
-        const reply = await handleSurfaceMessage(message, { config: options.config, cwd });
+        const reply = await handleSurfaceMessage(message, { config: options.config, gateway: options.gateway, cwd, registry: options.registry });
         const payload = surfaceReplyToTelegramSend(reply, message.conversationId);
         const sendRes = await fetcher(`${base}/sendMessage`, {
           method: "POST",
@@ -537,6 +585,7 @@ async function route(request: IncomingMessage, response: ServerResponse, options
       log: options.log ?? (() => {}),
       headers: request.headers,
       queue,
+      registry: options.registry,
     });
     sendJson(response, 200, result ?? { ok: true });
     return;
@@ -557,7 +606,7 @@ async function route(request: IncomingMessage, response: ServerResponse, options
       sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    const reply = await handleSurfaceMessage(message, { config: options.config, cwd });
+    const reply = await handleSurfaceMessage(message, { config: options.config, gateway: options.gateway, cwd, registry: options.registry });
     sendJson(response, 200, reply);
     return;
   }

@@ -190,7 +190,7 @@ test("flow loop schedules a cron job and run-due executes the flow via the regis
   const registry: FlowToolRegistry = { digest: async (args) => { ran.push(args); return { sent: true }; } };
   await saveFlow(parseFlow({ id: "weekly-digest", steps: [{ id: "digest", kind: "tool", tool: "digest" }] }), cwd);
 
-  const job = await scheduleFlowLoop("weekly-digest", "0 9 * * 1", { cwd });
+  const job = await scheduleFlowLoop("weekly-digest", "0 9 * * 1", { cwd, now: new Date("2026-06-15T08:59:00") });
   assert.equal(job.flowId, "weekly-digest");
   assert.equal(job.cron, "0 9 * * 1");
   assert.deepEqual((await listSchedules(cwd)).map((item) => item.flowId), ["weekly-digest"]);

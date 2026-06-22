@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -162,6 +162,7 @@ const APPLY_SECRET = "SUPER_SECRET_123";
 const APPLY_OPENCLAW_CONFIG = {
   agents: {
     defaults: {
+      skills: ["incident-triage"],
       model: "anthropic/claude-opus-4-8",
       workspace: "frappe-ops",
       models: {
@@ -169,13 +170,18 @@ const APPLY_OPENCLAW_CONFIG = {
         "openai/gpt-5.5": { alias: "codex", agentRuntime: { id: "codex" } },
       },
     },
+    list: [{ id: "telegram", skills: ["incident-triage", "frappe-ops"] }],
   },
   channels: {
     telegram: {
       enabled: true,
       dmPolicy: "allow",
       botToken: APPLY_SECRET,
-      commands: { hello: {}, status: {}, deploy: {} },
+      commands: {
+        hello: { description: "Say hello" },
+        status: {},
+        deploy: { prompt: "Deploy the selected site. Args: {args}" },
+      },
     },
     whatsapp: {
       enabled: true,
@@ -183,6 +189,42 @@ const APPLY_OPENCLAW_CONFIG = {
     },
   },
   gateway: { mode: "remote", auth: { token: "gateway-secret-token" } },
+  skills: {
+    load: { extraDirs: ["./skills/shared"], includeHomeDirs: false },
+    entries: {
+      "incident-triage": {
+        enabled: true,
+        apiKey: { source: "env", id: "INCIDENT_API_KEY" },
+        config: { endpoint: "https://incident.example.test", token: "skill-secret" },
+      },
+    },
+  },
+  tools: {
+    allow: ["web_fetch"],
+    deny: ["terminal"],
+    entries: {
+      "jira.lookup": { enabled: true, config: { baseUrl: "https://jira.example.test", password: "jira-secret" } },
+    },
+  },
+  mcp: {
+    servers: {
+      jira: {
+        transport: { kind: "stdio", command: "node", args: ["jira.mjs"], env: { JIRA_TOKEN: "secret-token" } },
+        tools: { include: ["issue_search"] },
+        limits: { toolTimeoutMs: 5000 },
+      },
+    },
+  },
+  plugins: {
+    allow: ["frappe-agent"],
+    slots: { erp: "frappe-agent" },
+    entries: { "frappe-agent": { enabled: true, config: { site: "main", token: "plugin-secret" } } },
+  },
+  devices: {
+    entries: {
+      "phone-1": { surfaceId: "telegram:bot", accountId: "primary", scopes: ["messages:send"] },
+    },
+  },
 };
 
 test("applyOpenclawProfile materializes exactly one runnable, redacted profile", async () => {
@@ -204,6 +246,10 @@ test("applyOpenclawProfile materializes exactly one runnable, redacted profile",
   assert.equal(result.model, "claude-opus-4-8");
   assert.equal(result.runtime, "claude-code");
   assert.equal(result.commandsMigrated, 3);
+  assert.equal(result.skillsCarried, 2);
+  assert.equal(result.toolsCarried, 4);
+  assert.equal(result.pluginsCarried, 3);
+  assert.equal(result.devicesCarried, 1);
   assert.ok(result.excludedChannels.includes("whatsapp"));
   assert.equal(result.excludedAgents, 1);
   assert.equal(result.tokenEnvRef, "TELEGRAM_BOT_TOKEN");
@@ -214,6 +260,24 @@ test("applyOpenclawProfile materializes exactly one runnable, redacted profile",
   assert.equal(config.routing.defaultRuntime, "claude-code");
   assert.ok(config.runtimes["claude-code"]);
   assert.equal(config.runtimes["claude-code"]?.routes.simple_qa?.model, "claude-opus-4-8");
+  assert.deepEqual(config.agents?.defaults?.skills, ["incident-triage"]);
+  assert.deepEqual(config.agents?.list?.[0], { id: "telegram", skills: ["incident-triage", "frappe-ops"] });
+  assert.deepEqual(config.skills?.load?.extraDirs, ["./skills/shared"]);
+  assert.equal(config.skills?.entries?.["incident-triage"]?.apiKey && typeof config.skills.entries["incident-triage"].apiKey === "object" ? config.skills.entries["incident-triage"].apiKey.id : undefined, "INCIDENT_API_KEY");
+  assert.equal(config.skills?.entries?.["incident-triage"]?.config?.endpoint, "https://incident.example.test");
+  assert.equal(config.skills?.entries?.["incident-triage"]?.config?.token, "${TOKEN}");
+  assert.deepEqual(config.tools?.allow, ["web_fetch"]);
+  assert.deepEqual(config.tools?.deny, ["terminal"]);
+  assert.equal(config.tools?.entries?.["jira-lookup"]?.enabled, true);
+  assert.equal(config.tools?.entries?.["jira-lookup"]?.config?.password, "${PASSWORD}");
+  assert.equal(config.tools?.mcp?.servers?.jira?.transport.kind, "stdio");
+  assert.deepEqual(
+    config.tools?.mcp?.servers?.jira?.transport.kind === "stdio" ? config.tools.mcp.servers.jira.transport.env : undefined,
+    { JIRA_TOKEN: "${JIRA_TOKEN}" },
+  );
+  assert.deepEqual(config.plugins?.allow, ["frappe-agent"]);
+  assert.equal(config.plugins?.entries?.["frappe-agent"]?.enabled, false);
+  assert.equal(config.plugins?.entries?.["frappe-agent"]?.config?.token, "${TOKEN}");
 
   // The redaction guarantee: the secret value appears NOWHERE in the written file.
   const { readFile: readFileAsync } = await import("node:fs/promises");
@@ -221,8 +285,25 @@ test("applyOpenclawProfile materializes exactly one runnable, redacted profile",
   assert.equal(writtenRaw.includes(APPLY_SECRET), false, "botToken secret leaked into materialized config");
   assert.equal(writtenRaw.includes("another-secret-wa-token"), false, "other channel secret leaked");
   assert.equal(writtenRaw.includes("gateway-secret-token"), false, "gateway auth token leaked");
+  assert.equal(writtenRaw.includes("skill-secret"), false, "skill secret leaked");
+  assert.equal(writtenRaw.includes("jira-secret"), false, "tool secret leaked");
+  assert.equal(writtenRaw.includes("secret-token"), false, "mcp env secret leaked");
+  assert.equal(writtenRaw.includes("plugin-secret"), false, "plugin secret leaked");
   // The placeholder env reference IS present where the token would be.
   assert.ok(writtenRaw.includes("${TELEGRAM_BOT_TOKEN}"), "placeholder env reference missing");
+  const gatewayRaw = await readFile(join(cwd, ".muster", "gateway.json"), "utf8");
+  assert.equal(gatewayRaw.includes(APPLY_SECRET), false, "botToken secret leaked into gateway config");
+  const gateway = JSON.parse(gatewayRaw) as {
+    commands?: { entries?: Record<string, { prompt?: string; description?: string; surfaces?: string[]; source?: string; sourceChannel?: string }> };
+    devices?: { entries?: Record<string, { source?: string; approved?: boolean; scopes?: string[] }> };
+  };
+  assert.equal(gateway.commands?.entries?.deploy?.prompt, "Deploy the selected site. Args: {args}");
+  assert.deepEqual(gateway.commands?.entries?.deploy?.surfaces, ["telegram"]);
+  assert.equal(gateway.commands?.entries?.deploy?.source, "openclaw");
+  assert.equal(gateway.commands?.entries?.deploy?.sourceChannel, "telegram");
+  assert.equal(gateway.devices?.entries?.["phone-1"]?.source, "openclaw");
+  assert.equal(gateway.devices?.entries?.["phone-1"]?.approved, false);
+  assert.deepEqual(gateway.devices?.entries?.["phone-1"]?.scopes, ["messages:send"]);
 
   // Applying again onto the same --out must refuse rather than clobber the profile.
   await assert.rejects(
@@ -269,7 +350,7 @@ test("applyOpenclawProfile throws on malformed openclaw.json without echoing fil
   );
 });
 
-test("applyOpenclawProfile maps a codex channel to a runnable codex-cli provider, not a phantom runtime", async () => {
+test("applyOpenclawProfile maps a codex channel to the full-power codex runtime (faithful, not Claude)", async () => {
   const home = await mkdtemp(join(tmpdir(), "muster-apply-codex-"));
   const cwd = await mkdtemp(join(tmpdir(), "muster-apply-codex-cwd-"));
   await writeOpenclawConfig(home, {
@@ -277,16 +358,22 @@ test("applyOpenclawProfile maps a codex channel to a runnable codex-cli provider
     channels: { ops: { enabled: true } },
   });
   const result = await applyOpenclawProfile({ homeDir: home, profile: "ops", outProfile: "ops-mig", cwd });
-  // The previous bug set runtime "codex-cli" (not a real runtime) + an anthropic-keyed
-  // openai-compatible provider — an unrunnable config. It must be native + codex-cli.
-  assert.equal(result.runtime, "native");
+  // A codex source must run on muster's first-class `codex` runtime (full native
+  // power via `codex exec`), preserving the user's provider — NEVER remapped to
+  // claude-code/anthropic. Provider stays the subscription codex-cli.
+  assert.equal(result.runtime, "codex");
   assert.equal(result.provider, "codex");
   await useProfile("ops-mig", cwd);
   const cfg = await loadConfig(cwd);
-  assert.equal(cfg.routing.defaultRuntime, "native");
+  assert.equal(cfg.routing.defaultRuntime, "codex");
   assert.equal(cfg.providers.codex?.kind, "codex-cli");
   assert.equal(cfg.providers.codex?.defaultModel, "gpt-5.4");
   assert.equal(cfg.providers.codex?.apiKeyEnv, undefined, "codex-cli (subscription) needs no API key env");
+  // Faithful identity carried from the source channel (so the agent knows it's
+  // muster), describing the real provider/runtime — never a Claude default.
+  assert.equal(cfg.identity?.name, "ops-mig");
+  assert.match(cfg.identity?.description ?? "", /OpenClaw "ops" channel/);
+  assert.match(cfg.identity?.description ?? "", /gpt-5\.4 via the codex runtime/);
 });
 
 test("applyOpenclawProfile maps a non-codex openai channel to openai-compatible with the right key env", async () => {

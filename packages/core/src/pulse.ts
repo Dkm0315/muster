@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { executeRun } from "./run.js";
-import { parseCron } from "./scheduler.js";
+import { computeNextRun, parseCron } from "./scheduler.js";
 import { dataDir, readJsonFile } from "./store.js";
 import { listTokenRecords } from "./tokens.js";
 import { musterRoot } from "./profiles.js";
@@ -30,6 +30,8 @@ export interface Pulse {
   readonly createdAt: string;
   readonly lastRunAt?: string;
   readonly pausedReason?: string;
+  /** Next due occurrence (ISO). Due = nextRunAt <= now, so a missed heartbeat tick is caught, not lost; advanced past now before running (at-most-once, no burst). */
+  readonly nextRunAt?: string;
 }
 
 export interface PulseResult {
@@ -60,19 +62,21 @@ async function writePulses(pulses: Pulse[], cwd: string): Promise<void> {
 }
 
 export async function addPulse(
-  input: { cron: string; kind?: "heartbeat" | "task"; prompt?: string; maxTokensPerDay?: number },
+  input: { cron: string; kind?: "heartbeat" | "task"; prompt?: string; maxTokensPerDay?: number; now?: Date },
   cwd = process.cwd(),
 ): Promise<Pulse> {
   parseCron(input.cron);
   const kind = input.kind ?? "heartbeat";
   if (kind === "task" && !input.prompt) throw new Error("Task pulses need a prompt.");
+  const createdAt = input.now ?? new Date();
   const pulse: Pulse = {
     id: `pulse_${randomUUID().slice(0, 8)}`,
     cron: input.cron,
     kind,
     prompt: input.prompt,
     maxTokensPerDay: input.maxTokensPerDay ?? 50_000,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
+    nextRunAt: computeNextRun(input.cron, createdAt).toISOString(),
   };
   const pulses = await readPulses(cwd);
   pulses.push(pulse);
@@ -134,10 +138,16 @@ export async function runDuePulses(
       results.push({ pulse, action: "skipped_budget", detail: pulse.pausedReason });
       continue;
     }
-    if (!parseCron(pulse.cron).matches(now)) {
+    const nextRunAt = pulse.nextRunAt
+      ? new Date(pulse.nextRunAt)
+      : computeNextRun(pulse.cron, new Date(pulse.lastRunAt ?? pulse.createdAt));
+    if (nextRunAt > now) {
       results.push({ pulse, action: "skipped_not_due" });
       continue;
     }
+    // Due: advance to the next future occurrence (at-most-once, no burst). The
+    // occurrence is consumed here regardless of the preflight/budget gates below.
+    pulses[index] = { ...pulse, nextRunAt: computeNextRun(pulse.cron, now).toISOString() };
     const preflight = await pulsePreflight(pulse, cwd);
     if (!preflight.due) {
       results.push({ pulse, action: "skipped_preflight", detail: preflight.reason });
@@ -146,7 +156,7 @@ export async function runDuePulses(
     const spent = await spentToday(pulse.id, cwd, now);
     if (spent >= pulse.maxTokensPerDay) {
       const reason = `daily budget exhausted (${spent}/${pulse.maxTokensPerDay} tokens) — paused; resume with: muster pulse resume ${pulse.id}`;
-      pulses[index] = { ...pulse, pausedReason: reason };
+      pulses[index] = { ...pulses[index], pausedReason: reason };
       results.push({ pulse: pulses[index], action: "skipped_budget", detail: reason });
       continue;
     }

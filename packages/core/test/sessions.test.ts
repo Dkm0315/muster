@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { openSessionStore } from "../src/index.js";
+import { messagesToTranscript, openSessionStore } from "../src/index.js";
 
 async function storeWithData() {
   const cwd = await mkdtemp(join(tmpdir(), "muster-sessions-"));
@@ -80,4 +80,48 @@ test("backend reports fts5 on this Node build and titles are capped", async () =
   if (read.shape !== "read") return assert.fail("expected read");
   assert.equal(read.session.title.length, 80);
   store.close();
+});
+
+test("loadActiveMessages + deactivate drive the renderer window (compacted rows leave but stay in history)", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sessions-load-"));
+  const store = openSessionStore(cwd);
+  const s = store.createSession({ channel: "telegram", peer: "bob" });
+  const m1 = store.appendMessage(s.id, "user", "first");
+  store.appendMessage(s.id, "assistant", "reply one");
+  const m3 = store.appendMessage(s.id, "tool", "big tool output");
+  store.appendMessage(s.id, "user", "second");
+
+  const active = store.loadActiveMessages(s.id);
+  assert.deepEqual(active.map((m) => m.content), ["first", "reply one", "big tool output", "second"], "oldest-first, all active");
+
+  store.deactivate([m1.id, m3.id]);
+  const after = store.loadActiveMessages(s.id);
+  assert.deepEqual(after.map((m) => m.content), ["reply one", "second"], "deactivated rows leave the active window");
+
+  // ...but they remain in searchable history (active filter is only for the render window).
+  const transcript = messagesToTranscript(after);
+  assert.deepEqual(transcript.map((m) => [m.role, m.content]), [["assistant", "reply one"], ["user", "second"]]);
+  store.close();
+});
+
+test("findOrCreateSession reuses the latest session per (channel, peer) for multi-turn continuity", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-sessions-foc-"));
+  const store = openSessionStore(cwd);
+  const first = store.findOrCreateSession({ channel: "telegram:bot", peer: "c1" });
+  const again = store.findOrCreateSession({ channel: "telegram:bot", peer: "c1" });
+  assert.equal(again.id, first.id, "same conversation reuses one session (no fresh-per-turn)");
+  const other = store.findOrCreateSession({ channel: "telegram:bot", peer: "c2" });
+  assert.notEqual(other.id, first.id, "a different peer gets its own session");
+  store.close();
+});
+
+test("messagesToTranscript maps roles and coerces unknown roles to user", () => {
+  const transcript = messagesToTranscript([
+    { id: 1, sessionId: "s", role: "assistant", content: "a", tokenCount: 1, createdAt: "t" },
+    { id: 2, sessionId: "s", role: "weird", content: "b", tokenCount: 2, createdAt: "t" },
+  ]);
+  assert.deepEqual(transcript, [
+    { role: "assistant", content: "a", tokens: 1 },
+    { role: "user", content: "b", tokens: 2 },
+  ]);
 });

@@ -3,9 +3,23 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /** Gateway-local config (.muster/gateway.json): bearer token + adapter bot tokens. */
+export interface GatewayCustomCommand {
+  /** Reader-facing summary shown in future command listings. */
+  readonly description?: string;
+  /** Prompt template; "{args}" or "{{args}}" is replaced with command args. */
+  readonly prompt?: string;
+  /** Exact surface id ("web:demo") or surface prefix ("telegram") allowed to use this command. */
+  readonly surfaces?: readonly string[];
+  readonly source?: "openclaw" | "user" | "migration";
+  readonly sourceChannel?: string;
+}
+
 export interface GatewayConfig {
   readonly token: string;
   readonly port?: number;
+  readonly commands?: {
+    readonly entries?: Record<string, GatewayCustomCommand>;
+  };
   readonly telegram?: {
     readonly botToken: string;
     /** "draft" streams replies as live-edited drafts (sendMessage + editMessageText). */
@@ -42,6 +56,19 @@ export interface GatewayConfig {
   };
   readonly gchat?: { readonly verificationToken?: string };
   readonly teams?: { readonly hmacSecret?: string };
+  readonly devices?: {
+    readonly entries?: Record<string, GatewayDeviceRecord>;
+  };
+}
+
+export interface GatewayDeviceRecord {
+  readonly source?: "openclaw" | "migration" | "user";
+  readonly sourceId?: string;
+  readonly surfaceId?: string;
+  readonly accountId?: string;
+  readonly scopes?: readonly string[];
+  readonly approved?: boolean;
+  readonly migratedAt?: string;
 }
 
 export const DEFAULT_GATEWAY_PORT = 7460;

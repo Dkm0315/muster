@@ -11,13 +11,24 @@ import {
   executeRun,
   listEpisodes,
   listTokenRecords,
+  promoteSkill,
   renderIntegrityReport,
   runHarnessChecks,
   searchMemory,
   tokensPath,
   verifyIntegrity,
+  writeCandidateSkill,
 } from "../src/index.js";
-import type { MusterConfig } from "../src/index.js";
+import type { EvolveReport, MusterConfig } from "../src/index.js";
+
+function report(converged: boolean, tasks = 1): EvolveReport {
+  return {
+    startedAt: new Date().toISOString(),
+    iterations: [{ iteration: 1, passed: converged ? tasks : 0, failed: converged ? 0 : tasks, results: Array.from({ length: tasks }, (_, index) => ({ taskId: `t${index}`, status: converged ? "passed" as const : "failed" as const, durationMs: 1 })) }],
+    harnessChecks: [],
+    converged,
+  };
+}
 
 function stubConfig(baseUrl: string): MusterConfig {
   const config = defaultConfig();
@@ -109,6 +120,45 @@ test("executeRun injects recalled scoped memory into the prompt", async () => {
     assert.match(observedPrompt, /uat-erp\.pwhr\.in/);
   } finally {
     server.close();
+  }
+});
+
+test("executeRun applies selected skill env only during the provider attempt", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-skill-env-"));
+  const envName = "MUSTER_SKILL_ENV_RUN_TEST";
+  const previous = process.env[envName];
+  delete process.env[envName];
+
+  await writeCandidateSkill({
+    name: "envprobe",
+    description: "Envprobe provider attempt helper",
+    body: "Use the configured host env.",
+  }, cwd);
+  await promoteSkill("envprobe", report(true), cwd);
+
+  let observedDuringAttempt: string | undefined;
+  const server = await startStubServer(() => {
+    observedDuringAttempt = process.env[envName];
+    return { status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+  });
+  try {
+    const config: MusterConfig = {
+      ...stubConfig(server.url),
+      skills: { entries: { envprobe: { env: { [envName]: "scoped-secret" } } } },
+    };
+    await executeRun(config, {
+      prompt: "please use envprobe for this provider attempt",
+      cwd,
+      skipMemoryWrite: true,
+      skipAgentRules: true,
+    });
+
+    assert.equal(observedDuringAttempt, "scoped-secret");
+    assert.equal(process.env[envName], undefined, "skill env must be restored after the run");
+  } finally {
+    server.close();
+    if (previous === undefined) delete process.env[envName];
+    else process.env[envName] = previous;
   }
 });
 

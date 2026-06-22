@@ -63,6 +63,7 @@ export async function createProfile(name: string, cwd = process.cwd()): Promise<
   if (name === DEFAULT_PROFILE) throw new Error("The default profile always exists; no need to create it.");
   const dir = join(profilesRoot(cwd), name);
   await mkdir(join(dir, "data"), { recursive: true });
+  await mkdir(join(dir, "workspace"), { recursive: true });
   return dir;
 }
 
@@ -99,6 +100,20 @@ export function profileHomeDir(cwd = process.cwd(), profile = activeProfile(cwd)
 
 export function subprocessEnvForProfile(cwd = process.cwd()): Record<string, string> {
   return { HOME: profileHomeDir(cwd), PATH: process.env.PATH ?? "" };
+}
+
+/**
+ * The execution cwd for a native provider CLI (codex/claude). This is the
+ * sandbox root the provider agent reads/writes within, and where its native
+ * config is discovered (.claude/commands, AGENTS.md / prompts). It is kept
+ * SEPARATE from the muster state root (where .muster/ lives) so a Telegram
+ * user driving the agent can never reach the muster install root, gateway
+ * token, or other profiles' configs — the cwd-escape we found live.
+ * Default profile uses .muster/workspace.
+ */
+export function profileWorkspaceDir(cwd = process.cwd(), profile = activeProfile(cwd)): string {
+  if (profile === DEFAULT_PROFILE) return join(musterRoot(cwd), "workspace");
+  return join(profilesRoot(cwd), profile, "workspace");
 }
 
 /**
