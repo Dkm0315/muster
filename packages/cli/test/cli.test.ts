@@ -26,6 +26,9 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster chat --session work/);
   assert.match(stdout, /muster runtime use-provider/);
   assert.match(stdout, /muster capability inspect/);
+  assert.match(stdout, /muster plugins list/);
+  assert.match(stdout, /muster mcp list/);
+  assert.match(stdout, /muster dashboard status/);
   assert.match(stdout, /muster memory add/);
   assert.match(stdout, /muster eval seed/);
 });
@@ -90,6 +93,32 @@ test("CLI can initialize, add codex provider, switch runtime, and render tui", a
 
   assert.match(stdout, /Muster Terminal Cockpit/);
   assert.match(stdout, /configured=true/);
+});
+
+test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-management-"));
+
+  await runCli(["init"], cwd);
+
+  const plugins = await runCli(["plugins", "list"], cwd);
+  assert.match(plugins.stdout, /No plugin policy configured/);
+
+  const dashboard = await runCli(["dashboard", "status"], cwd);
+  assert.match(dashboard.stdout, /profile=default/);
+  assert.match(dashboard.stdout, /configured=true/);
+  assert.match(dashboard.stdout, /start=muster dashboard start --port 7461/);
+
+  const emptyMcp = await runCli(["mcp", "list"], cwd);
+  assert.match(emptyMcp.stdout, /No MCP servers configured/);
+
+  const added = await runCli(["mcp", "add-stdio", "fake-local", "node", "--version"], cwd);
+  assert.match(added.stdout, /mcp_server=fake-local/);
+
+  const listed = await runCli(["mcp", "list"], cwd);
+  assert.match(listed.stdout, /fake-local\tstdio node --version/);
+
+  const removed = await runCli(["mcp", "remove", "fake-local"], cwd);
+  assert.match(removed.stdout, /removed=fake-local/);
 });
 
 test("CLI pi inspect is safe when pi is absent", async () => {

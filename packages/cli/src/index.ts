@@ -56,6 +56,7 @@ import {
   listMemory,
   listPiModels,
   loadConfig,
+  saveConfig,
   parseMemoryScope,
   planRun,
   promoteMemory,
@@ -94,7 +95,8 @@ import {
   renderEvolveReport,
   runHarnessChecks,
   verifyIntegrity,
-  renderIntegrityReport
+  renderIntegrityReport,
+  connectMcpServers
 } from "@musterhq/core";
 import {
   approvePairing,
@@ -107,9 +109,10 @@ import {
 } from "@musterhq/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { createServer } from "node:http";
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
-import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
+import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, McpServerConfig, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
 
 const [, , command, ...args] = process.argv;
 
@@ -153,6 +156,15 @@ async function main(): Promise<void> {
       return;
     case "capability":
       await capability(args);
+      return;
+    case "plugins":
+      await pluginsCommand(args);
+      return;
+    case "mcp":
+      await mcpCommand(args);
+      return;
+    case "dashboard":
+      await dashboardCommand(args);
       return;
     case "context":
       await context(args);
@@ -252,6 +264,9 @@ Usage:
   muster eval run [path-or-dir]
   muster capability inspect <path>
   muster capability load <path> [--allow-high-risk]
+  muster plugins list | policy | inspect <path> | load <path>
+  muster mcp list | add-stdio <name> <command> [args...] | test <name>
+  muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster memory add --summary "..." --scope user:me --provenance manual
   muster memory search --scope user:me [--query "..."] [--include-global]
@@ -1001,6 +1016,201 @@ async function capability(args: string[]): Promise<void> {
     for (const warning of report.warnings) console.log(`- ${warning}`);
   }
   if (report.status === "blocked") process.exitCode = 1;
+}
+
+async function pluginsCommand(args: string[]): Promise<void> {
+  const [action, path] = args;
+  if (action === "inspect" && path) {
+    await capability(["inspect", path]);
+    return;
+  }
+  if (action === "load" && path) {
+    await capability(["load", path, ...args.slice(2)]);
+    return;
+  }
+  const config = await loadConfig();
+  const policy = config.plugins;
+  if (action === "policy") {
+    console.log(JSON.stringify(policy ?? {}, null, 2));
+    return;
+  }
+  if (action === "list" || action === undefined) {
+    if (!policy) {
+      console.log("No plugin policy configured. Use capability packs with muster plugins inspect/load <path>.");
+      return;
+    }
+    console.log(`allow=${policy.allow?.join(",") || "-"}`);
+    console.log(`deny=${policy.deny?.join(",") || "-"}`);
+    console.log(`load_paths=${policy.load?.paths?.join(",") || "-"}`);
+    const entries = Object.entries(policy.entries ?? {});
+    if (!entries.length) console.log("entries=none");
+    for (const [id, entry] of entries) console.log(`entry=${id} enabled=${entry.enabled !== false} config_keys=${Object.keys(entry.config ?? {}).join(",") || "-"}`);
+    const slots = Object.entries(policy.slots ?? {});
+    if (!slots.length) console.log("slots=none");
+    for (const [slot, owner] of slots) console.log(`slot=${slot} owner=${owner}`);
+    return;
+  }
+  throw new Error("Usage: muster plugins list|policy|inspect <path>|load <path> [--allow-high-risk]");
+}
+
+async function mcpCommand(args: string[]): Promise<void> {
+  const [action, name, ...rest] = args;
+  if (action === "list" || action === undefined) {
+    const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
+    const entries = Object.entries(servers);
+    if (!entries.length) {
+      console.log("No MCP servers configured.");
+      return;
+    }
+    for (const [serverName, server] of entries) {
+      const transport = server.transport.kind === "stdio"
+        ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
+        : `http ${server.transport.url}`;
+      console.log(`${serverName}\t${transport}\tinclude=${server.tools?.include?.join(",") || "-"} exclude=${server.tools?.exclude?.join(",") || "-"}`);
+    }
+    return;
+  }
+  if (action === "add-stdio") {
+    if (!name || !rest[0]) throw new Error("Usage: muster mcp add-stdio <name> <command> [args...]");
+    const config = await loadConfig();
+    const server: McpServerConfig = { transport: { kind: "stdio", command: rest[0], args: rest.slice(1) } };
+    await saveConfig({
+      ...config,
+      tools: {
+        ...(config.tools ?? {}),
+        mcp: {
+          ...(config.tools?.mcp ?? {}),
+          servers: {
+            ...(config.tools?.mcp?.servers ?? {}),
+            [safeConfigKey(name)]: server,
+          },
+        },
+      },
+    });
+    console.log(`mcp_server=${safeConfigKey(name)} transport=stdio command=${rest[0]}`);
+    return;
+  }
+  if (action === "remove" || action === "rm") {
+    if (!name) throw new Error("Usage: muster mcp remove <name>");
+    const config = await loadConfig();
+    const servers = { ...(config.tools?.mcp?.servers ?? {}) };
+    const existed = Boolean(servers[name]);
+    delete servers[name];
+    await saveConfig({ ...config, tools: { ...(config.tools ?? {}), mcp: { ...(config.tools?.mcp ?? {}), servers } } });
+    console.log(existed ? `removed=${name}` : `not_found=${name}`);
+    return;
+  }
+  if (action === "test") {
+    if (!name) throw new Error("Usage: muster mcp test <name>");
+    const server = (await loadConfig()).tools?.mcp?.servers?.[name];
+    if (!server) throw new Error(`MCP server not configured: ${name}`);
+    const connected = await connectMcpServers({ [name]: server }, process.cwd());
+    try {
+      const handle = connected.handles[0];
+      console.log(`server=${handle.name} status=${handle.status}${handle.error ? ` error=${handle.error}` : ""}`);
+      for (const tool of handle.tools) console.log(`tool=${tool.namespaced} ${tool.description ?? ""}`.trim());
+      if (handle.status === "failed") process.exitCode = 1;
+    } finally {
+      connected.close();
+    }
+    return;
+  }
+  throw new Error("Usage: muster mcp list|add-stdio <name> <command> [args...]|test <name>|remove <name>");
+}
+
+async function dashboardCommand(args: string[]): Promise<void> {
+  const action = args[0] ?? "status";
+  if (action === "status") {
+    const state = await buildCockpitState();
+    const store = openSessionStore();
+    try {
+      const sessions = store.search({ limit: 1 });
+      const sessionCount = sessions.shape === "browse" ? sessions.sessions.length : 0;
+      console.log(`profile=${activeProfile()}`);
+      console.log(`configured=${state.configured}`);
+      console.log(`default_runtime=${state.configSummary?.defaultRuntime ?? "-"}`);
+      console.log(`recent_sessions_visible=${sessionCount}`);
+      console.log("start=muster dashboard start --port 7461");
+    } finally {
+      store.close();
+    }
+    return;
+  }
+  if (action === "start") {
+    const port = readNumberFlag(args, "--port") ?? 7461;
+    const host = readFlag(args, "--host") ?? "127.0.0.1";
+    if (!["127.0.0.1", "localhost", "::1"].includes(host) && !args.includes("--insecure")) {
+      throw new Error("Refusing to bind dashboard outside localhost without --insecure.");
+    }
+    const server = createServer(async (_request, response) => {
+      try {
+        const state = await buildCockpitState();
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(renderDashboardHtml(state));
+      } catch (error) {
+        response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+        response.end(error instanceof Error ? error.message : String(error));
+      }
+    });
+    await new Promise<void>((resolveStart) => server.listen(port, host, resolveStart));
+    console.log(`dashboard=http://${host}:${port}`);
+    console.log("stop with Ctrl-C");
+    await new Promise<void>((resolveStop) => {
+      process.on("SIGINT", () => {
+        server.close(() => resolveStop());
+      });
+    });
+    return;
+  }
+  throw new Error("Usage: muster dashboard status|start [--port 7461] [--host 127.0.0.1] [--insecure]");
+}
+
+function safeConfigKey(value: string): string {
+  const cleaned = value.trim().replace(/[^a-zA-Z0-9_.:-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!cleaned) throw new Error("Name cannot be empty.");
+  return cleaned.slice(0, 80);
+}
+
+function renderDashboardHtml(state: Awaited<ReturnType<typeof buildCockpitState>>): string {
+  const latest = state.episodes.at(-1);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Muster Dashboard</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#101820;color:#f8fafc}
+    main{max-width:960px;margin:0 auto;padding:32px}
+    h1{font-size:32px;margin:0 0 8px}
+    section{border-top:1px solid #334155;padding:20px 0}
+    code,pre{background:#17212b;border:1px solid #334155;border-radius:6px;padding:2px 6px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+    .tile{background:#17212b;border:1px solid #334155;border-radius:8px;padding:14px}
+    .label{color:#93c5fd;font-size:12px;text-transform:uppercase}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Muster Dashboard</h1>
+    <p>Local read-only cockpit for this profile.</p>
+    <section class="grid">
+      <div class="tile"><div class="label">configured</div>${state.configured}</div>
+      <div class="tile"><div class="label">runtime</div>${escapeHtml(state.configSummary?.defaultRuntime ?? "-")}</div>
+      <div class="tile"><div class="label">providers</div>${state.configSummary?.providers.length ?? 0}</div>
+      <div class="tile"><div class="label">candidates</div>${state.candidates.length}</div>
+    </section>
+    <section>
+      <h2>Latest Run</h2>
+      <pre>${escapeHtml(JSON.stringify(latest ?? { status: "none" }, null, 2))}</pre>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
 async function context(args: string[]): Promise<void> {
