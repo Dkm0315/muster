@@ -647,7 +647,8 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       console.log(color("bye", "dim"));
       return false;
     case "help":
-      printChatHelp();
+      printChatCommandCatalog();
+      printChatShortcuts();
       return true;
     case "commands":
       printChatCommandCatalog();
@@ -716,19 +717,19 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
 }
 
 function printChatCommandCatalog(): void {
-  console.log(color("command\taliases\tdescription", "cyan"));
-  for (const command of CHAT_COMMANDS) {
-    console.log(`${command.usage}\t${command.aliases?.join(",") || "-"}\t${command.description}`);
-  }
+  printChatPanel("Commands", CHAT_COMMANDS.map((command) => {
+    const aliases = command.aliases?.length ? ` (${command.aliases.map((alias) => `/${alias}`).join(", ")})` : "";
+    return `${color(command.usage.padEnd(20), "amber")} ${command.description}${color(aliases, "dim")}`;
+  }));
 }
 
 function printChatShortcuts(): void {
-  console.log(color("shortcut\taction", "cyan"));
-  console.log("Tab\tcomplete slash commands, /tools toolsets, and /resume sessions");
-  console.log("@agent-name <task>\troute this turn with agent id agent-name");
-  console.log("\\ at end of line\tcontinue multiline input");
-  console.log("Ctrl+C\tcancel the current terminal input");
-  console.log("Ctrl+D\texit when the input line is empty");
+  printChatPanel("Shortcuts", [
+    `${color("Tab".padEnd(18), "amber")} complete slash commands, toolsets, and session names`,
+    `${color("@agent <task>".padEnd(18), "amber")} route a turn with an agent id`,
+    `${color("\\ at line end".padEnd(18), "amber")} continue multiline input`,
+    `${color("Ctrl+D".padEnd(18), "amber")} exit on an empty line`,
+  ]);
 }
 
 function chatCompleter(line: string): [string[], string] {
@@ -781,7 +782,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
     stopWorking();
   }
   persistChatTranscriptIfMissing(state.sessionName, prompt, outcome);
-  printAssistantResponse(outcome, Date.now() - started);
+  printAssistantResponse(outcome);
 }
 
 function startWorkingStatus(agentId: string | undefined, started: number): () => void {
@@ -815,23 +816,21 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
   return { agentId: match[1], prompt: match[2].trim() };
 }
 
-function printAssistantResponse(outcome: RunOutcome, elapsedMs: number): void {
+function printAssistantResponse(outcome: RunOutcome): void {
   const status = outcome.episode.outcome?.kind ?? "unknown";
-  const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status} ${elapsedMs}ms`;
-  console.log(color(status === "completed" ? header : `✖ ${header}`, status === "completed" ? "green" : "red"));
-  if (outcome.recalled.length) console.log(color(`recalled ${outcome.recalled.length} scoped memories`, "dim"));
-  if (outcome.fallbackUsed) console.log(color(`fallback=${outcome.fallbackUsed}`, "yellow"));
   if (status !== "completed") {
+    const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status}`;
+    console.log(color(`✖ ${header}`, "red"));
     const detail = outcome.episode.outcome?.kind === "failed" ? outcome.episode.outcome.detail : undefined;
     if (detail) console.log(color(`reason: ${detail}`, "red"));
     console.log(color("Run `muster doctor` or `/status` to inspect provider configuration.", "dim"));
     return;
   }
-  console.log("");
+  if (outcome.recalled.length) console.log(color(`recalled ${outcome.recalled.length} memories`, "dim"));
+  if (outcome.fallbackUsed) console.log(color(`fallback=${outcome.fallbackUsed}`, "yellow"));
   for (const line of wrapPreserveLines(outcome.episode.responseText || "(empty response)", Math.min(process.stdout.columns || 100, 120) - 2)) {
     console.log(line);
   }
-  console.log(color(`\ntokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}`, "dim"));
 }
 
 function persistChatTranscriptIfMissing(sessionName: string, prompt: string, outcome: RunOutcome): void {
@@ -926,9 +925,15 @@ async function printChatStatus(state: ChatState): Promise<void> {
   try {
     const session = store.findOrCreateSession({ channel: "cli-chat", peer: state.sessionName, title: state.sessionName });
     const messages = store.loadActiveMessages(session.id).length;
-    console.log(color(`session=${state.sessionName} id=${session.id}`, "cyan"));
-    console.log(`runtime=${runtime} provider=${provider?.id ?? state.provider ?? "-"} model=${state.model ?? provider?.defaultModel ?? "-"}`);
-    console.log(`messages=${messages} tokens_in=${session.tokensIn} tokens_out=${session.tokensOut}`);
+    printChatPanel("Status", [
+      `${color("session".padEnd(12), "amber")} ${state.sessionName}`,
+      `${color("runtime".padEnd(12), "amber")} ${runtime}`,
+      `${color("provider".padEnd(12), "amber")} ${provider?.id ?? state.provider ?? "-"}`,
+      `${color("model".padEnd(12), "amber")} ${state.model ?? provider?.defaultModel ?? "-"}`,
+      `${color("messages".padEnd(12), "amber")} ${messages}`,
+      `${color("tokens".padEnd(12), "amber")} in ${session.tokensIn} / out ${session.tokensOut}`,
+      color(`id ${session.id}`, "dim"),
+    ]);
   } finally {
     store.close();
   }
@@ -963,29 +968,40 @@ function printChatTools(toolset?: string): void {
   for (const entry of entries) {
     grouped.set(entry.toolset, [...(grouped.get(entry.toolset) ?? []), entry]);
   }
-  console.log(color("toolset\ttools", "cyan"));
-  for (const [name, items] of grouped) {
-    console.log(`${name}\t${items.map((item) => item.name).join(", ")}`);
-  }
-  console.log(color("Use tool_search/tool_describe from agent runs for schema-level detail.", "dim"));
+  printChatPanel("Tools", [
+    ...[...grouped].map(([name, items]) => `${color(`${name}:`, "amber")} ${items.map((item) => item.name).join(", ")}`),
+    color("Use /tools <toolset> to narrow the list.", "dim"),
+  ]);
 }
 
 async function printChatAgents(): Promise<void> {
   const config = await loadConfig();
   const agents = config.agents?.list ?? [];
-  console.log(color("runtime\tprovider\tmodel\tenabled", "cyan"));
-  for (const runtime of Object.values(config.runtimes)) {
+  const lines = Object.values(config.runtimes).map((runtime) => {
     const provider = config.providers[runtime.provider];
-    console.log(`${runtime.id}\t${runtime.provider}\t${provider?.defaultModel ?? "-"}\t${runtime.enabled ? "yes" : "no"}`);
-  }
+    return `${color(`${runtime.id}:`, "amber")} ${runtime.provider} · ${provider?.defaultModel ?? "-"} · ${runtime.enabled ? "enabled" : "disabled"}`;
+  });
   if (!agents.length) {
-    console.log(color("No named @agents configured. Use @agent-name anyway to route a turn with that agent id.", "dim"));
+    printChatPanel("Agents", [...lines, color("No named agents configured. You can still type @agent-name <task> to route a turn.", "dim")]);
     return;
   }
-  console.log(color("\nagent\tskills", "cyan"));
-  for (const agent of agents) {
-    console.log(`${agent.id}\t${agent.skills?.join(",") || "-"}`);
+  printChatPanel("Agents", [
+    ...lines,
+    "",
+    ...agents.map((agent) => `${color(`@${agent.id}`, "amber")} ${agent.skills?.join(", ") || "no skill allowlist"}`),
+  ]);
+}
+
+function printChatPanel(title: string, lines: readonly string[]): void {
+  const width = Math.min(Math.max((process.stdout.columns || 100) - 4, 72), 140);
+  console.log(color(`╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - 5))}╮`, "amber"));
+  for (const line of lines) {
+    const wrapped = wrapPreserveLines(line || " ", width - 4);
+    for (const part of wrapped) {
+      console.log(color("│ ", "amber") + visiblePadEnd(part, width - 4) + color(" │", "amber"));
+    }
   }
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
 }
 
 function resolveChatSessionName(value: string): string {

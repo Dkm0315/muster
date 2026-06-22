@@ -36,6 +36,7 @@ export interface CodexRunInput {
   /** thread_id captured from a prior turn's `thread.started` event. */
   readonly sessionId?: string;
   readonly resume?: boolean;
+  readonly ignoreRules?: boolean;
   /**
    * Environment for the spawned process. MUST carry CODEX_HOME + the user's
    * subscription auth (~/.codex/auth.json), else codex returns 401 under a
@@ -95,6 +96,7 @@ export function buildCodexArgs(input: CodexRunInput, outputLastMessageFile: stri
   args.push("--skip-git-repo-check");
   if (input.model) args.push("-m", input.model);
   if (!isResume) args.push("-s", input.sandbox ?? "workspace-write");
+  if (input.ignoreRules) args.push("--ignore-rules");
   // `codex exec` is non-interactive (no approval prompt possible) and has NO `-a`
   // flag — that belongs to the interactive root command. Approval policy is set
   // via a config override. `never` is the correct headless value.

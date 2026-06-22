@@ -9,6 +9,7 @@ test("buildCodexArgs: fresh turn runs codex exec at full native power", () => {
     model: "gpt-5.5",
     instructionsFile: "/tmp/muster-inject.md",
     networkAccess: true,
+    ignoreRules: true,
   }, "/tmp/out.txt");
 
   assert.deepEqual(args, [
@@ -16,6 +17,7 @@ test("buildCodexArgs: fresh turn runs codex exec at full native power", () => {
     "-C", "/home/goblin/.muster/profiles/tg/workspace", "--skip-git-repo-check",
     "-m", "gpt-5.5",
     "-s", "workspace-write",
+    "--ignore-rules",
     "-c", "approval_policy=never",
     "-c", "sandbox_workspace_write.network_access=true",
     "-c", "experimental_instructions_file=/tmp/muster-inject.md",

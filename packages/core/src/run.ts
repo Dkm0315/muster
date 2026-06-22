@@ -270,6 +270,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
       networkAccess: true,
       sessionId: reuse ? stored.handle : options.sessionId,
       resume: reuse ? true : options.resume,
+      ignoreRules: options.surfaceId === "cli-chat",
       env: options.codexHome ? { CODEX_HOME: options.codexHome } : undefined,
       timeoutMs: options.timeoutMs,
     });
