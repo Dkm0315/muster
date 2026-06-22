@@ -67,6 +67,7 @@ import {
   applyOpenclawProfile,
   seedEvalFromEpisode,
   searchMemory,
+  createToolRegistry,
   setRuntimeProvider,
   addPresetProvider,
   renderProviderPresets,
@@ -105,7 +106,7 @@ import {
 } from "@musterhq/gateway";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
 
@@ -409,6 +410,8 @@ In-chat commands:
   /name <name>          switch current reference name
   /history [limit]      show current chat history
   /memory <query>       search scoped memory
+  /tools [toolset]      list built-in toolsets and tools
+  /agents               list configured runtimes and @agent ids
   /tokens [limit]       show token ledger
   /new [name]           start/switch to a fresh named chat and clear provider handles
   /reset                clear provider handles for this named chat
@@ -426,17 +429,28 @@ async function interactiveChat(state: ChatState): Promise<void> {
   const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true });
   let pending = "";
   try {
-    while (true) {
+    rl.setPrompt(`${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `);
+    rl.prompt();
+    for await (const line of rl) {
       const promptLabel = pending ? color("... ", "dim") : `${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `;
-      const line = await rl.question(promptLabel);
       const raw = line.endsWith("\\") ? line.slice(0, -1) : line;
       pending = pending ? `${pending}\n${raw}` : raw;
-      if (line.endsWith("\\")) continue;
+      if (line.endsWith("\\")) {
+        rl.setPrompt(color("... ", "dim"));
+        rl.prompt();
+        continue;
+      }
       const text = pending.trim();
       pending = "";
-      if (!text) continue;
+      if (!text) {
+        rl.setPrompt(promptLabel);
+        rl.prompt();
+        continue;
+      }
       const keepGoing = await handleChatInput(text, state);
       if (!keepGoing) break;
+      rl.setPrompt(`${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `);
+      rl.prompt();
     }
   } finally {
     rl.close();
@@ -500,6 +514,12 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       return true;
     case "memory":
       await printChatMemory(args, state);
+      return true;
+    case "tools":
+      printChatTools(args);
+      return true;
+    case "agents":
+      await printChatAgents();
       return true;
     case "tokens":
       console.log(renderTokenTable(await listTokenRecords(), args ? Number(args) || 20 : 20));
@@ -675,6 +695,42 @@ async function printChatMemory(query: string, state: ChatState): Promise<void> {
   for (const memory of results.slice(0, 8)) {
     console.log(color(`${memory.id} ${memory.kind} ${memory.observedAt}`, "cyan"));
     console.log(`  ${memory.summary}`);
+  }
+}
+
+function printChatTools(toolset?: string): void {
+  const registry = createToolRegistry();
+  const entries = registry.list(toolset || undefined);
+  if (!entries.length) {
+    console.log(color(`No tools found for ${toolset}.`, "yellow"));
+    return;
+  }
+  const grouped = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    grouped.set(entry.toolset, [...(grouped.get(entry.toolset) ?? []), entry]);
+  }
+  console.log(color("toolset\ttools", "cyan"));
+  for (const [name, items] of grouped) {
+    console.log(`${name}\t${items.map((item) => item.name).join(", ")}`);
+  }
+  console.log(color("Use tool_search/tool_describe from agent runs for schema-level detail.", "dim"));
+}
+
+async function printChatAgents(): Promise<void> {
+  const config = await loadConfig();
+  const agents = config.agents?.list ?? [];
+  console.log(color("runtime\tprovider\tmodel\tenabled", "cyan"));
+  for (const runtime of Object.values(config.runtimes)) {
+    const provider = config.providers[runtime.provider];
+    console.log(`${runtime.id}\t${runtime.provider}\t${provider?.defaultModel ?? "-"}\t${runtime.enabled ? "yes" : "no"}`);
+  }
+  if (!agents.length) {
+    console.log(color("No named @agents configured. Use @agent-name anyway to route a turn with that agent id.", "dim"));
+    return;
+  }
+  console.log(color("\nagent\tskills", "cyan"));
+  for (const agent of agents) {
+    console.log(`${agent.id}\t${agent.skills?.join(",") || "-"}`);
   }
 }
 
