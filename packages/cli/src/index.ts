@@ -518,16 +518,17 @@ async function interactiveChat(state: ChatState): Promise<void> {
   }
 }
 
-function chatPrompt(state: ChatState): string {
-  return `${color("›", "amber")} ${color(`muster:${state.sessionName}`, "dim")} `;
+function chatPrompt(_state: ChatState): string {
+  return `${color("›", "amber")} `;
 }
 
 async function printChatHeader(state: ChatState): Promise<void> {
   const width = Math.min(Math.max((process.stdout.columns || 120) - 2, 100), 240);
   const inner = width - 4;
-  const leftWidth = Math.max(28, Math.min(42, Math.floor(inner * 0.28)));
-  const gutter = 4;
-  const rightWidth = inner - leftWidth - gutter;
+  const gutter = 3;
+  const leftWidth = Math.max(24, Math.min(34, Math.floor(inner * 0.2)));
+  const midWidth = Math.max(42, Math.floor((inner - leftWidth - gutter * 2) * 0.48));
+  const rightWidth = inner - leftWidth - midWidth - gutter * 2;
   const cwd = truncate(process.cwd().replace(process.env.HOME ?? "", "~"), leftWidth - 2);
   const config = await loadConfig().catch(() => undefined);
   const runtimeId = state.runtime ?? config?.routing.defaultRuntime ?? "native";
@@ -538,7 +539,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
   const skills = await listSkills().catch(() => []);
   const activeSkills = skills.filter((skill) => skill.status === "active");
   const skillNames = (activeSkills.length ? activeSkills : skills).slice(0, 16).map((skill) => skill.name);
-  const rightLines = [
+  const middleLines = [
     color("Available Tools", "amber"),
     ...formatCatalogLines([
       ["workspace", "read, edit, shell, git"],
@@ -549,38 +550,40 @@ async function printChatHeader(state: ChatState): Promise<void> {
       ["mcp", "list, add-stdio, test, remove"],
       ["dashboard", "status, start"],
       ["agents", "@agent route, sub-runs"],
-    ], rightWidth),
+    ], midWidth),
+  ];
+  const leftLines = [
+    color("MUSTER", "amber"),
+    color("agent harness", "dim"),
+    " ",
+    color(model, "amber"),
+    color(cwd, "dim"),
+    color(`Session: ${state.sessionName}`, "dim"),
+  ];
+  const rightLines = [
+    color("Commands", "amber"),
+    `${color("/help", "amber")} commands and shortcuts`,
+    `${color("/status", "amber")} model and session`,
+    `${color("/sessions", "amber")} recent chats`,
+    `${color("/tools", "amber")} available tools`,
+    `${color("@agent", "amber")} route a turn`,
     "",
     color("Available Skills", "amber"),
     ...formatSkillLines(skillNames, rightWidth),
   ];
-  const leftLines = [
-    "",
-    color("MUSTER", "amber"),
-    color("agent harness", "dim"),
-    "",
-    `${color("model", "amber")}    ${model}`,
-    `${color("provider", "amber")} ${providerId}`,
-    `${color("runtime", "amber")}  ${runtimeId}`,
-    "",
-    `${color("cwd", "amber")}      ${cwd}`,
-    `${color("session", "amber")}  ${state.sessionName}`,
-  ];
-  const rows = Math.max(leftLines.length, rightLines.length);
+  const rows = Math.max(leftLines.length, middleLines.length, rightLines.length);
   console.log(color(`╭${"─".repeat(width - 2)}╮`, "amber"));
   console.log(panelTitle(width, `Muster Agent · ${new Date().toISOString().slice(0, 10)}`));
   for (let index = 0; index < rows; index += 1) {
     const left = visiblePadEnd(leftLines[index] ?? "", leftWidth);
+    const middle = visiblePadEnd(middleLines[index] ?? "", midWidth);
     const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
-    console.log(color("│ ", "amber") + left + " ".repeat(gutter) + right + color(" │", "amber"));
+    console.log(color("│ ", "amber") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "amber"));
   }
-  const footer = `${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · /help for commands`;
+  const footer = `${model} · ${providerId} · ${runtimeId} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · /help`;
   console.log(color("├" + "─".repeat(width - 2) + "┤", "amber"));
   console.log(color("│ ", "amber") + visiblePadEnd(color(footer, "amber"), width - 4) + color(" │", "amber"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
-  console.log(`Welcome to Muster. Type a message or ${color("/help", "amber")} for commands.`);
-  console.log(color("Tip: Tab completes slash commands; @agent-name routes a turn; /name saves this conversation for later recall.", "dim"));
-  console.log(color(statusStrip({ model, providerId, sessionName: state.sessionName }), "dim"));
   console.log("");
 }
 
@@ -614,10 +617,6 @@ function panelTitle(width: number, title: string): string {
   const left = Math.max(1, Math.floor((width - 2 - stripAnsi(text).length) / 2));
   const right = Math.max(1, width - 2 - left - stripAnsi(text).length);
   return color("│", "amber") + color("─".repeat(left), "amber") + color(text, "amber") + color("─".repeat(right), "amber") + color("│", "amber");
-}
-
-function statusStrip(input: { readonly model: string; readonly providerId: string; readonly sessionName: string }): string {
-  return `$ ${input.model} | provider ${input.providerId} | session ${input.sessionName} | ctx -- | 0s`;
 }
 
 function visiblePadEnd(value: string, width: number): string {
