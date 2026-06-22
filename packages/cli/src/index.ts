@@ -525,9 +525,8 @@ async function interactiveChat(state: ChatState): Promise<void> {
   await ensureDefaultConfig();
   printBanner();
   await printChatHeader(state);
-  const rl = createInterface({ input, output, historySize: 0, completer: chatCompleter });
+  const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
   const hintState = { visible: false, key: "", active: true, baseLine: "", selectedIndex: 0, suggestions: [] as ChatSuggestion[], renderSeq: 0 };
-  const historyState = { entries: [] as string[], index: undefined as number | undefined, draft: "" };
   emitKeypressEvents(input, rl);
   const onKeypress = (_chunk: string, key: { name?: string; ctrl?: boolean } = {}): void => {
     if (!hintState.active) return;
@@ -536,10 +535,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       renderLiveSuggestions(rl, state, hintState, key.name).catch(() => {});
       return;
     }
-    if ((key.name === "up" || key.name === "down") && !hintState.visible) {
-      navigateChatHistory(rl, historyState, key.name as "up" | "down");
-      return;
-    }
+    if (key.name === "up" || key.name === "down") return;
     setImmediate(() => renderLiveSuggestions(rl, state, hintState, key.name).catch(() => {}));
   };
   input.on("keypress", onKeypress);
@@ -555,7 +551,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       const raw = continues ? line.slice(0, -1) : line.replace(/\\\\$/, "\\");
       pending = pending ? `${pending}\n${raw}` : raw;
       if (continues) {
-        rl.setPrompt(`${color("│", "accent")} ${color("...", "dim")} `);
+        rl.setPrompt(`${color("...", "dim")} `);
         rl.prompt();
         continue;
       }
@@ -570,7 +566,6 @@ async function interactiveChat(state: ChatState): Promise<void> {
       }
       const keepGoing = await handleChatInput(text, state);
       if (!keepGoing) break;
-      rememberChatInput(historyState, text);
       rl.setPrompt(chatPrompt(state));
       printChatInputFrame();
       rl.prompt();
@@ -593,34 +588,7 @@ function hasLineContinuation(line: string): boolean {
 }
 
 function chatPrompt(_state: ChatState): string {
-  return `${color("│", "accent")} ${color("›", "highlight")} `;
-}
-
-function rememberChatInput(historyState: { entries: string[]; index?: number; draft: string }, text: string): void {
-  if (!text) return;
-  if (historyState.entries.at(-1) !== text) historyState.entries.push(text);
-  historyState.index = undefined;
-  historyState.draft = "";
-}
-
-function navigateChatHistory(rl: Interface, historyState: { entries: string[]; index?: number; draft: string }, direction: "up" | "down"): void {
-  if (!historyState.entries.length) return;
-  if (direction === "up") {
-    if (historyState.index === undefined) {
-      historyState.draft = rl.line;
-      historyState.index = historyState.entries.length - 1;
-    } else {
-      historyState.index = Math.max(0, historyState.index - 1);
-    }
-  } else if (historyState.index !== undefined) {
-    if (historyState.index < historyState.entries.length - 1) {
-      historyState.index += 1;
-    } else {
-      historyState.index = undefined;
-    }
-  }
-  const next = historyState.index === undefined ? historyState.draft : historyState.entries[historyState.index] ?? "";
-  replaceReadlineLine(rl, next);
+  return `${color("›", "highlight")} `;
 }
 
 function replaceReadlineLine(rl: Interface, value: string): void {
@@ -707,14 +675,11 @@ function printChatInputFrame(): void {
   const width = chatFrameWidth();
   console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd(color("type / for commands, @ for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
-  console.log(color("│ ", "accent") + visiblePadEnd(`${color("/commands", "highlight")} ${color("/skills", "highlight")} ${color("/plugins", "highlight")} ${color("/mcp", "highlight")} ${color("/agents", "highlight")} ${color("/tools", "highlight")}`, width - 4) + color(" │", "accent"));
-  console.log(color("│ ", "accent") + visiblePadEnd("", width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
-  if (process.stdout.isTTY) output.write("\x1b[2A\r");
 }
 
 function printChatInputFrameBottom(): void {
-  if (process.stdout.isTTY) output.write("\x1b[2B\r");
+  if (process.stdout.isTTY) output.write("\r");
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -976,7 +941,7 @@ async function renderLiveSuggestions(
   const panel = renderSuggestionPanel(width, visibleSuggestions, hintState.selectedIndex);
   const key = `${baseLine}\n${hintState.selectedIndex}\n${panel}`;
   if (hintState.key === key) return;
-  output.write(`\x1b[s\x1b[3B\r\x1b[0J${panel}\x1b[u`);
+  output.write(`\x1b[s\x1b[1B\r\x1b[0J${panel}\x1b[u`);
   hintState.visible = true;
   hintState.key = key;
   hintState.baseLine = baseLine;
@@ -987,7 +952,7 @@ async function renderLiveSuggestions(
 
 function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean; baseLine?: string; selectedIndex?: number; suggestions?: ChatSuggestion[] }): void {
   if ("renderSeq" in hintState && typeof hintState.renderSeq === "number") hintState.renderSeq += 1;
-  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[3B\r\x1b[0J\x1b[u");
+  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[1B\r\x1b[0J\x1b[u");
   hintState.visible = false;
   hintState.key = "";
   hintState.baseLine = "";
