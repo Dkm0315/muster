@@ -20,6 +20,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@earendil-works/pi-tui':
+        specifier: ^0.79.1
+        version: 0.79.1
       '@musterhq/core':
         specifier: workspace:*
         version: link:../core

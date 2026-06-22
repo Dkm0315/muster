@@ -36,6 +36,8 @@ export interface CodexRunInput {
   /** thread_id captured from a prior turn's `thread.started` event. */
   readonly sessionId?: string;
   readonly resume?: boolean;
+  /** Run without persisting a native Codex session handle. Faster startup, less continuity. */
+  readonly ephemeral?: boolean;
   readonly ignoreRules?: boolean;
   /**
    * Environment for the spawned process. MUST carry CODEX_HOME + the user's
@@ -92,6 +94,7 @@ function resolveCodexCommand(command?: string): string {
 export function buildCodexArgs(input: CodexRunInput, outputLastMessageFile: string): string[] {
   const isResume = Boolean(input.resume && input.sessionId);
   const args = isResume ? ["exec", "resume", "--json"] : ["exec", "--json"];
+  if (!isResume && input.ephemeral) args.push("--ephemeral");
   if (!isResume) args.push("-C", input.cwd);
   args.push("--skip-git-repo-check");
   if (input.model) args.push("-m", input.model);

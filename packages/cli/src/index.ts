@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { printBanner } from "./banner.js";
+import { printBanner, renderBanner } from "./banner.js";
+import { runMusterChatTui, type MusterChatSink, type MusterCompletionCatalog, type PickerOption } from "./chat-tui.js";
 import {
   openSessionStore,
   clearConversationSessionHandles,
@@ -58,6 +59,7 @@ import {
   listLearningCandidates,
   listEpisodes,
   listMemory,
+  listBuiltinMcpServers,
   listPiModels,
   listBuiltinPlugins,
   listBuiltinSkills,
@@ -79,6 +81,7 @@ import {
   setRuntimeProvider,
   addPresetProvider,
   renderProviderPresets,
+  PROVIDER_PRESETS,
   executeRun,
   listTokenRecords,
   renderTokenTable,
@@ -102,7 +105,8 @@ import {
   runHarnessChecks,
   verifyIntegrity,
   renderIntegrityReport,
-  connectMcpServers
+  connectMcpServers,
+  clearCodexAppServerSessions
 } from "@musterhq/core";
 import {
   approvePairing,
@@ -389,10 +393,12 @@ interface ChatState {
   runtime?: string;
   provider?: string;
   model?: string;
+  speedMode?: "session" | "fast";
   scopes: MemoryScope[];
   recallLimit?: number;
   pendingMenu?: ChatMenu;
   pendingSuggestion?: ChatSelectedSuggestion;
+  statusSink?: MusterChatSink;
 }
 
 const DEFAULT_CHAT_SESSION = "main";
@@ -421,17 +427,23 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "commands", usage: "/commands", description: "show compact command catalog", aliases: ["cmds"] },
   { name: "shortcuts", usage: "/shortcuts", description: "show keyboard and routing shortcuts", aliases: ["keys"] },
   { name: "status", usage: "/status", description: "show runtime, model, session, token usage" },
+  { name: "providers", usage: "/providers", description: "list configured providers and models", aliases: ["provider-list"] },
+  { name: "provider", usage: "/provider <id> [model]", description: "switch active provider for this chat/runtime", aliases: ["use-provider"] },
+  { name: "cloud", usage: "/cloud [preset]", description: "browse or add cloud provider presets" },
+  { name: "model", usage: "/model <name>", description: "switch active model for the current provider" },
+  { name: "runtime", usage: "/runtime [id]", description: "list or switch active runtime" },
+  { name: "speed", usage: "/speed [session|fast]", description: "choose persistent Codex app-server or one-shot exec" },
   { name: "sessions", usage: "/sessions [limit]", description: "list recent named chats", aliases: ["ls"] },
   { name: "resume", usage: "/resume <name|id>", description: "switch to a prior named chat or session id", aliases: ["use"] },
   { name: "name", usage: "/name <name>", description: "switch current reference name" },
   { name: "history", usage: "/history [limit]", description: "show current chat history" },
   { name: "memory", usage: "/memory <query>", description: "search scoped memory" },
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
-  { name: "skills", usage: "/skills", description: "show installed and active skills" },
-  { name: "plugins", usage: "/plugins", description: "show plugin policy and configured packs" },
-  { name: "mcp", usage: "/mcp", description: "show configured MCP servers" },
+  { name: "skills", usage: "/skills [id]", description: "show or enable built-in skills", aliases: ["skill"] },
+  { name: "plugins", usage: "/plugins [id]", description: "show or enable built-in plugins", aliases: ["plugin"] },
+  { name: "mcp", usage: "/mcp [id]", description: "show configured and suggested MCP servers" },
   { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
-  { name: "tokens", usage: "/tokens [limit]", description: "show token ledger" },
+  { name: "tokens", usage: "/tokens [limit]", description: "show token ledger", aliases: ["usage", "ledger"] },
   { name: "new", usage: "/new [name]", description: "start/switch to a fresh named chat and clear provider handles" },
   { name: "reset", usage: "/reset", description: "clear provider handles for this named chat" },
   { name: "clear", usage: "/clear", description: "clear the terminal screen", aliases: ["cls"] },
@@ -440,6 +452,33 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
 const CHAT_COMMAND_NAMES = CHAT_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]);
 const CHAT_COMMAND_ALIASES = new Map(CHAT_COMMANDS.flatMap((command) => (command.aliases ?? []).map((alias) => [alias, command.name] as const)));
 const CHAT_TOOLSETS = ["core", "full", "files", "web", "memory", "sessions", "shell", "results", "discovery"];
+const CHAT_TOOLSET_OPTIONS = CHAT_TOOLSETS.map((toolset) => ({ value: toolset, label: toolset, description: "toolset" }));
+const CHAT_CLOUD_OPTIONS = PROVIDER_PRESETS
+  .filter((preset) => preset.category === "cloud" || preset.category === "aggregator")
+  .map((preset) => ({
+    value: preset.id,
+    label: preset.id,
+    description: `${preset.label} · ${preset.defaultModel} · ${preset.apiKeyEnv ?? "no key"}`,
+  }));
+const CHAT_SPEED_OPTIONS: readonly PickerOption[] = [
+  { value: "session", label: "session", description: "persistent Codex app-server; fastest repeat turns with cached context" },
+  { value: "fast", label: "fast", description: "one-shot Codex exec; useful fallback when app-server is unavailable" },
+];
+const CHAT_SKILL_OPTIONS = listBuiltinSkills().map((skill) => ({
+  value: skill.id,
+  label: skill.id,
+  description: `${skill.category} · ${skill.source} · risk ${skill.risk}`,
+}));
+const CHAT_PLUGIN_OPTIONS = listBuiltinPlugins().map((plugin) => ({
+  value: plugin.id,
+  label: plugin.id,
+  description: `${plugin.category} · ${plugin.source} · risk ${plugin.risk}`,
+}));
+const CHAT_MCP_OPTIONS = listBuiltinMcpServers().map((server) => ({
+  value: server.id,
+  label: server.id,
+  description: `${server.category} · ${server.source} · risk ${server.risk}`,
+}));
 
 async function chat(commandArgs: string[]): Promise<void> {
   if (commandArgs.includes("--help") || commandArgs.includes("-h")) {
@@ -451,10 +490,11 @@ async function chat(commandArgs: string[]): Promise<void> {
     runtime: readFlag(commandArgs, "--runtime"),
     provider: readFlag(commandArgs, "--provider"),
     model: readFlag(commandArgs, "--model"),
+    speedMode: commandArgs.includes("--one-shot-speed") ? "fast" : "session",
     scopes: readFlags(commandArgs, "--scope").map(parseMemoryScope),
     recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
   };
-  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms", "--continue", "--tools", "--complete", "--limit"]).filter((arg) => !["--commands", "--shortcuts", "--list", "--sessions", "--history"].includes(arg)).join(" ").trim();
+  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms", "--continue", "--tools", "--complete", "--limit"]).filter((arg) => !["--commands", "--shortcuts", "--list", "--sessions", "--history", "--fast", "--session-speed"].includes(arg)).join(" ").trim();
   if (commandArgs.includes("--list") || commandArgs.includes("--sessions")) {
     printChatSessions(readNumberFlag(commandArgs, "--limit") ?? 15);
     return;
@@ -506,6 +546,7 @@ Usage:
   muster chat                               # interactive terminal chat
   muster chat "your prompt"                 # one-shot turn in the main named session
   muster chat --session work "prompt"       # one-shot turn in a named session
+  muster chat --one-shot-speed              # use one-shot Codex exec instead of persistent app-server
   muster chat --continue [name]             # resume by name, or most recent named chat
   muster chat --session work --history      # show a named session
   muster chat --tools [toolset]             # list built-in tools
@@ -522,6 +563,36 @@ Shortcuts:
 }
 
 async function interactiveChat(state: ChatState): Promise<void> {
+  if (process.env.MUSTER_LEGACY_READLINE === "1") {
+    await legacyInteractiveChat(state);
+    return;
+  }
+  await ensureDefaultConfig();
+  const headerLines = await buildChatHeaderLines(state);
+  try {
+    await runMusterChatTui({
+      headerLines,
+      commands: CHAT_COMMANDS,
+      toolsets: CHAT_TOOLSETS,
+      recentSessions: recentChatSessionNames,
+      catalog: createChatCompletionCatalog(state),
+      agents: chatAgentOptions,
+      statusLine: () => chatStatusLine(state),
+      onSubmit: async (text, sink) => {
+        state.statusSink = sink;
+        try {
+          return await captureConsoleToSink(() => handleChatInput(text, state), sink);
+        } finally {
+          state.statusSink = undefined;
+        }
+      },
+    });
+  } finally {
+    clearCodexAppServerSessions();
+  }
+}
+
+async function legacyInteractiveChat(state: ChatState): Promise<void> {
   await ensureDefaultConfig();
   printBanner();
   await printChatHeader(state);
@@ -660,11 +731,79 @@ async function printChatHeader(state: ChatState): Promise<void> {
     const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
     console.log(color("│ ", "accent") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "accent"));
   }
-  const footer = `${model} · ${providerId} · ${runtimeId} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
+  const footer = `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "fast"} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
   console.log(color("├" + "─".repeat(width - 2) + "┤", "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd(color(footer, "accent"), width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
   console.log("");
+}
+
+async function chatStatusLine(state: ChatState): Promise<string> {
+  const config = await loadConfig().catch(() => undefined);
+  const runtimeId = state.runtime ?? config?.routing.defaultRuntime ?? "native";
+  const runtime = runtimeId ? config?.runtimes[runtimeId] : undefined;
+  const providerId = state.provider ?? runtime?.provider ?? "provider";
+  const provider = providerId ? config?.providers[providerId] : undefined;
+  const model = state.model ?? firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "model";
+  const skills = await listSkills().catch(() => []);
+  const pluginPolicy = config?.plugins;
+  const pluginCount = (pluginPolicy?.allow?.length ?? 0) + Object.keys(pluginPolicy?.entries ?? {}).length;
+  const mcpCount = Object.keys(config?.tools?.mcp?.servers ?? {}).length;
+  return `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "session"} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpCount)} mcp · /help`;
+}
+
+async function captureConsoleToSink<T>(fn: () => Promise<T>, sink: MusterChatSink): Promise<T> {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const originalClear = console.clear;
+  const write = (...values: unknown[]): void => {
+    const line = values.map(formatConsoleValue).join(" ");
+    sink.appendLine(line);
+  };
+  console.log = write;
+  console.warn = write;
+  console.error = write;
+  console.clear = () => sink.clearTranscript();
+  try {
+    return await fn();
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+    console.error = originalError;
+    console.clear = originalClear;
+  }
+}
+
+async function collectConsoleLines(fn: () => Promise<void> | void): Promise<string[]> {
+  const lines: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => {
+    lines.push(values.map(formatConsoleValue).join(" "));
+  };
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+  }
+  return lines.flatMap((line) => line.split(/\r?\n/));
+}
+
+async function buildChatHeaderLines(state: ChatState): Promise<string[]> {
+  return [
+    ...renderBanner().split(/\r?\n/).filter((line) => line.length > 0),
+    ...(await collectConsoleLines(() => printChatHeader(state))).filter((line) => line.length > 0),
+  ];
+}
+
+async function refreshChatTuiHeader(state: ChatState): Promise<void> {
+  state.statusSink?.setHeaderLines(await buildChatHeaderLines(state));
+}
+
+function formatConsoleValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  return String(value);
 }
 
 function chatFrameWidth(): number {
@@ -802,6 +941,26 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
     case "status":
       await printChatStatus(state);
       return true;
+    case "providers":
+    case "provider-list":
+      await printChatProviders();
+      return true;
+    case "cloud":
+      await cloudChatProvider(args, state);
+      return true;
+    case "provider":
+    case "use-provider":
+      await switchChatProvider(args, state);
+      return true;
+    case "model":
+      await switchChatModel(args, state);
+      return true;
+    case "runtime":
+      await switchChatRuntime(args, state);
+      return true;
+    case "speed":
+      switchChatSpeed(args, state);
+      return true;
     case "sessions":
     case "resume-list":
       printChatSessions(args ? Number(args) || 15 : 15);
@@ -833,18 +992,22 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
       printChatTools(args);
       return true;
     case "skills":
-      await printChatSkills();
+    case "skill":
+      await printChatSkills(args, state);
       return true;
     case "plugins":
-      await printChatPlugins();
+    case "plugin":
+      await printChatPlugins(args, state);
       return true;
     case "mcp":
-      await printChatMcp();
+      await printChatMcp(args, state);
       return true;
     case "agents":
       await printChatAgents();
       return true;
     case "tokens":
+    case "usage":
+    case "ledger":
       console.log(renderTokenTable(await listTokenRecords(), args ? Number(args) || 20 : 20));
       return true;
     case "new": {
@@ -1034,7 +1197,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   const agentId = routed?.agentId;
   const config = await loadConfig();
   const started = Date.now();
-  const stopWorking = startWorkingStatus(agentId, started);
+  const stopWorking = state.statusSink ? startTuiWorkingStatus(state.statusSink, agentId, started) : startWorkingStatus(agentId, started);
   let outcome: RunOutcome;
   try {
     outcome = await executeRun(config, {
@@ -1048,6 +1211,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
       conversationKey: chatConversationKey(state.sessionName),
       surfaceId: "cli-chat",
       agentId,
+      nativeSession: (state.speedMode ?? "session") !== "fast",
       timeoutMs: options.timeoutMs,
     });
   } finally {
@@ -1055,6 +1219,23 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   }
   persistChatTranscriptIfMissing(state.sessionName, prompt, outcome);
   printAssistantResponse(outcome);
+}
+
+function startTuiWorkingStatus(sink: MusterChatSink, agentId: string | undefined, started: number): () => void {
+  const label = agentId ? `@${agentId} working` : "working";
+  const frames = ["|", "/", "-", "\\"];
+  let frame = 0;
+  const render = (): void => {
+    const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    sink.setStatus(`${frames[frame % frames.length]} ${label} ${elapsed}s`);
+    frame += 1;
+  };
+  render();
+  const timer = setInterval(render, 250);
+  return () => {
+    clearInterval(timer);
+    sink.clearStatus();
+  };
 }
 
 function startWorkingStatus(agentId: string | undefined, started: number): () => void {
@@ -1192,7 +1373,9 @@ async function printChatStatus(state: ChatState): Promise<void> {
   const config = await loadConfig();
   const runtime = state.runtime ?? config.routing.defaultRuntime;
   const rt = config.runtimes[runtime];
-  const provider = rt ? config.providers[rt.provider] : undefined;
+  const providerId = state.provider ?? rt?.provider;
+  const provider = providerId ? config.providers[providerId] : undefined;
+  const model = state.model ?? firstRuntimeModel(rt) ?? provider?.defaultModel;
   const store = openSessionStore();
   try {
     const session = store.findOrCreateSession({ channel: "cli-chat", peer: state.sessionName, title: state.sessionName });
@@ -1200,14 +1383,227 @@ async function printChatStatus(state: ChatState): Promise<void> {
     printChatPanel("Status", [
       `${color("session".padEnd(12), "accent")} ${state.sessionName}`,
       `${color("runtime".padEnd(12), "accent")} ${runtime}`,
-      `${color("provider".padEnd(12), "accent")} ${provider?.id ?? state.provider ?? "-"}`,
-      `${color("model".padEnd(12), "accent")} ${state.model ?? provider?.defaultModel ?? "-"}`,
+      `${color("provider".padEnd(12), "accent")} ${provider?.id ?? providerId ?? "-"}`,
+      `${color("model".padEnd(12), "accent")} ${model ?? "-"}`,
+      `${color("speed".padEnd(12), "accent")} ${state.speedMode ?? "session"}${(state.speedMode ?? "session") === "fast" ? " (one-shot Codex exec)" : " (persistent Codex app-server)"}`,
       `${color("messages".padEnd(12), "accent")} ${messages}`,
       `${color("tokens".padEnd(12), "accent")} in ${session.tokensIn} / out ${session.tokensOut}`,
       color(`id ${session.id}`, "dim"),
     ]);
   } finally {
     store.close();
+  }
+}
+
+async function printChatProviders(): Promise<void> {
+  const config = await loadConfig();
+  const defaultRuntime = config.runtimes[config.routing.defaultRuntime];
+  const activeProvider = defaultRuntime?.provider;
+  printChatPanel("Providers", [
+    ...Object.values(config.providers).map((provider) => {
+      const active = provider.id === activeProvider ? "*" : " ";
+      const endpoint = provider.kind === "openai-compatible" ? provider.baseUrl ?? "-" : provider.kind;
+      return `${color(active, "accent")} ${color(provider.id.padEnd(14), "accent")} ${provider.kind.padEnd(18)} ${provider.defaultModel.padEnd(24)} ${endpoint}`;
+    }),
+    "",
+    color("Managed runtimes", "accent"),
+    `${color("claude-code".padEnd(16), "accent")} Claude Code login, no API key. Use /runtime claude-code`,
+    `${color("codex".padEnd(16), "accent")} Codex CLI login. Use /runtime codex`,
+    `${color("pi".padEnd(16), "accent")} Pi runtime. Use /runtime pi`,
+    "",
+    color("Cloud presets", "accent"),
+    ...PROVIDER_PRESETS.filter((preset) => preset.category === "cloud" || preset.category === "aggregator").slice(0, 10).map((preset) =>
+      `${color(preset.id.padEnd(16), "accent")} ${preset.label} · default ${preset.defaultModel}`
+    ),
+  ]);
+  console.log(color("Use /provider <id> [model], /cloud <preset>, /model <name>, or /runtime claude-code.", "dim"));
+}
+
+async function switchChatProvider(args: string, state: ChatState): Promise<void> {
+  if (!args) {
+    await printChatProviders();
+    return;
+  }
+  const [providerId, ...modelParts] = args.split(/\s+/).filter(Boolean);
+  if (providerId === "claude-code") {
+    await switchChatRuntime("claude-code", state);
+    return;
+  }
+  if (providerId === "codex-cli") {
+    await switchChatRuntime("codex", state);
+    return;
+  }
+  let config = await loadConfig();
+  let provider = config.providers[providerId];
+  if (!provider) {
+    const preset = PROVIDER_PRESETS.find((item) => item.id === providerId);
+    if (!preset) {
+      console.log(color(`Provider not found: ${providerId}. Type /providers or /cloud.`, "yellow"));
+      return;
+    }
+    provider = await addPresetProvider(providerId);
+    config = await loadConfig();
+    console.log(color(`provider_added=${provider.id} key=${provider.apiKeyEnv ?? "none"} default_model=${provider.defaultModel}`, "green"));
+  }
+  const runtimeId = state.runtime ?? config.routing.defaultRuntime;
+  const model = modelParts.join(" ").trim() || provider.defaultModel;
+  await setRuntimeProvider({ runtimeId, providerId, model });
+  state.runtime = runtimeId;
+  state.provider = providerId;
+  state.model = model;
+  await refreshChatTuiHeader(state);
+  const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+  console.log(color(`provider=${providerId} model=${model} runtime=${runtimeId} provider_handles_cleared=${cleared}`, "green"));
+  if (provider.apiKeyEnv && !process.env[provider.apiKeyEnv]) {
+    printChatPanel("Setup Required", [
+      `${color(provider.apiKeyEnv, "yellow")} is not set for ${providerId}.`,
+      `${color("Open", "accent")} ${providerSetupUrl(providerId) ?? "the provider dashboard in your browser to create an API key."}`,
+      `Set it in your shell, then reopen Muster or run ${color(`/provider ${providerId}`, "accent")}.`,
+      `${color("Next", "accent")} Choose a model now; the provider will work once the key exists.`,
+    ]);
+  }
+  openNextPicker(state, "/model");
+}
+
+async function cloudChatProvider(args: string, state: ChatState): Promise<void> {
+  const presetId = args.trim();
+  if (!presetId) {
+    printChatPanel("Cloud Presets", PROVIDER_PRESETS.filter((preset) => preset.category === "cloud" || preset.category === "aggregator").map((preset) => {
+      const key = preset.apiKeyEnv ? `${preset.apiKeyEnv}${process.env[preset.apiKeyEnv] ? " set" : " not set"}` : "no key";
+      return `${color(preset.id.padEnd(14), "accent")} ${preset.label.padEnd(38)} ${preset.defaultModel.padEnd(28)} ${key}`;
+    }));
+    console.log(color("Use /cloud <preset> to add and switch, for example /cloud openrouter or /cloud anthropic.", "dim"));
+    return;
+  }
+  const preset = PROVIDER_PRESETS.find((item) => item.id === presetId);
+  if (!preset || (preset.category !== "cloud" && preset.category !== "aggregator")) {
+    console.log(color(`Cloud preset not found: ${presetId}. Type /cloud to browse.`, "yellow"));
+    return;
+  }
+  await switchChatProvider(preset.id, state);
+}
+
+async function switchChatModel(args: string, state: ChatState): Promise<void> {
+  const model = args.trim();
+  if (!model) {
+    const config = await loadConfig();
+    const runtimeId = state.runtime ?? config.routing.defaultRuntime;
+    const runtime = config.runtimes[runtimeId];
+    const providerId = state.provider ?? runtime?.provider;
+    const provider = providerId ? config.providers[providerId] : undefined;
+    console.log(color(`model=${state.model ?? firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "-"} provider=${providerId ?? "-"}`, "cyan"));
+    console.log(color("Usage: /model <name>", "dim"));
+    return;
+  }
+  const config = await loadConfig();
+  const runtimeId = state.runtime ?? config.routing.defaultRuntime;
+  const runtime = config.runtimes[runtimeId];
+  if (!runtime) {
+    console.log(color(`Runtime not found: ${runtimeId}`, "yellow"));
+    return;
+  }
+  const providerId = state.provider ?? runtime.provider;
+  await setRuntimeProvider({ runtimeId, providerId, model });
+  state.runtime = runtimeId;
+  state.provider = providerId;
+  state.model = model;
+  await refreshChatTuiHeader(state);
+  const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+  console.log(color(`provider=${providerId} model=${model} runtime=${runtimeId} provider_handles_cleared=${cleared}`, "green"));
+  openNextPicker(state, "/speed");
+}
+
+async function switchChatRuntime(args: string, state: ChatState): Promise<void> {
+  const runtimeId = args.trim();
+  const config = await loadConfig();
+  if (!runtimeId) {
+    printChatPanel("Runtimes", [
+      ...Object.values(config.runtimes).map((runtime) => {
+      const active = runtime.id === (state.runtime ?? config.routing.defaultRuntime) ? "*" : " ";
+      const provider = config.providers[runtime.provider];
+      return `${color(active, "accent")} ${color(runtime.id.padEnd(16), "accent")} provider=${runtime.provider} model=${firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "-"} enabled=${runtime.enabled}`;
+      }),
+      "",
+      `${color("claude-code".padEnd(18), "accent")} Claude Code local login · no API key · model default sonnet`,
+      `${color("codex".padEnd(18), "accent")} Codex CLI local login · model default gpt-5.5`,
+      `${color("pi".padEnd(18), "accent")} Pi managed provider runtime`,
+    ]);
+    console.log(color("Use /runtime claude-code, /runtime codex, /runtime pi, or /provider <id> [model].", "dim"));
+    return;
+  }
+  if (runtimeId === "claude" || runtimeId === "claude-code") {
+    state.runtime = "claude-code";
+    state.provider = "claude-code";
+    state.model = state.model ?? "sonnet";
+    await refreshChatTuiHeader(state);
+    const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+    console.log(color(`runtime=claude-code provider=claude-code model=${state.model} provider_handles_cleared=${cleared}`, "green"));
+    console.log(color("Uses your local Claude Code login. Run `claude` once outside Muster if auth is not set.", "dim"));
+    openNextPicker(state, "/model");
+    return;
+  }
+  if (runtimeId === "codex") {
+    state.runtime = "codex";
+    state.provider = "codex";
+    state.model = state.model ?? "gpt-5.5";
+    await refreshChatTuiHeader(state);
+    const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+    console.log(color(`runtime=codex provider=codex model=${state.model} provider_handles_cleared=${cleared}`, "green"));
+    openNextPicker(state, "/model");
+    return;
+  }
+  if (runtimeId === "pi") {
+    state.runtime = "pi";
+    state.provider = "pi-default";
+    state.model = state.model ?? "pi-default";
+    await refreshChatTuiHeader(state);
+    const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+    console.log(color(`runtime=pi provider=pi-default model=${state.model} provider_handles_cleared=${cleared}`, "green"));
+    openNextPicker(state, "/provider");
+    return;
+  }
+  const runtime = config.runtimes[runtimeId];
+  if (!runtime) {
+    console.log(color(`Runtime not found: ${runtimeId}. Type /runtime to list runtimes.`, "yellow"));
+    return;
+  }
+  const provider = config.providers[runtime.provider];
+  state.runtime = runtimeId;
+  state.provider = runtime.provider;
+  state.model = firstRuntimeModel(runtime) ?? provider?.defaultModel;
+  await refreshChatTuiHeader(state);
+  const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
+  console.log(color(`runtime=${runtimeId} provider=${state.provider} model=${state.model ?? "-"} provider_handles_cleared=${cleared}`, "green"));
+  openNextPicker(state, "/model");
+}
+
+function switchChatSpeed(args: string, state: ChatState): void {
+  const mode = args.trim().toLowerCase();
+  if (!mode) {
+    printChatPanel("Speed", chatSpeedOptions().map((option) => {
+      const active = option.value === (state.speedMode ?? "session") ? "*" : " ";
+      return `${color(active, "accent")} ${color(option.value.padEnd(10), "accent")} ${option.description ?? ""}`;
+    }));
+    return;
+  }
+  if (mode !== "session" && mode !== "fast") {
+    console.log(color("Usage: /speed session or /speed fast", "yellow"));
+    return;
+  }
+  state.speedMode = mode;
+  void refreshChatTuiHeader(state);
+  console.log(color(`speed=${mode}${mode === "fast" ? " one-shot Codex exec enabled" : " persistent Codex app-server enabled"}`, "green"));
+  printChatPanel("Ready", [
+    `${color("Provider", "accent")} ${state.provider ?? "current"} · ${color("Model", "accent")} ${state.model ?? "current"} · ${color("Speed", "accent")} ${mode}`,
+    "Type a normal message to run the agent, or use /plugins, /skills, /mcp to add capabilities.",
+  ]);
+}
+
+function openNextPicker(state: ChatState, command: string): void {
+  if (state.statusSink) {
+    state.statusSink.openPicker(command);
+  } else {
+    console.log(color(`Next: ${command}`, "dim"));
   }
 }
 
@@ -1246,28 +1642,100 @@ function printChatTools(toolset?: string): void {
   ]);
 }
 
-async function printChatSkills(): Promise<void> {
+async function printChatSkills(selection: string | undefined, state: ChatState): Promise<void> {
+  const selected = selection?.trim();
+  if (selected) {
+    try {
+      const skill = await enableBuiltinSkill(selected);
+      printChatPanel("Skills", [
+        `${color("enabled", "green")} ${color(skill.id, "accent")} · ${skill.category} · risk=${skill.risk}`,
+        skill.description,
+        color("Next picker: plugins. Pick a matching capability pack or press Escape to continue chatting.", "dim"),
+      ]);
+      openNextPicker(state, "/plugins");
+    } catch (error) {
+      const match = listBuiltinSkills().find((skill) => skill.id === selected);
+      printChatPanel("Skills", [
+        match
+          ? `${color(match.id, "accent")} ${match.category} · risk=${match.risk} · ${match.description}`
+          : color(error instanceof Error ? error.message : String(error), "yellow"),
+        `${color("Try", "accent")} /skills ${listBuiltinSkills().slice(0, 5).map((skill) => skill.id).join(" · ")}`,
+      ]);
+    }
+    return;
+  }
   const skills = await listSkills().catch(() => []);
+  const installed = new Set(skills.map((skill) => skill.name));
+  const catalog = listBuiltinSkills().filter((skill) => !installed.has(skill.id));
+  const grouped = summarizeCatalog(catalog, (skill) => skill.category, (skill) => skill.id, 4);
   if (!skills.length) {
     printChatPanel("Skills", [
       color("No installed skills found for this profile.", "dim"),
-      `${color("Commands", "accent")} muster skills list · muster skills curate · muster skills promote`,
+      `${color("Built-ins", "accent")} ${grouped.join(" · ")}`,
+      `${color("Enable", "accent")} /skills <id> · muster skills enable <id> · muster skills catalog`,
     ]);
     return;
   }
-  printChatPanel("Skills", skills.slice(0, 20).map((skill) => {
-    const tags = skill.tags.length ? ` · ${skill.tags.slice(0, 4).join(", ")}` : "";
-    return `${color(skill.name.padEnd(24), "accent")} ${skill.status}${tags}`;
-  }));
+  printChatPanel("Skills", [
+    ...skills.slice(0, 16).map((skill) => {
+      const tags = skill.tags.length ? ` · ${skill.tags.slice(0, 4).join(", ")}` : "";
+      return `${color(skill.name.padEnd(24), "accent")} ${skill.status}${tags}`;
+    }),
+    "",
+    `${color("More built-ins", "accent")} ${grouped.join(" · ")}`,
+    `${color("Enable", "accent")} /skills <id>`,
+  ]);
 }
 
-async function printChatPlugins(): Promise<void> {
+async function printChatPlugins(selection: string | undefined, state: ChatState): Promise<void> {
+  const selected = selection?.trim();
+  if (selected) {
+    try {
+      const current = await loadConfig();
+      const alreadyEnabled = current.plugins?.allow?.includes(selected) ||
+        current.plugins?.entries?.[selected]?.enabled !== false && current.plugins?.entries?.[selected] !== undefined;
+      if (alreadyEnabled) {
+        const plugin = listBuiltinPlugins().find((entry) => entry.id === selected || entry.aliases?.includes(selected));
+        printChatPanel("Plugins", [
+          `${color("enabled", "green")} ${color(selected, "accent")}${plugin ? ` · ${plugin.category} · risk=${plugin.risk}` : ""}`,
+          plugin?.description ?? "Plugin policy is already enabled.",
+          ...(pluginSetupUrl(selected) ? [`${color("Setup", "accent")} ${pluginSetupUrl(selected)}`] : []),
+          color("Next picker opens related skills or MCP setup. Press Escape to continue chatting.", "dim"),
+        ]);
+        openNextPicker(state, plugin?.category === "web" || plugin?.id === "browser" || plugin?.id === "mcp-bridge" ? "/mcp" : "/skills");
+        return;
+      }
+      const plugin = await enableBuiltinPlugin(selected, process.cwd(), { allowHighRisk: false });
+      printChatPanel("Plugins", [
+        `${color("enabled", "green")} ${color(plugin.id, "accent")} · ${plugin.category} · risk=${plugin.risk}`,
+        plugin.description,
+        ...(pluginSetupUrl(plugin.id) ? [`${color("Setup", "accent")} ${pluginSetupUrl(plugin.id)}`] : []),
+        plugin.packPath ? `pack=${plugin.packPath}` : color("Policy enabled. Add MCP/tools or credentials when this integration needs execution.", "dim"),
+      ]);
+      openNextPicker(state, plugin.category === "web" || plugin.id === "browser" || plugin.id === "mcp-bridge" ? "/mcp" : "/skills");
+    } catch (error) {
+      const match = listBuiltinPlugins().find((plugin) => plugin.id === selected || plugin.aliases?.includes(selected));
+      printChatPanel("Plugins", [
+        match
+          ? `${color(match.id, "accent")} ${match.category} · risk=${match.risk} · ${match.description}`
+          : color(error instanceof Error ? error.message : String(error), "yellow"),
+        match?.risk === "high"
+          ? `${color("High risk", "yellow")} enable outside chat with: muster plugins enable ${match.id} --allow-high-risk`
+          : `${color("Try", "accent")} /plugins ${listBuiltinPlugins().slice(0, 5).map((plugin) => plugin.id).join(" · ")}`,
+      ]);
+    }
+    return;
+  }
   const config = await loadConfig();
   const policy = config.plugins;
+  const enabled = new Set(Object.entries(policy?.entries ?? {}).filter(([, entry]) => entry.enabled !== false).map(([id]) => id));
+  const catalog = listBuiltinPlugins().filter((plugin) => !enabled.has(plugin.id));
+  const grouped = summarizeCatalog(catalog, (plugin) => plugin.category, (plugin) => plugin.id, 3);
   if (!policy) {
     printChatPanel("Plugins", [
       color("No plugin policy configured.", "dim"),
-      `${color("Commands", "accent")} muster plugins inspect <path> · muster plugins load <path>`,
+      `${color("Built-ins", "accent")} ${grouped.join(" · ")}`,
+      `${color("Enable", "accent")} /plugins <id> · muster plugins enable <id> · muster plugins catalog`,
     ]);
     return;
   }
@@ -1277,25 +1745,63 @@ async function printChatPlugins(): Promise<void> {
     `${color("deny", "accent")} ${(policy.deny ?? []).join(", ") || "-"}`,
     `${color("load paths", "accent")} ${(policy.load?.paths ?? []).join(", ") || "-"}`,
     ...entries.map(([id, entry]) => `${color(id.padEnd(24), "accent")} ${entry.enabled === false ? "disabled" : "enabled"}`),
+    "",
+    `${color("More built-ins", "accent")} ${grouped.join(" · ")}`,
+    `${color("Enable", "accent")} /plugins <id>`,
   ]);
 }
 
-async function printChatMcp(): Promise<void> {
+async function printChatMcp(selection: string | undefined, state: ChatState): Promise<void> {
+  const selected = selection?.trim();
+  if (selected) {
+    const candidate = listBuiltinMcpServers().find((server) => server.id === selected);
+    if (candidate) {
+      const added = await enableChatBuiltinMcp(candidate.id);
+      if (added) {
+        await refreshChatTuiHeader(state);
+        printChatPanel("MCP", [
+          `${color("configured", "green")} ${color(candidate.id, "accent")} ${candidate.category} · risk=${candidate.risk}`,
+          candidate.description,
+          ...(mcpSetupUrl(candidate.id) ? [`${color("Open", "accent")} ${mcpSetupUrl(candidate.id)}`] : []),
+          `${color("Test", "accent")} run /mcp test ${candidate.id}`,
+        ]);
+        openNextPicker(state, "/plugins");
+        return;
+      }
+      printChatPanel("MCP", [
+        `${color(candidate.id, "accent")} ${candidate.category} · risk=${candidate.risk}`,
+        candidate.description,
+        ...(mcpSetupUrl(candidate.id) ? [`${color("Open", "accent")} ${mcpSetupUrl(candidate.id)}`] : []),
+        `${color("Add", "accent")} ${candidate.commandHint}`,
+        `${color("Setup needed", "yellow")} This MCP needs credentials or a connection URL before Muster can enable it automatically.`,
+      ]);
+      return;
+    }
+  }
   const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
   const entries = Object.entries(servers);
+  const configured = new Set(entries.map(([name]) => name));
+  const suggested = listBuiltinMcpServers().filter((server) => !configured.has(server.id));
+  const grouped = summarizeCatalog(suggested, (server) => server.category, (server) => server.id, 3);
   if (!entries.length) {
     printChatPanel("MCP", [
       color("No MCP servers configured.", "dim"),
-      `${color("Commands", "accent")} muster mcp add-stdio <name> <command> · muster mcp test <name>`,
+      `${color("Suggested", "accent")} ${grouped.join(" · ")}`,
+      `${color("Inspect", "accent")} /mcp <id> for the exact add command`,
     ]);
     return;
   }
-  printChatPanel("MCP", entries.map(([name, server]) => {
-    const transport = server.transport.kind === "stdio"
-      ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
-      : `http ${server.transport.url}`;
-    return `${color(name.padEnd(24), "accent")} ${transport}`;
-  }));
+  printChatPanel("MCP", [
+    ...entries.map(([name, server]) => {
+      const transport = server.transport.kind === "stdio"
+        ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
+        : `http ${server.transport.url}`;
+      return `${color(name.padEnd(24), "accent")} ${transport}`;
+    }),
+    "",
+    `${color("Suggested", "accent")} ${grouped.join(" · ")}`,
+    `${color("Inspect", "accent")} /mcp <id>`,
+  ]);
 }
 
 async function chatAgentOptions(): Promise<string[]> {
@@ -1303,6 +1809,263 @@ async function chatAgentOptions(): Promise<string[]> {
   const namedAgents = config.agents?.list?.map((agent) => agent.id) ?? [];
   const runtimeAgents = Object.keys(config.runtimes);
   return [...new Set([...runtimeAgents, ...namedAgents])];
+}
+
+function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog {
+  return {
+    async complete(request) {
+      switch (request.kind) {
+        case "command": {
+          const fragment = request.fragment.toLowerCase();
+          return CHAT_COMMANDS
+            .filter((command) => command.name.startsWith(fragment) || command.aliases?.some((alias) => alias.startsWith(fragment)))
+            .map((command) => ({ value: `/${command.name}`, label: command.usage, description: command.description }));
+        }
+        case "toolset":
+          return filterPickerOptions(CHAT_TOOLSET_OPTIONS, request.fragment);
+        case "session":
+          return filterPickerOptions(recentChatSessionNames().map((name) => ({ value: name, label: name, description: "chat session" })), request.fragment);
+        case "provider":
+          return filterPickerOptions(await chatProviderOptions(), request.fragment);
+        case "provider-model":
+          return filterPickerOptions(await chatModelOptions(request.providerId ?? state.provider), request.fragment);
+        case "model":
+          return filterPickerOptions(await chatModelOptions(state.provider), request.fragment);
+        case "runtime":
+          return filterPickerOptions(await chatRuntimeOptions(), request.fragment);
+        case "cloud":
+          return filterPickerOptions(chatCloudOptions(), request.fragment);
+        case "speed":
+          return filterPickerOptions(chatSpeedOptions(state.speedMode ?? "session"), request.fragment);
+        case "skill":
+          return filterPickerOptions(chatSkillOptions(), request.fragment);
+        case "plugin":
+          return filterPickerOptions(await chatPluginOptions(), request.fragment);
+        case "mcp":
+          return filterPickerOptions(await chatMcpOptions(), request.fragment);
+        case "agent": {
+          const fragment = request.fragment.toLowerCase();
+          return [...new Set(await chatAgentOptions())]
+            .filter((agent) => agent.toLowerCase().startsWith(fragment))
+            .map((agent) => ({ value: `@${agent}`, label: `@${agent}`, description: "route this turn" }));
+        }
+      }
+    },
+  };
+}
+
+async function chatProviderOptions(): Promise<PickerOption[]> {
+  const config = await loadConfig();
+  const activeRuntime = config.runtimes[config.routing.defaultRuntime];
+  const activeProvider = activeRuntime?.provider;
+  const configured = Object.values(config.providers).map((provider) => ({
+    value: provider.id,
+    label: provider.id,
+    description: `${provider.id === activeProvider ? "active · " : ""}${provider.kind} · ${provider.defaultModel}${provider.apiKeyEnv ? ` · key ${process.env[provider.apiKeyEnv] ? "set" : "missing"}` : ""}`,
+  }));
+  const presets = PROVIDER_PRESETS
+    .filter((preset) => !config.providers[preset.id])
+    .map((preset) => ({
+      value: preset.id,
+      label: preset.id,
+      description: `${preset.label} · ${preset.category} · default ${preset.defaultModel}`,
+    }));
+  return sortPickerOptions([
+    ...configured,
+    { value: "claude-code", label: "claude-code", description: `${activeProvider === "claude-code" ? "active · " : ""}Claude Code runtime · uses local claude login` },
+    ...presets,
+  ], activeProvider);
+}
+
+async function chatModelOptions(providerId?: string): Promise<PickerOption[]> {
+  const config = await loadConfig();
+  const activeRuntime = config.runtimes[config.routing.defaultRuntime];
+  const id = providerId ?? activeRuntime?.provider;
+  const provider = id ? config.providers[id] : undefined;
+  const preset = id ? PROVIDER_PRESETS.find((entry) => entry.id === id) : undefined;
+  const activeModel = firstRuntimeModel(activeRuntime) ?? provider?.defaultModel;
+  const base = [
+    provider?.defaultModel,
+    preset?.defaultModel,
+    ...modelHintsForProvider(id, provider?.kind),
+  ].filter((value): value is string => Boolean(value));
+  return sortPickerOptions([...new Set(base)].map((model) => ({
+    value: model,
+    label: model,
+    description: `${model === activeModel ? "active · " : ""}${id ? `model for ${id}` : "known model"}`,
+  })), activeModel);
+}
+
+async function chatRuntimeOptions(): Promise<PickerOption[]> {
+  const config = await loadConfig();
+  const activeRuntime = config.routing.defaultRuntime;
+  return sortPickerOptions([
+    ...Object.values(config.runtimes).map((runtime) => ({
+      value: runtime.id,
+      label: runtime.id,
+      description: `${runtime.id === activeRuntime ? "active · " : ""}configured · provider ${runtime.provider}`,
+    })),
+    { value: "claude-code", label: "claude-code", description: `${activeRuntime === "claude-code" ? "active · " : ""}Claude Code · local login, no API key` },
+    { value: "codex", label: "codex", description: `${activeRuntime === "codex" ? "active · " : ""}Codex CLI · local login` },
+    { value: "pi", label: "pi", description: `${activeRuntime === "pi" ? "active · " : ""}Pi managed provider runtime` },
+  ], activeRuntime);
+}
+
+function chatCloudOptions(): PickerOption[] {
+  return [...CHAT_CLOUD_OPTIONS];
+}
+
+function chatSpeedOptions(active = "fast"): PickerOption[] {
+  return sortPickerOptions(CHAT_SPEED_OPTIONS.map((option) => ({
+    ...option,
+    description: `${option.value === active ? "active · " : ""}${option.description ?? ""}`,
+  })), active);
+}
+
+function chatSkillOptions(): PickerOption[] {
+  return [...CHAT_SKILL_OPTIONS];
+}
+
+async function chatPluginOptions(): Promise<PickerOption[]> {
+  const config = await loadConfig().catch(() => undefined);
+  const enabled = new Set([
+    ...(config?.plugins?.allow ?? []),
+    ...Object.entries(config?.plugins?.entries ?? {}).filter(([, entry]) => entry.enabled !== false).map(([id]) => id),
+  ]);
+  return sortPickerOptions(CHAT_PLUGIN_OPTIONS.map((option) => ({
+    ...option,
+    description: `${enabled.has(option.value) ? "enabled · " : ""}${option.description ?? ""}`,
+  })), [...enabled][0]);
+}
+
+async function chatMcpOptions(): Promise<PickerOption[]> {
+  const config = await loadConfig().catch(() => undefined);
+  const configured = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
+  return sortPickerOptions(CHAT_MCP_OPTIONS.map((option) => ({
+    ...option,
+    description: `${configured.has(option.value) ? "configured · " : ""}${option.description ?? ""}`,
+  })), [...configured][0]);
+}
+
+function sortPickerOptions(options: readonly PickerOption[], active?: string): PickerOption[] {
+  return [...options].sort((a, b) => Number(b.value === active) - Number(a.value === active) || a.value.localeCompare(b.value));
+}
+
+async function enableChatBuiltinMcp(id: string): Promise<boolean> {
+  const server = builtinMcpConfig(id);
+  if (!server) return false;
+  const config = await loadConfig();
+  await saveConfig({
+    ...config,
+    tools: {
+      ...(config.tools ?? {}),
+      mcp: {
+        ...(config.tools?.mcp ?? {}),
+        servers: {
+          ...(config.tools?.mcp?.servers ?? {}),
+          [safeConfigKey(id)]: server,
+        },
+      },
+    },
+  });
+  return true;
+}
+
+function builtinMcpConfig(id: string): McpServerConfig | undefined {
+  switch (id) {
+    case "filesystem":
+      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", process.cwd()] } };
+    case "git":
+      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-git", process.cwd()] } };
+    case "github":
+      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] } };
+    case "browser":
+      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@playwright/mcp"] } };
+    case "postgres":
+      return process.env.DATABASE_URL
+        ? { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-postgres", process.env.DATABASE_URL] } }
+        : undefined;
+    case "sqlite":
+      return { transport: { kind: "stdio", command: "npx", args: ["-y", "mcp-server-sqlite", ".muster/muster.db"] } };
+    default:
+      return undefined;
+  }
+}
+
+function providerSetupUrl(providerId: string): string | undefined {
+  const preset = PROVIDER_PRESETS.find((entry) => entry.id === providerId);
+  const id = preset?.id ?? providerId;
+  const urls: Record<string, string> = {
+    openai: "https://platform.openai.com/api-keys",
+    anthropic: "https://console.anthropic.com/settings/keys",
+    openrouter: "https://openrouter.ai/settings/keys",
+    groq: "https://console.groq.com/keys",
+    cerebras: "https://cloud.cerebras.ai/platform/",
+    gemini: "https://aistudio.google.com/app/apikey",
+    deepseek: "https://platform.deepseek.com/api_keys",
+    mistral: "https://console.mistral.ai/api-keys/",
+    xai: "https://console.x.ai/",
+    kimi: "https://platform.moonshot.ai/console/api-keys",
+    qwen: "https://bailian.console.aliyun.com/",
+    zhipu: "https://open.bigmodel.cn/usercenter/apikeys",
+    perplexity: "https://www.perplexity.ai/settings/api",
+    together: "https://api.together.xyz/settings/api-keys",
+    fireworks: "https://fireworks.ai/account/api-keys",
+    "claude-code": "https://docs.anthropic.com/en/docs/claude-code/setup",
+    "codex-cli": "https://github.com/openai/codex",
+    codex: "https://github.com/openai/codex",
+  };
+  return urls[id];
+}
+
+function pluginSetupUrl(pluginId: string): string | undefined {
+  const urls: Record<string, string> = {
+    browser: "https://github.com/microsoft/playwright-mcp",
+    "web-search": "https://brave.com/search/api/",
+    github: "https://github.com/settings/tokens",
+    "google-workspace": "https://console.cloud.google.com/apis/credentials",
+    notion: "https://www.notion.so/profile/integrations",
+    airtable: "https://airtable.com/create/tokens",
+    slack: "https://api.slack.com/apps",
+    discord: "https://discord.com/developers/applications",
+    teams: "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    huggingface: "https://huggingface.co/settings/tokens",
+    codex: "https://github.com/openai/codex",
+    "codex-native-tools": "https://github.com/openai/codex",
+    "claude-code": "https://docs.anthropic.com/en/docs/claude-code/setup",
+    "mcp-bridge": "https://modelcontextprotocol.io/",
+  };
+  return urls[pluginId];
+}
+
+function mcpSetupUrl(id: string): string | undefined {
+  const urls: Record<string, string> = {
+    filesystem: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+    git: "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+    github: "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+    browser: "https://github.com/microsoft/playwright-mcp",
+    postgres: "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
+    sqlite: "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
+    "google-drive": "https://console.cloud.google.com/apis/credentials",
+    notion: "https://www.notion.so/profile/integrations",
+  };
+  return urls[id];
+}
+
+function filterPickerOptions(options: readonly PickerOption[], fragment: string): PickerOption[] {
+  const lower = fragment.toLowerCase();
+  return options.filter((option) => option.value.toLowerCase().startsWith(lower) || option.label?.toLowerCase().includes(lower));
+}
+
+function modelHintsForProvider(providerId: string | undefined, kind: string | undefined): string[] {
+  if (providerId === "local" || providerId === "ollama") return ["llama3.1", "llama3.2", "qwen2.5-coder", "mistral", "codellama"];
+  if (providerId === "codex" || providerId === "codex-cli" || kind === "codex-cli") return ["gpt-5.5", "gpt-5.4", "o4-mini", "o3", "gpt-4.1"];
+  if (providerId === "anthropic") return ["claude-fable-5", "claude-sonnet-4.6", "claude-opus-4.5", "sonnet"];
+  if (providerId === "openai") return ["gpt-5.4", "gpt-5.5", "gpt-4.1", "o4-mini"];
+  if (providerId === "openrouter") return ["anthropic/claude-sonnet-4.6", "openai/gpt-5.4", "google/gemini-2.5-pro"];
+  if (providerId === "groq") return ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"];
+  if (providerId === "gemini") return ["gemini-2.5-pro", "gemini-2.5-flash"];
+  return [];
 }
 
 async function printChatAgents(options: { numbered?: boolean } = {}): Promise<void> {
@@ -1342,6 +2105,22 @@ function printChatPanel(title: string, lines: readonly string[]): void {
     }
   }
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
+}
+
+function summarizeCatalog<T>(
+  entries: readonly T[],
+  categoryOf: (entry: T) => string,
+  idOf: (entry: T) => string,
+  perCategory: number,
+): string[] {
+  const grouped = new Map<string, string[]>();
+  for (const entry of entries) {
+    const category = categoryOf(entry);
+    const ids = grouped.get(category) ?? [];
+    if (ids.length < perCategory) ids.push(idOf(entry));
+    grouped.set(category, ids);
+  }
+  return [...grouped.entries()].slice(0, 8).map(([category, ids]) => `${category}: ${ids.join(", ")}`);
 }
 
 function resolveChatSessionName(value: string): string {
@@ -2526,14 +3305,14 @@ type ColorName = "cyan" | "green" | "yellow" | "accent" | "highlight" | "selecti
 function color(value: string, name: ColorName): string {
   if (process.env.NO_COLOR || !process.stdout.isTTY) return value;
   const codes: Record<ColorName, string> = {
-    cyan: "36",
-    green: "32",
-    yellow: "33",
-    accent: "38;2;20;184;166",
-    highlight: "38;2;103;232;249",
-    selection: "30;48;2;103;232;249",
-    red: "31",
-    dim: "2",
+    cyan: "38;2;41;211;255",
+    green: "38;2;104;245;168",
+    yellow: "38;2;247;198;106",
+    accent: "38;2;41;211;255",
+    highlight: "38;2;104;245;168",
+    selection: "30;48;2;41;211;255",
+    red: "38;2;255;107;122",
+    dim: "38;2;142;161;181",
   };
   return `\u001b[${codes[name]}m${value}\u001b[0m`;
 }

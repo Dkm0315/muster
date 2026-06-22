@@ -1,6 +1,6 @@
 {
   "name": "@musterhq/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -16,6 +16,7 @@
     "prepublishOnly": "rm -rf dist && tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@earendil-works/pi-tui": "^0.79.1",
     "@musterhq/core": "workspace:*",
     "@musterhq/gateway": "workspace:*"
   },

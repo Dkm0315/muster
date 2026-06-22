@@ -41,6 +41,11 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(help.stdout, /\/resume <name\|id>/);
   assert.match(help.stdout, /\/tools \[toolset\]/);
   assert.match(help.stdout, /\/agents/);
+  assert.match(help.stdout, /\/provider <id> \[model\]/);
+  assert.match(help.stdout, /\/cloud \[preset\]/);
+  assert.match(help.stdout, /\/model <name>/);
+  assert.match(help.stdout, /\/runtime \[id\]/);
+  assert.match(help.stdout, /\/tokens \[limit\]/);
   assert.match(help.stdout, /\/commands/);
   assert.match(help.stdout, /Tab\s+complete slash commands/);
   assert.match(help.stdout, /@agent-name <task>/);
@@ -60,6 +65,12 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const commands = await runCli(["chat", "--commands"], cwd);
   assert.match(commands.stdout, /Commands/);
   assert.match(commands.stdout, /\/sessions \[limit\]/);
+  assert.match(commands.stdout, /\/provider <id> \[model\]/);
+  assert.match(commands.stdout, /\/providers/);
+  assert.match(commands.stdout, /\/cloud \[preset\]/);
+  assert.match(commands.stdout, /\/model <name>/);
+  assert.match(commands.stdout, /\/runtime \[id\]/);
+  assert.match(commands.stdout, /\/tokens \[limit\]/);
 
   const commandCompletion = await runCli(["chat", "--complete", "/sta"], cwd);
   assert.match(commandCompletion.stdout, /\/status/);

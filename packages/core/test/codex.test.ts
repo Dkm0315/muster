@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { buildCodexArgs, parseCodexEvents } from "../src/codex.js";
+import { clearCodexAppServerSessions, runCodexAppServer } from "../src/codex-app-server.js";
 
 test("buildCodexArgs: fresh turn runs codex exec at full native power", () => {
   const args = buildCodexArgs({
@@ -47,6 +51,18 @@ test("buildCodexArgs: resume threads the native session id", () => {
   assert.ok(!args.includes("-q"));
 });
 
+test("buildCodexArgs: ephemeral fresh turns skip native session persistence for speed", () => {
+  const args = buildCodexArgs({
+    prompt: "hi",
+    cwd: "/ws",
+    model: "gpt-5.5",
+    ephemeral: true,
+  }, "/tmp/o.txt");
+
+  assert.deepEqual(args.slice(0, 5), ["exec", "--json", "--ephemeral", "-C", "/ws"]);
+  assert.ok(args.includes("--ephemeral"));
+});
+
 test("parseCodexEvents: extracts thread_id (resume handle) from the JSONL stream", () => {
   const stream = [
     '{"type":"thread.started","thread_id":"abc-123"}',
@@ -74,4 +90,45 @@ test("parseCodexEvents: tolerates non-JSON log lines without throwing", () => {
   const r = parseCodexEvents(stream);
   assert.equal(r.threadId, "y");
   assert.equal(r.failed, false);
+});
+
+test("runCodexAppServer: streams a turn and reuses the session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "muster-codex-app-server-"));
+  const fake = join(dir, "codex-fake.mjs");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+let threadId = "thread-1";
+let turn = 0;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    turn += 1;
+    send({ id: msg.id, result: { turn: { id: "turn-" + turn, status: "inProgress" } } });
+    send({ method: "item/agentMessage/delta", params: { threadId, turnId: "turn-" + turn, itemId: "m", delta: "ok" + turn } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m", text: "ok" + turn }, threadId, turnId: "turn-" + turn } });
+    send({ method: "thread/tokenUsage/updated", params: { threadId, turnId: "turn-" + turn, tokenUsage: { last: { inputTokens: 10 + turn, cachedInputTokens: turn === 1 ? 0 : 10, outputTokens: 1 } } } });
+    send({ method: "turn/completed", params: { threadId, turn: { id: "turn-" + turn, status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  try {
+    const deltas: string[] = [];
+    const first = await runCodexAppServer({ prompt: "one", cwd: dir, command: fake, cacheKey: "test", onDelta: (delta) => deltas.push(delta) });
+    const second = await runCodexAppServer({ prompt: "two", cwd: dir, command: fake, cacheKey: "test", onDelta: (delta) => deltas.push(delta) });
+    assert.equal(first.status, "completed");
+    assert.equal(first.finalMessage, "ok1");
+    assert.equal(second.finalMessage, "ok2");
+    assert.equal(second.threadId, "thread-1");
+    assert.deepEqual(deltas, ["ok1", "ok2"]);
+    assert.equal(second.tokenUsage?.cachedInputTokens, 10);
+  } finally {
+    clearCodexAppServerSessions();
+    await rm(dir, { recursive: true, force: true });
+  }
 });

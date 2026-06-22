@@ -6,6 +6,7 @@ import { loadAgentRules } from "./agent-rules.js";
 import { defaultHookBus, type HookBus } from "./hooks.js";
 import { runClaudeCode } from "./claude.js";
 import { runCodex } from "./codex.js";
+import { runCodexAppServer } from "./codex-app-server.js";
 import { canReuseHandle, clearSessionHandle, loadSessionHandle, saveSessionHandle } from "./session-handle.js";
 import { renderConversation } from "./compactor.js";
 import { messagesToTranscript, openSessionStore } from "./sessions.js";
@@ -64,6 +65,8 @@ export interface RunOptions {
   /** Native provider session handle to resume (codex thread_id / claude session id). */
   readonly sessionId?: string;
   readonly resume?: boolean;
+  /** Native CLI session continuity. Disable for faster one-off Codex turns. */
+  readonly nativeSession?: boolean;
   /**
    * Conversation identity (e.g. the surface conversation id). When set, the
    * native provider session for THIS conversation is resumed across turns via
@@ -257,49 +260,84 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
   // Resume THIS conversation's native codex thread when the stable config
   // (workspace + model) is unchanged; otherwise mint a fresh one. Explicit
   // options.sessionId/resume (e.g. CLI) still take precedence.
-  const stored = options.conversationKey && !options.sessionId
+  const useNativeSession = options.nativeSession !== false;
+  const stored = useNativeSession && options.conversationKey && !options.sessionId
     ? await loadSessionHandle(options.conversationKey, "codex", stateCwd)
     : undefined;
   const reuse = canReuseHandle(stored, workspaceDir, route.model);
   try {
-    const codexResult = await runCodex({
-      prompt: prompts.user,
-      cwd: workspaceDir,
-      model: route.model,
-      instructionsFile,
-      networkAccess: true,
-      sessionId: reuse ? stored.handle : options.sessionId,
-      resume: reuse ? true : options.resume,
-      ignoreRules: options.surfaceId === "cli-chat",
-      env: options.codexHome ? { CODEX_HOME: options.codexHome } : undefined,
-      timeoutMs: options.timeoutMs,
-    });
+    const codexEnv = options.codexHome ? { CODEX_HOME: options.codexHome } : undefined;
+    const useAppServer = useNativeSession
+      && process.env.MUSTER_CODEX_TRANSPORT !== "exec"
+      && (process.stdin.isTTY || process.env.MUSTER_CODEX_TRANSPORT === "app-server");
+    const codexResult = useAppServer
+      ? await runCodexAppServer({
+          prompt: prompts.user,
+          cwd: workspaceDir,
+          model: route.model,
+          instructionsFile,
+          networkAccess: true,
+          env: codexEnv,
+          timeoutMs: options.timeoutMs,
+          cacheKey: options.conversationKey
+            ? `${options.conversationKey}\0${workspaceDir}\0${route.model ?? ""}`
+            : undefined,
+          onDelta: options.onDelta,
+        })
+      : await runCodex({
+          prompt: prompts.user,
+          cwd: workspaceDir,
+          model: route.model,
+          instructionsFile,
+          networkAccess: true,
+          sessionId: reuse ? stored.handle : options.sessionId,
+          resume: reuse ? true : options.resume,
+          ephemeral: !useNativeSession,
+          ignoreRules: options.surfaceId === "cli-chat",
+          env: codexEnv,
+          timeoutMs: options.timeoutMs,
+        });
+    const finalCodexResult = useAppServer && codexResult.status === "failed"
+      ? await runCodex({
+          prompt: prompts.user,
+          cwd: workspaceDir,
+          model: route.model,
+          instructionsFile,
+          networkAccess: true,
+          sessionId: reuse ? stored.handle : options.sessionId,
+          resume: reuse ? true : options.resume,
+          ephemeral: false,
+          ignoreRules: options.surfaceId === "cli-chat",
+          env: codexEnv,
+          timeoutMs: options.timeoutMs,
+        })
+      : codexResult;
     // Persist the thread for next turn on success; drop a broken thread on
     // failure so it is never resumed into a dead end.
-    if (options.conversationKey) {
-      if (codexResult.status === "completed" && codexResult.threadId) {
+    if (useNativeSession && options.conversationKey) {
+      if (finalCodexResult.status === "completed" && finalCodexResult.threadId) {
         await saveSessionHandle({
           conversationKey: options.conversationKey,
           backendId: "codex",
-          handle: codexResult.threadId,
+          handle: finalCodexResult.threadId,
           cwd: workspaceDir,
           model: route.model,
           updatedAt: new Date().toISOString(),
         }, stateCwd);
-      } else if (codexResult.status === "failed") {
+      } else if (finalCodexResult.status === "failed") {
         await clearSessionHandle(options.conversationKey, "codex", stateCwd);
       }
     }
-    const responseText = codexResult.finalMessage.trim();
-    if (options.onDelta && codexResult.status === "completed" && responseText) {
+    const responseText = finalCodexResult.finalMessage.trim();
+    if ((!useAppServer || codexResult.status === "failed") && options.onDelta && finalCodexResult.status === "completed" && responseText) {
       for (const chunk of synthesizeDeltas(responseText)) options.onDelta(chunk);
     }
     return {
       responseText,
-      status: codexResult.status,
-      errorMessage: codexResult.status === "failed" ? (codexResult.errorMessage || codexResult.stderr || "codex run failed") : undefined,
+      status: finalCodexResult.status,
+      errorMessage: finalCodexResult.status === "failed" ? (finalCodexResult.errorMessage || "codex run failed") : undefined,
       route,
-      codexThreadId: codexResult.threadId,
+      codexThreadId: finalCodexResult.threadId,
     };
   } finally {
     if (instructionsFile) await rm(instructionsFile, { force: true }).catch(() => {});

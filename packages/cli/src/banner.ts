@@ -1,9 +1,10 @@
-// The big MUSTER banner shown when the CLI opens (like OPENCLAW / opencode).
-// Teal-on-near-black brand identity. Respects NO_COLOR and non-TTY output.
+// The big MUSTER banner shown when the CLI opens.
+// Uses the same dark-console accent palette as the Muster UI.
 
-const TEAL = [20, 184, 166] as const;       // #14b8a6 brand teal
-const CYAN = [103, 232, 249] as const;      // lighter top
-const DEEP = [15, 118, 110] as const;       // deeper bottom
+const CYAN = [41, 211, 255] as const;       // #29d3ff
+const GREEN = [104, 245, 168] as const;     // #68f5a8
+const AMBER = [247, 198, 106] as const;     // #f7c66a
+const MUTED = [142, 161, 181] as const;     // #8ea1b5
 
 const LETTERS = [
   "███╗   ███╗██╗   ██╗███████╗████████╗███████╗██████╗ ",
@@ -37,14 +38,14 @@ export function renderBanner(): string {
   const enabled = colorEnabled();
   const lines = LETTERS.map((line, index) => {
     if (!enabled) return line;
-    // vertical gradient: cyan at the crown, teal through the body, deep teal at the base
+    // vertical gradient: website cyan crown, green body, warm amber foot.
     const t = index / (LETTERS.length - 1);
-    const top = lerp(CYAN, TEAL, Math.min(1, t * 2));
-    const rgb = t <= 0.5 ? top : lerp(TEAL, DEEP, (t - 0.5) * 2);
+    const top = lerp(CYAN, GREEN, Math.min(1, t * 2));
+    const rgb = t <= 0.5 ? top : lerp(GREEN, AMBER, (t - 0.5) * 2);
     return color(line, rgb);
   });
   const tag = "  the agent harness you can audit";
-  const tagline = enabled ? color(tag, TEAL) : tag;
+  const tagline = enabled ? color(tag, MUTED) : tag;
   return `\n${lines.join("\n")}\n${tagline}\n`;
 }
 

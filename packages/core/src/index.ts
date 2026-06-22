@@ -4,6 +4,7 @@ export * from "./builtin-catalog.js";
 export * from "./capability.js";
 export * from "./claude.js";
 export * from "./codex.js";
+export * from "./codex-app-server.js";
 export * from "./session-handle.js";
 export * from "./subprocess.js";
 export * from "./compactor.js";

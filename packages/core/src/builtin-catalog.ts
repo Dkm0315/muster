@@ -28,6 +28,15 @@ export interface BuiltinPluginCatalogEntry {
   readonly packPath?: string;
 }
 
+export interface BuiltinMcpCatalogEntry {
+  readonly id: string;
+  readonly category: string;
+  readonly source: BuiltinCatalogSource;
+  readonly description: string;
+  readonly risk: BuiltinRisk;
+  readonly commandHint: string;
+}
+
 const HERMES_SKILLS: readonly BuiltinSkillCatalogEntry[] = [
   skill("plan", "software-development", "hermes", "Plan mode: inspect context, write an implementation plan, do not execute.", "low", ["planning"]),
   skill("systematic-debugging", "software-development", "hermes", "Debug in phases: reproduce, isolate, explain root cause, then patch.", "low", ["debugging", "quality"]),
@@ -44,6 +53,9 @@ const HERMES_SKILLS: readonly BuiltinSkillCatalogEntry[] = [
   skill("codebase-inspection", "github", "hermes", "Inspect repository size, languages, ownership, and hotspots before edits.", "low", ["inspection", "codebase"]),
   skill("claude-code", "autonomous-ai-agents", "hermes", "Delegate a bounded coding task to Claude Code when configured.", "medium", ["delegate", "claude"], ["claude"]),
   skill("codex", "autonomous-ai-agents", "hermes", "Delegate a bounded coding task to Codex when configured.", "medium", ["delegate", "codex"], ["codex"]),
+  skill("codex-native-tools", "autonomous-ai-agents", "muster", "Use Codex-native shell, patch, image, approval, and project-doc workflows through Muster routing.", "medium", ["codex", "tools"], ["codex"]),
+  skill("codex-fast-qa", "autonomous-ai-agents", "muster", "Route lightweight questions through low-latency Codex settings before escalating to long-running agent sessions.", "low", ["codex", "latency"], ["codex"]),
+  skill("codex-full-context", "software-development", "muster", "Use Codex full-context or repository-wide edit modes only when the task warrants broad context.", "medium", ["codex", "codebase"], ["codex"]),
   skill("opencode", "autonomous-ai-agents", "hermes", "Delegate a bounded coding task to OpenCode when configured.", "medium", ["delegate"], ["opencode"]),
   skill("architecture-diagram", "creative", "hermes", "Design clear architecture diagrams with labeled components and flows.", "low", ["diagram"]),
   skill("ascii-art", "creative", "hermes", "Create terminal-friendly ASCII art and banners with explicit sizing.", "low", ["ascii", "creative"]),
@@ -77,6 +89,17 @@ const HERMES_SKILLS: readonly BuiltinSkillCatalogEntry[] = [
   skill("workflow-automation", "automation", "openclaw", "Design multi-step automations with triggers, approvals, and rollback notes.", "high", ["automation"]),
   skill("frontend-design", "creative", "openclaw", "Design production UI with accessible components and visual QA.", "low", ["frontend", "design"]),
   skill("deep-research", "research", "openclaw", "Run multi-source research with citations, disagreement tracking, and recency checks.", "medium", ["research"]),
+  skill("api-contract-testing", "software-development", "muster", "Exercise HTTP APIs with fixtures, latency budgets, and schema expectations.", "medium", ["api", "testing"]),
+  skill("docker-ops", "software-development", "muster", "Inspect containers, logs, networks, and compose stacks with bounded commands.", "medium", ["docker", "ops"], ["docker"]),
+  skill("database-migrations", "data", "muster", "Review migration plans, rollback paths, and query impact before database writes.", "high", ["database", "migration"]),
+  skill("secret-and-config-audit", "security", "muster", "Scan changed files and runtime config for accidental secrets or unsafe defaults.", "medium", ["security", "config"]),
+  skill("release-notes", "productivity", "muster", "Turn commits, issues, and shipped behavior into concise release notes.", "low", ["release", "writing"]),
+  skill("daily-brief", "productivity", "muster", "Summarize recent sessions, tasks, calendar-like notes, and open follow-ups.", "low", ["daily", "summary"]),
+  skill("spreadsheet-analysis", "artifacts", "muster", "Read, validate, summarize, and transform spreadsheets with explicit assumptions.", "medium", ["spreadsheet", "analysis"]),
+  skill("dashboard-reporting", "artifacts", "muster", "Create compact source-backed reports and dashboards from bounded datasets.", "medium", ["dashboard", "report"]),
+  skill("presentation-builder", "artifacts", "muster", "Draft slide outlines, speaker notes, and editable presentation assets.", "medium", ["slides", "presentation"]),
+  skill("pdf-workflows", "artifacts", "muster", "Read, extract, summarize, split, and create PDFs with verification steps.", "medium", ["pdf", "documents"]),
+  skill("image-generation", "artifacts", "muster", "Generate or edit visual assets from clear prompts and visual QA.", "medium", ["image", "media"]),
 ];
 
 const BUILTIN_PLUGINS: readonly BuiltinPluginCatalogEntry[] = [
@@ -85,6 +108,8 @@ const BUILTIN_PLUGINS: readonly BuiltinPluginCatalogEntry[] = [
   plugin("web-search", "web", "openclaw", "Search/fetch provider surface for cited research and retrieval.", "medium", "search"),
   plugin("github", "developer", "hermes", "GitHub issue, PR, repository, and review workflows.", "medium", "developer"),
   plugin("codex", "agent-runtime", "hermes", "Codex delegation runtime and task routing.", "medium", "agent-runtime"),
+  plugin("codex-native-tools", "agent-runtime", "muster", "Harness local Codex CLI capabilities: model/provider selection, images, project docs, approvals, and fast/continuity modes.", "medium", "agent-runtime"),
+  plugin("codex-web-search", "research", "muster", "Use Codex-backed research/web-search workflows when the local Codex runtime exposes web tools.", "medium", "research"),
   plugin("claude-code", "agent-runtime", "hermes", "Claude Code delegation runtime and skill snapshot bridge.", "medium", "agent-runtime"),
   plugin("openai", "provider", "openclaw", "OpenAI provider preset and compatible model routing.", "medium", "provider"),
   plugin("anthropic", "provider", "openclaw", "Anthropic/Claude provider preset and compatible model routing.", "medium", "provider"),
@@ -100,6 +125,24 @@ const BUILTIN_PLUGINS: readonly BuiltinPluginCatalogEntry[] = [
   plugin("huggingface", "mlops", "hermes", "Hugging Face model/dataset workflows.", "medium", "mlops"),
   plugin("vllm", "mlops", "hermes", "vLLM serving and inspection workflows.", "medium", "mlops"),
   plugin("obsidian", "knowledge", "hermes", "Local notes and vault workflow surface.", "medium", "knowledge"),
+  plugin("developer-tools", "developer", "muster", "Bundled development workflows for shell, git, tests, code review, debugging, and API checks.", "medium", "developer"),
+  plugin("artifact-studio", "artifacts", "muster", "PDF, spreadsheet, presentation, image, report, and dashboard generation workflows.", "medium", "artifacts"),
+  plugin("daily-ops", "productivity", "muster", "Daily brief, task planning, notes, email/calendar style handoff, and lightweight personal ops.", "medium", "productivity"),
+  plugin("data-analytics", "data", "muster", "Data inspection, charting, SQL review, dashboards, and metric diagnostics.", "high", "data"),
+  plugin("security-review", "security", "muster", "Secret scanning, dependency review, permission review, and release-risk checks.", "medium", "security"),
+  plugin("research-lab", "research", "muster", "Web research, arXiv/paper review, citation notes, and source disagreement tracking.", "medium", "research"),
+  plugin("mcp-bridge", "mcp", "openclaw", "Curated MCP server bridge for filesystem, git, browser, database, and workspace tools.", "high", "mcp"),
+];
+
+const BUILTIN_MCP_SERVERS: readonly BuiltinMcpCatalogEntry[] = [
+  mcp("filesystem", "workspace", "openclaw", "Scoped local file access for read/edit workflows.", "high", "muster mcp add-stdio filesystem npx -y @modelcontextprotocol/server-filesystem <workspace>"),
+  mcp("git", "developer", "muster", "Repository status, diff, branch, and commit context.", "medium", "muster mcp add-stdio git npx -y @modelcontextprotocol/server-git <repo>"),
+  mcp("github", "developer", "hermes", "GitHub issue, PR, repo, and CI operations through an authenticated bridge.", "high", "muster mcp add-stdio github npx -y @modelcontextprotocol/server-github"),
+  mcp("browser", "web", "openclaw", "Browser automation and screenshot-backed web inspection.", "high", "muster mcp add-stdio browser npx -y @playwright/mcp"),
+  mcp("postgres", "data", "openclaw", "Postgres schema inspection and governed SQL workflows.", "high", "muster mcp add-stdio postgres npx -y @modelcontextprotocol/server-postgres <connection-url>"),
+  mcp("sqlite", "data", "muster", "Local SQLite inspection for memory, logs, and compact project data.", "medium", "muster mcp add-stdio sqlite npx -y mcp-server-sqlite <database>"),
+  mcp("google-drive", "productivity", "hermes", "Docs, Sheets, Slides, and Drive workflows through OAuth-backed tools.", "high", "muster mcp add-stdio google-drive <configured-google-drive-mcp-command>"),
+  mcp("notion", "productivity", "hermes", "Notion pages and database workflows through a configured token.", "high", "muster mcp add-stdio notion <configured-notion-mcp-command>"),
 ];
 
 export function listBuiltinSkills(): readonly BuiltinSkillCatalogEntry[] {
@@ -108,6 +151,10 @@ export function listBuiltinSkills(): readonly BuiltinSkillCatalogEntry[] {
 
 export function listBuiltinPlugins(): readonly BuiltinPluginCatalogEntry[] {
   return BUILTIN_PLUGINS;
+}
+
+export function listBuiltinMcpServers(): readonly BuiltinMcpCatalogEntry[] {
+  return BUILTIN_MCP_SERVERS;
 }
 
 export async function enableBuiltinSkill(id: string, cwd = process.cwd()): Promise<BuiltinSkillCatalogEntry> {
@@ -258,6 +305,17 @@ function plugin(
   aliases?: readonly string[],
 ): BuiltinPluginCatalogEntry {
   return { id, aliases, category, source, description, risk, slot, packPath };
+}
+
+function mcp(
+  id: string,
+  category: string,
+  source: BuiltinCatalogSource,
+  description: string,
+  risk: BuiltinRisk,
+  commandHint: string,
+): BuiltinMcpCatalogEntry {
+  return { id, category, source, description, risk, commandHint };
 }
 
 function repoRoot(): string {

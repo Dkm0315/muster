@@ -1,0 +1,236 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createMusterAutocompleteProvider, createMusterChatEditor, isBareCompletionTrigger, renderMusterComposer } from "../src/chat-tui.js";
+
+const commands = [
+  { name: "help", usage: "/help", description: "show full chat help", aliases: ["?"] },
+  { name: "status", usage: "/status", description: "show runtime, model, session, token usage" },
+  { name: "providers", usage: "/providers", description: "list configured providers and models" },
+  { name: "provider", usage: "/provider <id> [model]", description: "switch active provider for this chat/runtime" },
+  { name: "model", usage: "/model <name>", description: "switch active model for the current provider" },
+  { name: "runtime", usage: "/runtime [id]", description: "list or switch active runtime" },
+  { name: "sessions", usage: "/sessions [limit]", description: "list recent named chats" },
+  { name: "resume", usage: "/resume <name|id>", description: "switch to a prior named chat or session id" },
+  { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
+] as const;
+
+test("muster TUI completion provider filters slash commands and applies selected command", async () => {
+  const provider = createMusterAutocompleteProvider({
+    commands,
+    toolsets: ["core", "memory"],
+    recentSessions: () => ["release-audit"],
+    agents: async () => ["review"],
+  });
+
+  const suggestions = await provider.getSuggestions(["/sta"], 0, 4, { signal: new AbortController().signal });
+  assert.ok(suggestions);
+  assert.equal(suggestions.prefix, "/sta");
+  assert.deepEqual(suggestions.items.map((item) => item.value), ["/status"]);
+
+  const applied = provider.applyCompletion(["/sta"], 0, 4, suggestions.items[0], suggestions.prefix);
+  assert.deepEqual(applied.lines, ["/status"]);
+  assert.equal(applied.cursorLine, 0);
+  assert.equal(applied.cursorCol, "/status".length);
+});
+
+test("muster TUI completion provider completes toolsets, sessions, and agents", async () => {
+  const provider = createMusterAutocompleteProvider({
+    commands,
+    toolsets: ["core", "memory"],
+    recentSessions: () => ["release-audit", "daily-plan"],
+    providers: () => [{ value: "local", description: "local Ollama" }, { value: "codex", description: "Codex CLI" }],
+    models: ({ providerId }) => providerId === "local" ? [{ value: "llama3.1" }, { value: "llama3.2" }] : [{ value: "gpt-5.5" }],
+    runtimes: () => [{ value: "native" }, { value: "claude-code", description: "Claude Code" }],
+    clouds: () => [{ value: "openrouter" }, { value: "anthropic" }],
+    speeds: () => [{ value: "session" }, { value: "fast" }],
+    skills: () => [{ value: "api-contract-testing" }, { value: "dashboard-reporting" }],
+    plugins: () => [{ value: "artifact-studio" }, { value: "developer-tools" }],
+    mcpServers: () => [{ value: "git" }, { value: "github" }, { value: "filesystem" }],
+    agents: async () => ["review", "research"],
+  });
+  const signal = new AbortController().signal;
+
+  const tools = await provider.getSuggestions(["/tools me"], 0, 9, { signal });
+  assert.equal(tools?.prefix, "/tools me");
+  assert.deepEqual(tools?.items.map((item) => item.value), ["memory"]);
+  assert.deepEqual(provider.applyCompletion(["/tools me"], 0, 9, tools!.items[0], tools!.prefix).lines, ["/tools memory"]);
+
+  const sessions = await provider.getSuggestions(["/resume rel"], 0, 11, { signal });
+  assert.deepEqual(sessions?.items.map((item) => item.value), ["release-audit"]);
+  assert.deepEqual(provider.applyCompletion(["/resume rel"], 0, 11, sessions!.items[0], sessions!.prefix).lines, ["/resume release-audit"]);
+
+  const agents = await provider.getSuggestions(["@re"], 0, 3, { signal });
+  assert.deepEqual(agents?.items.map((item) => item.value), ["@review", "@research"]);
+  assert.deepEqual(provider.applyCompletion(["@re"], 0, 3, agents!.items[0], agents!.prefix).lines, ["@review"]);
+
+  const providers = await provider.getSuggestions(["/provider lo"], 0, 12, { signal });
+  assert.equal(providers?.prefix, "/provider lo");
+  assert.deepEqual(providers?.items.map((item) => item.value), ["local"]);
+  assert.deepEqual(provider.applyCompletion(["/provider lo"], 0, 12, providers!.items[0], providers!.prefix).lines, ["/provider local"]);
+
+  const providerModels = await provider.getSuggestions(["/provider local llama"], 0, 21, { signal });
+  assert.equal(providerModels?.prefix, "/provider local llama");
+  assert.deepEqual(providerModels?.items.map((item) => item.value), ["llama3.1", "llama3.2"]);
+  assert.deepEqual(provider.applyCompletion(["/provider local llama"], 0, 21, providerModels!.items[0], providerModels!.prefix).lines, ["/provider local llama3.1"]);
+
+  const models = await provider.getSuggestions(["/model gpt"], 0, 10, { signal });
+  assert.deepEqual(models?.items.map((item) => item.value), ["gpt-5.5"]);
+
+  const bareModels = await provider.getSuggestions(["/model"], 0, 6, { signal });
+  assert.deepEqual(provider.applyCompletion(["/model"], 0, 6, bareModels!.items[0], bareModels!.prefix).lines, ["/model gpt-5.5"]);
+
+  const runtimes = await provider.getSuggestions(["/runtime cla"], 0, 12, { signal });
+  assert.deepEqual(runtimes?.items.map((item) => item.value), ["claude-code"]);
+
+  const clouds = await provider.getSuggestions(["/cloud open"], 0, 11, { signal });
+  assert.deepEqual(clouds?.items.map((item) => item.value), ["openrouter"]);
+
+  const speeds = await provider.getSuggestions(["/speed f"], 0, 8, { signal });
+  assert.equal(speeds?.prefix, "/speed f");
+  assert.deepEqual(speeds?.items.map((item) => item.value), ["fast"]);
+  assert.deepEqual(provider.applyCompletion(["/speed f"], 0, 8, speeds!.items[0], speeds!.prefix).lines, ["/speed fast"]);
+
+  const skills = await provider.getSuggestions(["/skills api"], 0, 11, { signal });
+  assert.equal(skills?.prefix, "/skills api");
+  assert.deepEqual(skills?.items.map((item) => item.value), ["api-contract-testing"]);
+  assert.deepEqual(provider.applyCompletion(["/skills api"], 0, 11, skills!.items[0], skills!.prefix).lines, ["/skills api-contract-testing"]);
+
+  const plugins = await provider.getSuggestions(["/plugins art"], 0, 12, { signal });
+  assert.deepEqual(plugins?.items.map((item) => item.value), ["artifact-studio"]);
+  const barePlugins = await provider.getSuggestions(["/plugins"], 0, 8, { signal });
+  assert.deepEqual(provider.applyCompletion(["/plugins"], 0, 8, barePlugins!.items[0], barePlugins!.prefix).lines, ["/plugins artifact-studio"]);
+
+  const mcp = await provider.getSuggestions(["/mcp git"], 0, 8, { signal });
+  assert.deepEqual(mcp?.items.map((item) => item.value), ["git", "github"]);
+  const bareMcp = await provider.getSuggestions(["/mcp"], 0, 4, { signal });
+  assert.deepEqual(provider.applyCompletion(["/mcp"], 0, 4, bareMcp!.items[0], bareMcp!.prefix).lines, ["/mcp git"]);
+});
+
+test("muster TUI completion provider can be backed by one catalog service", async () => {
+  const seen: string[] = [];
+  const provider = createMusterAutocompleteProvider({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    catalog: {
+      complete(request) {
+        seen.push(`${request.kind}:${request.fragment}:${request.providerId ?? ""}`);
+        if (request.kind === "provider-model") return [{ value: "llama3.1", description: "catalog model" }];
+        if (request.kind === "agent") return [{ value: "@review", label: "@review", description: "catalog agent" }];
+        return [];
+      },
+    },
+    agents: async () => [],
+  });
+  const signal = new AbortController().signal;
+
+  const model = await provider.getSuggestions(["/provider local llama"], 0, 21, { signal });
+  assert.deepEqual(model?.items.map((item) => item.value), ["llama3.1"]);
+  assert.deepEqual(seen, ["provider-model:llama:local"]);
+
+  const agent = await provider.getSuggestions(["@re"], 0, 3, { signal });
+  assert.deepEqual(agent?.items.map((item) => item.value), ["@review"]);
+  assert.deepEqual(seen, ["provider-model:llama:local", "agent:re:"]);
+});
+
+test("muster composer render encloses the actual editor and grows for multiline input", () => {
+  const editor = createMusterChatEditor(fakeTui(120, 40));
+  editor.setText("first line\nsecond line");
+  const lines = renderMusterComposer(editor, 80);
+
+  assert.match(stripAnsi(lines[0]), /^╭─ chat/);
+  assert.match(stripAnsi(lines.at(-1) ?? ""), /^╰/);
+  assert.ok(lines.some((line) => stripAnsi(line).includes("first line")));
+  assert.ok(lines.some((line) => stripAnsi(line).includes("second line")));
+  assert.ok(lines.every((line) => stripAnsi(line).length === 80), "composer lines should stay width-stable");
+});
+
+test("muster composer keeps autocomplete in the same stable render tree", async () => {
+  const terminal = fakeTui(100, 40);
+  const editor = createMusterChatEditor(terminal);
+  editor.setAutocompleteProvider(createMusterAutocompleteProvider({
+    commands,
+    toolsets: ["core"],
+    recentSessions: () => [],
+    agents: async () => [],
+  }));
+
+  editor.handleInput("/");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const first = renderMusterComposer(editor, 90).join("\n");
+  editor.handleInput("\x1b[B");
+  const second = renderMusterComposer(editor, 90).join("\n");
+
+  assert.equal((stripAnsi(first).match(/\/help/g) ?? []).length, 1);
+  assert.equal((stripAnsi(second).match(/\/help/g) ?? []).length, 1);
+  assert.match(stripAnsi(second), /\(2\/5\)|\/status/);
+});
+
+test("muster autocomplete overlay has a fixed 16-row centered viewport", async () => {
+  const editor = createMusterChatEditor(fakeTui(120, 50));
+  const manyCommands = Array.from({ length: 30 }, (_, index) => ({
+    name: `cmd${String(index + 1).padStart(2, "0")}`,
+    usage: `/cmd${String(index + 1).padStart(2, "0")}`,
+    description: `command ${index + 1}`,
+  }));
+  editor.setAutocompleteProvider(createMusterAutocompleteProvider({
+    commands: manyCommands,
+    toolsets: [],
+    recentSessions: () => [],
+    agents: async () => [],
+  }));
+
+  editor.handleInput("/");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  for (let index = 0; index < 20; index += 1) editor.handleInput("\x1b[B");
+  const stripped = renderMusterComposer(editor, 110).map(stripAnsi);
+  const commandRows = stripped.filter((line) => /cmd\d\d/.test(line));
+
+  assert.equal(commandRows.length, 16);
+  assert.ok(stripped.some((line) => line.includes("(21/30)")), "scroll indicator should report selected row and total");
+  assert.ok(commandRows[0].includes("cmd13"), "centered viewport should start near selected index, not at top");
+  assert.ok(commandRows.at(-1)?.includes("cmd28"), "centered viewport should stay bounded to max visible rows");
+});
+
+test("muster selected completion row keeps readable full-row contrast", async () => {
+  const editor = createMusterChatEditor(fakeTui(100, 40));
+  editor.setAutocompleteProvider(createMusterAutocompleteProvider({
+    commands,
+    toolsets: ["core"],
+    recentSessions: () => [],
+    agents: async () => [],
+  }));
+
+  editor.handleInput("/");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const rendered = renderMusterComposer(editor, 90).join("\n");
+  const selectedLine = rendered.split("\n").find((line) => line.includes("/help"));
+
+  assert.ok(selectedLine, "selected /help line should render");
+  const backgroundStart = selectedLine.indexOf("\u001b[48;2;41;211;255m");
+  const frameReset = selectedLine.lastIndexOf("\u001b[0m");
+  const helpText = selectedLine.indexOf("/help");
+  assert.ok(backgroundStart >= 0, "selected row should include cyan background");
+  assert.ok(helpText > backgroundStart, "selected text should be inside selected background");
+  assert.ok(frameReset > helpText, "selected background should last through row padding before reset");
+});
+
+test("muster escape handling only clears bare completion triggers", () => {
+  assert.equal(isBareCompletionTrigger("/"), true);
+  assert.equal(isBareCompletionTrigger("@"), true);
+  assert.equal(isBareCompletionTrigger(" / "), true);
+  assert.equal(isBareCompletionTrigger("/status"), false);
+  assert.equal(isBareCompletionTrigger("@review fix this"), false);
+  assert.equal(isBareCompletionTrigger("normal text"), false);
+});
+
+function fakeTui(columns: number, rows: number) {
+  return {
+    terminal: { columns, rows },
+    requestRender() {},
+  } as Parameters<typeof createMusterChatEditor>[0];
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
