@@ -551,7 +551,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       const raw = continues ? line.slice(0, -1) : line.replace(/\\\\$/, "\\");
       pending = pending ? `${pending}\n${raw}` : raw;
       if (continues) {
-        rl.setPrompt(`${color("...", "dim")} `);
+        rl.setPrompt(`${color("│", "accent")} ${color("...", "dim")} `);
         rl.prompt();
         continue;
       }
@@ -588,7 +588,7 @@ function hasLineContinuation(line: string): boolean {
 }
 
 function chatPrompt(_state: ChatState): string {
-  return `${color("›", "highlight")} `;
+  return `${color("│", "accent")} ${color("›", "highlight")} `;
 }
 
 function replaceReadlineLine(rl: Interface, value: string): void {
@@ -675,11 +675,13 @@ function printChatInputFrame(): void {
   const width = chatFrameWidth();
   console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd(color("type / for commands, @ for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd("", width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
+  if (process.stdout.isTTY) output.write("\x1b[2A\r");
 }
 
 function printChatInputFrameBottom(): void {
-  if (process.stdout.isTTY) output.write("\r");
+  if (process.stdout.isTTY) output.write("\x1b[2B\r");
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -941,7 +943,7 @@ async function renderLiveSuggestions(
   const panel = renderSuggestionPanel(width, visibleSuggestions, hintState.selectedIndex);
   const key = `${baseLine}\n${hintState.selectedIndex}\n${panel}`;
   if (hintState.key === key) return;
-  output.write(`\x1b[s\x1b[1B\r\x1b[0J${panel}\x1b[u`);
+  output.write(`\x1b[3B\r\n${panel}`);
   hintState.visible = true;
   hintState.key = key;
   hintState.baseLine = baseLine;
@@ -952,7 +954,6 @@ async function renderLiveSuggestions(
 
 function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean; baseLine?: string; selectedIndex?: number; suggestions?: ChatSuggestion[] }): void {
   if ("renderSeq" in hintState && typeof hintState.renderSeq === "number") hintState.renderSeq += 1;
-  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[1B\r\x1b[0J\x1b[u");
   hintState.visible = false;
   hintState.key = "";
   hintState.baseLine = "";
