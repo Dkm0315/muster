@@ -114,6 +114,19 @@ import { createInterface, emitKeypressEvents, type Interface } from "node:readli
 import { stdin as input, stdout as output } from "node:process";
 import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, McpServerConfig, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
 
+const originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = ((warning: string | Error, ...warningArgs: Parameters<typeof process.emitWarning> extends [string | Error, ...infer Rest] ? Rest : never[]) => {
+  const message = typeof warning === "string" ? warning : warning.message;
+  const type = typeof warningArgs[0] === "string" ? warningArgs[0] : typeof warning === "string" ? undefined : warning.name;
+  if (type === "ExperimentalWarning" && message.includes("SQLite")) return;
+  originalEmitWarning(warning, ...warningArgs);
+}) as typeof process.emitWarning;
+
+process.on("warning", (warning) => {
+  if (warning.name === "ExperimentalWarning" && warning.message.includes("SQLite")) return;
+  console.warn(`${warning.name}: ${warning.message}`);
+});
+
 const [, , command, ...args] = process.argv;
 
 async function main(): Promise<void> {
@@ -372,9 +385,25 @@ interface ChatState {
   model?: string;
   scopes: MemoryScope[];
   recallLimit?: number;
+  pendingMenu?: ChatMenu;
+  pendingSuggestion?: ChatSelectedSuggestion;
 }
 
 const DEFAULT_CHAT_SESSION = "main";
+interface ChatMenu {
+  readonly kind: "commands" | "agents";
+  readonly options: readonly string[];
+}
+interface ChatSuggestion {
+  readonly label: string;
+  readonly value: string;
+  readonly kind: "command" | "agent" | "completion";
+}
+interface ChatSelectedSuggestion {
+  readonly baseLine: string;
+  readonly value: string;
+  readonly kind: ChatSuggestion["kind"];
+}
 interface ChatCommandDef {
   readonly name: string;
   readonly usage: string;
@@ -491,16 +520,22 @@ async function interactiveChat(state: ChatState): Promise<void> {
   printBanner();
   await printChatHeader(state);
   const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
-  const hintState = { visible: false, key: "", active: true };
+  const hintState = { visible: false, key: "", active: true, baseLine: "", selectedIndex: 0, suggestions: [] as ChatSuggestion[] };
+  const historyState = { entries: [] as string[], index: undefined as number | undefined, draft: "" };
   emitKeypressEvents(input, rl);
-  const onKeypress = (): void => {
+  const onKeypress = (_chunk: string, key: { name?: string } = {}): void => {
     if (!hintState.active) return;
-    setImmediate(() => renderLiveSuggestions(rl, state, hintState).catch(() => {}));
+    if ((key.name === "up" || key.name === "down") && !hintState.visible) {
+      setImmediate(() => navigateChatHistory(rl, historyState, key.name as "up" | "down"));
+      return;
+    }
+    setImmediate(() => renderLiveSuggestions(rl, state, hintState, key.name).catch(() => {}));
   };
   input.on("keypress", onKeypress);
   let pending = "";
   try {
     rl.setPrompt(chatPrompt(state));
+    printChatInputFrame();
     rl.prompt();
     for await (const line of rl) {
       const promptLabel = pending ? color("... ", "dim") : chatPrompt(state);
@@ -511,20 +546,25 @@ async function interactiveChat(state: ChatState): Promise<void> {
         rl.prompt();
         continue;
       }
+      printChatInputFrameBottom();
       const text = pending.trim();
       pending = "";
       if (!text) {
         rl.setPrompt(promptLabel);
+        printChatInputFrame();
         rl.prompt();
         continue;
       }
       const keepGoing = await handleChatInput(text, state);
       if (!keepGoing) break;
+      rememberChatInput(historyState, text);
       rl.setPrompt(chatPrompt(state));
+      printChatInputFrame();
       rl.prompt();
     }
   } finally {
     hintState.active = false;
+    state.pendingSuggestion = undefined;
     input.off("keypress", onKeypress);
     clearLiveSuggestions(hintState);
     rl.close();
@@ -532,7 +572,35 @@ async function interactiveChat(state: ChatState): Promise<void> {
 }
 
 function chatPrompt(_state: ChatState): string {
-  return `${color("›", "highlight")} `;
+  return `${color("│", "accent")} ${color("›", "highlight")} `;
+}
+
+function rememberChatInput(historyState: { entries: string[]; index?: number; draft: string }, text: string): void {
+  if (!text) return;
+  if (historyState.entries.at(-1) !== text) historyState.entries.push(text);
+  historyState.index = undefined;
+  historyState.draft = "";
+}
+
+function navigateChatHistory(rl: Interface, historyState: { entries: string[]; index?: number; draft: string }, direction: "up" | "down"): void {
+  if (!historyState.entries.length) return;
+  if (direction === "up") {
+    if (historyState.index === undefined) {
+      historyState.draft = rl.line;
+      historyState.index = historyState.entries.length - 1;
+    } else {
+      historyState.index = Math.max(0, historyState.index - 1);
+    }
+  } else if (historyState.index !== undefined) {
+    if (historyState.index < historyState.entries.length - 1) {
+      historyState.index += 1;
+    } else {
+      historyState.index = undefined;
+    }
+  }
+  const next = historyState.index === undefined ? historyState.draft : historyState.entries[historyState.index] ?? "";
+  rl.write(null, { ctrl: true, name: "u" });
+  rl.write(next);
 }
 
 async function printChatHeader(state: ChatState): Promise<void> {
@@ -603,9 +671,21 @@ async function printChatHeader(state: ChatState): Promise<void> {
   console.log(color("│ ", "accent") + visiblePadEnd(color(footer, "accent"), width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
   console.log("");
+}
+
+function chatFrameWidth(): number {
+  return Math.min(Math.max((process.stdout.columns || 120) - 2, 72), 240);
+}
+
+function printChatInputFrame(): void {
+  const width = chatFrameWidth();
   console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
-  console.log(color("│ ", "accent") + visiblePadEnd(color("type / for commands, @ for agents, Tab to complete", "dim"), width - 4) + color(" │", "accent"));
-  console.log(color(`╰─ input ${"─".repeat(Math.max(1, width - 10))}╯`, "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd(color("type / then Enter for commands, @ then Enter for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
+}
+
+function printChatInputFrameBottom(): void {
+  const width = chatFrameWidth();
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -654,16 +734,53 @@ function stripAnsi(value: string): string {
 }
 
 async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
+  const suggested = state.pendingSuggestion;
+  state.pendingSuggestion = undefined;
+  if (suggested && matchesSelectedSuggestionInput(text, suggested.baseLine)) {
+    if (suggested.kind === "command") return handleChatCommand(suggested.value, state);
+    if (suggested.kind === "completion") {
+      console.log(color(`selected ${suggested.value}`, "dim"));
+      return true;
+    }
+    if (suggested.kind === "agent") {
+      console.log(color(`selected ${suggested.value}. Type ${suggested.value} <task> to route a turn.`, "dim"));
+      return true;
+    }
+  }
+  const selected = await handlePendingChatMenu(text, state);
+  if (selected !== undefined) return selected;
   if (text === "/") {
-    printChatCommandCatalog();
+    state.pendingMenu = { kind: "commands", options: CHAT_COMMANDS.map((command) => command.name) };
+    printChatCommandCatalog({ numbered: true });
     return true;
   }
   if (text === "@") {
-    await printChatAgents();
+    state.pendingMenu = { kind: "agents", options: await chatAgentOptions() };
+    await printChatAgents({ numbered: true });
     return true;
   }
+  state.pendingMenu = undefined;
   if (text.startsWith("/")) return handleChatCommand(text, state);
   await runChatTurn(text, state);
+  return true;
+}
+
+function matchesSelectedSuggestionInput(text: string, baseLine: string): boolean {
+  if (text === baseLine) return true;
+  if (baseLine === "/" && /^\/+$/.test(text)) return true;
+  if (baseLine === "@" && /^@+$/.test(text)) return true;
+  return false;
+}
+
+async function handlePendingChatMenu(text: string, state: ChatState): Promise<boolean | undefined> {
+  const menu = state.pendingMenu;
+  if (!menu) return undefined;
+  state.pendingMenu = undefined;
+  const index = Number(text);
+  if (!Number.isInteger(index) || index < 1 || index > menu.options.length) return undefined;
+  const selected = menu.options[index - 1];
+  if (menu.kind === "commands") return handleChatCommand(`/${selected}`, state);
+  console.log(color(`selected @${selected}. Type @${selected} <task> to route a turn.`, "dim"));
   return true;
 }
 
@@ -757,11 +874,13 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
   }
 }
 
-function printChatCommandCatalog(): void {
-  printChatPanel("Commands", CHAT_COMMANDS.map((command) => {
+function printChatCommandCatalog(options: { numbered?: boolean } = {}): void {
+  printChatPanel("Commands", CHAT_COMMANDS.map((command, index) => {
     const aliases = command.aliases?.length ? ` (${command.aliases.map((alias) => `/${alias}`).join(", ")})` : "";
-    return `${color(command.usage.padEnd(20), "highlight")} ${command.description}${color(aliases, "dim")}`;
+    const prefix = options.numbered ? `${color(`${String(index + 1).padStart(2)}.`, "accent")} ` : "";
+    return `${prefix}${color(command.usage.padEnd(20), "highlight")} ${command.description}${color(aliases, "dim")}`;
   }));
+  if (options.numbered) console.log(color("Type a number to run a command, or type the slash command directly.", "dim"));
 }
 
 function printChatShortcuts(): void {
@@ -796,48 +915,86 @@ function chatCompletions(line: string): string[] {
   return [];
 }
 
-async function renderLiveSuggestions(rl: Interface, state: ChatState, hintState: { visible: boolean; key: string; active: boolean }): Promise<void> {
+async function renderLiveSuggestions(
+  rl: Interface,
+  state: ChatState,
+  hintState: { visible: boolean; key: string; active: boolean; baseLine: string; selectedIndex: number; suggestions: ChatSuggestion[] },
+  keyName?: string,
+): Promise<void> {
   if (!hintState.active || !process.stdout.isTTY) return;
-  const rows = await liveSuggestionRows(rl.line, state);
-  if (!rows.length) {
+  const isArrow = keyName === "up" || keyName === "down";
+  const baseLine = isArrow && hintState.visible ? hintState.baseLine : rl.line;
+  const suggestions = isArrow && hintState.visible ? hintState.suggestions : await liveSuggestions(baseLine, state);
+  if (!suggestions.length) {
+    state.pendingSuggestion = undefined;
     clearLiveSuggestions(hintState);
     return;
   }
+  if (isArrow) {
+    const direction = keyName === "up" ? -1 : 1;
+    hintState.selectedIndex = (hintState.selectedIndex + direction + suggestions.length) % suggestions.length;
+    rl.write(null, { ctrl: true, name: "u" });
+    rl.write(baseLine);
+  } else if (baseLine !== hintState.baseLine) {
+    hintState.selectedIndex = 0;
+  }
   const width = Math.min(Math.max((process.stdout.columns || 100) - 8, 56), 110);
-  const panel = renderSuggestionPanel(width, rows.slice(0, 10));
-  const key = `${rl.line}\n${panel}`;
+  const visibleSuggestions = suggestions.slice(0, 10);
+  hintState.selectedIndex = Math.min(hintState.selectedIndex, visibleSuggestions.length - 1);
+  const selected = visibleSuggestions[hintState.selectedIndex];
+  state.pendingSuggestion = { baseLine, value: selected.value, kind: selected.kind };
+  const panel = renderSuggestionPanel(width, visibleSuggestions, hintState.selectedIndex);
+  const key = `${baseLine}\n${hintState.selectedIndex}\n${panel}`;
   if (hintState.key === key) return;
   output.write(`\n${panel}`);
   hintState.visible = true;
   hintState.key = key;
+  hintState.baseLine = baseLine;
+  hintState.suggestions = suggestions;
   if (!hintState.active) return;
   rl.prompt(true);
 }
 
-function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean }): void {
+function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean; baseLine?: string; selectedIndex?: number; suggestions?: ChatSuggestion[] }): void {
   hintState.visible = false;
   hintState.key = "";
+  hintState.baseLine = "";
+  hintState.selectedIndex = 0;
+  hintState.suggestions = [];
 }
 
-async function liveSuggestionRows(line: string, state: ChatState): Promise<string[]> {
+async function liveSuggestions(line: string, state: ChatState): Promise<ChatSuggestion[]> {
   const trimmed = line.trimStart();
   if (trimmed === "/" || /^\/[a-z-]*$/i.test(trimmed)) {
     const fragment = trimmed.slice(1).toLowerCase();
     return CHAT_COMMANDS
       .filter((command) => command.name.startsWith(fragment) || command.aliases?.some((alias) => alias.startsWith(fragment)))
-      .map((command) => `${color(command.usage.padEnd(20), "highlight")} ${command.description}`);
+      .map((command) => ({
+        label: `${color(command.usage.padEnd(20), "highlight")} ${command.description}`,
+        value: `/${command.name}`,
+        kind: "command" as const,
+      }));
   }
   if (/^\/tools\s+\S*$/i.test(trimmed)) {
     const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
     return CHAT_TOOLSETS
       .filter((toolset) => toolset.startsWith(fragment))
-      .map((toolset) => `${color(toolset.padEnd(20), "highlight")} toolset`);
+      .map((toolset) => ({
+        label: `${color(toolset.padEnd(20), "highlight")} toolset`,
+        value: `/tools ${toolset}`,
+        kind: "completion" as const,
+      }));
   }
   if (/^\/resume\s+\S*$/i.test(trimmed) || /^\/name\s+\S*$/i.test(trimmed)) {
+    const command = trimmed.split(/\s+/)[0] ?? "/resume";
     const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
     return recentChatSessionNames()
       .filter((name) => name.toLowerCase().startsWith(fragment))
-      .map((name) => `${color(name.padEnd(20), "highlight")} chat session`);
+      .map((name) => ({
+        label: `${color(name.padEnd(20), "highlight")} chat session`,
+        value: `${command} ${name}`,
+        kind: "completion" as const,
+      }));
   }
   if (trimmed === "@" || /^@[a-zA-Z0-9_.:-]*$/.test(trimmed)) {
     const fragment = trimmed.slice(1).toLowerCase();
@@ -847,15 +1004,23 @@ async function liveSuggestionRows(line: string, state: ChatState): Promise<strin
     const suggested = ["research", "debug", "review", "frappe", ...runtimeAgents, ...namedAgents];
     return [...new Set(suggested)]
       .filter((agent) => agent.toLowerCase().startsWith(fragment))
-      .map((agent) => `${color(`@${agent}`.padEnd(20), "highlight")} route this turn`);
+      .map((agent) => ({
+        label: `${color(`@${agent}`.padEnd(20), "highlight")} route this turn`,
+        value: `@${agent}`,
+        kind: "agent" as const,
+      }));
   }
   return [];
 }
 
-function renderSuggestionPanel(width: number, rows: readonly string[]): string {
+function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggestion[], selectedIndex: number): string {
   const lines = [
     color(`╭─ suggestions ${"─".repeat(Math.max(1, width - 15))}╮`, "accent"),
-    ...rows.map((row) => color("│ ", "accent") + visiblePadEnd(row, width - 4) + color(" │", "accent")),
+    ...suggestions.map((suggestion, index) => {
+      const marker = index === selectedIndex ? color("› ", "highlight") : "  ";
+      const row = `${marker}${suggestion.label}`;
+      return color("│ ", "accent") + visiblePadEnd(row, width - 4) + color(" │", "accent");
+    }),
     color(`╰${"─".repeat(width - 2)}╯`, "accent"),
   ];
   return `${lines.join("\n")}\n`;
@@ -1132,21 +1297,37 @@ async function printChatMcp(): Promise<void> {
   }));
 }
 
-async function printChatAgents(): Promise<void> {
+async function chatAgentOptions(): Promise<string[]> {
+  const config = await loadConfig();
+  const namedAgents = config.agents?.list?.map((agent) => agent.id) ?? [];
+  const runtimeAgents = Object.keys(config.runtimes);
+  return [...new Set([...runtimeAgents, ...namedAgents])];
+}
+
+async function printChatAgents(options: { numbered?: boolean } = {}): Promise<void> {
   const config = await loadConfig();
   const agents = config.agents?.list ?? [];
-  const lines = Object.values(config.runtimes).map((runtime) => {
+  const lines = Object.values(config.runtimes).map((runtime, index) => {
     const provider = config.providers[runtime.provider];
-    return `${color(`${runtime.id}:`, "accent")} ${runtime.provider} · ${provider?.defaultModel ?? "-"} · ${runtime.enabled ? "enabled" : "disabled"}`;
+    const prefix = options.numbered ? `${color(`${String(index + 1).padStart(2)}.`, "accent")} ` : "";
+    return `${prefix}${color(`${runtime.id}:`, "accent")} ${runtime.provider} · ${provider?.defaultModel ?? "-"} · ${runtime.enabled ? "enabled" : "disabled"}`;
   });
   if (!agents.length) {
-    printChatPanel("Agents", [...lines, color("No named agents configured. You can still type @agent-name <task> to route a turn.", "dim")]);
+    printChatPanel("Agents", [
+      ...lines,
+      color("No named agents configured. You can still type @agent-name <task> to route a turn.", "dim"),
+      ...(options.numbered ? [color("Type a number to select an agent, or type @agent-name <task> directly.", "dim")] : []),
+    ]);
     return;
   }
   printChatPanel("Agents", [
     ...lines,
     "",
-    ...agents.map((agent) => `${color(`@${agent.id}`, "accent")} ${agent.skills?.join(", ") || "no skill allowlist"}`),
+    ...agents.map((agent, index) => {
+      const prefix = options.numbered ? `${color(`${String(lines.length + index + 1).padStart(2)}.`, "accent")} ` : "";
+      return `${prefix}${color(`@${agent.id}`, "accent")} ${agent.skills?.join(", ") || "no skill allowlist"}`;
+    }),
+    ...(options.numbered ? [color("Type a number to select an agent, or type @agent-name <task> directly.", "dim")] : []),
   ]);
 }
 

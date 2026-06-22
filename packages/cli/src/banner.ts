@@ -1,9 +1,9 @@
 // The big MUSTER banner shown when the CLI opens (like OPENCLAW / opencode).
-// Amber-on-near-black brand identity. Respects NO_COLOR and non-TTY output.
+// Teal-on-near-black brand identity. Respects NO_COLOR and non-TTY output.
 
-const AMBER = [255, 176, 0] as const;       // #ffb000 brand amber
-const GOLD = [255, 209, 102] as const;      // lighter top
-const EMBER = [214, 122, 0] as const;       // deeper bottom
+const TEAL = [20, 184, 166] as const;       // #14b8a6 brand teal
+const CYAN = [103, 232, 249] as const;      // lighter top
+const DEEP = [15, 118, 110] as const;       // deeper bottom
 
 const LETTERS = [
   "███╗   ███╗██╗   ██╗███████╗████████╗███████╗██████╗ ",
@@ -37,14 +37,14 @@ export function renderBanner(): string {
   const enabled = colorEnabled();
   const lines = LETTERS.map((line, index) => {
     if (!enabled) return line;
-    // vertical gradient: gold at the crown, amber through the body, ember at the base
+    // vertical gradient: cyan at the crown, teal through the body, deep teal at the base
     const t = index / (LETTERS.length - 1);
-    const top = lerp(GOLD, AMBER, Math.min(1, t * 2));
-    const rgb = t <= 0.5 ? top : lerp(AMBER, EMBER, (t - 0.5) * 2);
+    const top = lerp(CYAN, TEAL, Math.min(1, t * 2));
+    const rgb = t <= 0.5 ? top : lerp(TEAL, DEEP, (t - 0.5) * 2);
     return color(line, rgb);
   });
   const tag = "  the agent harness you can audit";
-  const tagline = enabled ? color(tag, AMBER) : tag;
+  const tagline = enabled ? color(tag, TEAL) : tag;
   return `\n${lines.join("\n")}\n${tagline}\n`;
 }
 
