@@ -47,6 +47,11 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const listed = await runCli(["chat", "--list"], cwd);
   assert.match(listed.stdout, /release-audit/);
 
+  const tools = await runCli(["chat", "--tools", "core"], cwd);
+  assert.match(tools.stdout, /files\t.*read_file/);
+  assert.match(tools.stdout, /web\t.*web_search/);
+  assert.match(tools.stdout, /discovery\t.*tool_search/);
+
   const blocked = await runCliAllowFailure(["chat"], cwd);
   assert.equal(blocked.code, 1);
   assert.match(blocked.stderr, /Interactive chat requires a TTY/);

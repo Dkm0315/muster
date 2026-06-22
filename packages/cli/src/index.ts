@@ -68,6 +68,7 @@ import {
   seedEvalFromEpisode,
   searchMemory,
   createToolRegistry,
+  registerBuiltinTools,
   setRuntimeProvider,
   addPresetProvider,
   renderProviderPresets,
@@ -382,6 +383,12 @@ async function chat(commandArgs: string[]): Promise<void> {
     printChatHistory(state.sessionName, readNumberFlag(commandArgs, "--limit") ?? 40);
     return;
   }
+  const toolsIndex = commandArgs.indexOf("--tools");
+  if (toolsIndex >= 0) {
+    const maybeToolset = commandArgs[toolsIndex + 1];
+    printChatTools(maybeToolset && !maybeToolset.startsWith("--") ? maybeToolset : undefined);
+    return;
+  }
   if (prompt) {
     await runChatTurn(prompt, state, { timeoutMs: readNumberFlag(commandArgs, "--timeout-ms") });
     return;
@@ -400,6 +407,7 @@ Usage:
   muster chat "your prompt"                 # one-shot turn in the main named session
   muster chat --session work "prompt"       # one-shot turn in a named session
   muster chat --session work --history      # show a named session
+  muster chat --tools [toolset]             # list built-in tools
   muster chat --list                        # list recent chat sessions
 
 In-chat commands:
@@ -700,6 +708,7 @@ async function printChatMemory(query: string, state: ChatState): Promise<void> {
 
 function printChatTools(toolset?: string): void {
   const registry = createToolRegistry();
+  registerBuiltinTools(registry);
   const entries = registry.list(toolset || undefined);
   if (!entries.length) {
     console.log(color(`No tools found for ${toolset}.`, "yellow"));
