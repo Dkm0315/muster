@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -6,7 +6,16 @@ const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const DEFAULT_PROFILE = "default";
 
 export function musterRoot(cwd = process.cwd()): string {
-  return join(cwd, ".muster");
+  return join(stateRoot(cwd), ".muster");
+}
+
+export function stateRoot(cwd = process.cwd()): string {
+  try {
+    accessSync(cwd, constants.W_OK);
+    return cwd;
+  } catch {
+    return process.env.HOME || cwd;
+  }
 }
 
 export function profilePointerPath(cwd = process.cwd()): string {

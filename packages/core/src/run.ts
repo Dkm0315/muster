@@ -348,6 +348,9 @@ async function attemptRoute(
   if (!provider) {
     return { responseText: "", status: "failed", errorMessage: `Provider not configured: ${route.provider}`, route };
   }
+  if (provider.kind === "codex-cli") {
+    return runCodexBackend({ ...route, model: route.model || provider.defaultModel }, prompts, options);
+  }
   // Multi-turn, budgeted context for the provider-direct (API) path only: load
   // this conversation's prior turns, render them to fit the budget (stub old
   // tool results, compact if needed), and persist the new turn for next time.

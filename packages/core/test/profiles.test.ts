@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -16,6 +16,7 @@ import {
   profileDataDir,
   profilesRoot,
   saveConfig,
+  stateRoot,
   useProfile,
   validateProfileName,
 } from "../src/index.js";
@@ -24,6 +25,21 @@ test("default profile resolves to the legacy data directory for backwards compat
   const cwd = await mkdtemp(join(tmpdir(), "muster-profiles-"));
   assert.equal(activeProfile(cwd), "default");
   assert.equal(profileDataDir(cwd), join(cwd, ".muster", "data"));
+});
+
+test("state root falls back to HOME when cwd is not writable", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-unwritable-cwd-"));
+  const home = await mkdtemp(join(tmpdir(), "muster-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    await chmod(cwd, 0o555);
+    process.env.HOME = home;
+    assert.equal(stateRoot(cwd), home);
+    assert.equal(profileDataDir(cwd), join(home, ".muster", "data"));
+  } finally {
+    process.env.HOME = priorHome;
+    await chmod(cwd, 0o755).catch(() => {});
+  }
 });
 
 test("profiles isolate memory completely", async () => {

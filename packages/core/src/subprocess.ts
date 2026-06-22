@@ -36,7 +36,7 @@ export function runSubprocess(command: string, args: readonly string[], options:
   const maxBuffer = options.maxBuffer ?? 1024 * 1024 * 16;
   const killGraceMs = options.killGraceMs ?? 1500;
   return new Promise<SubprocessResult>((resolve, reject) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env });
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let settled = false;

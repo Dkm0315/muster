@@ -8,6 +8,11 @@ test("runSubprocess resolves with stdout for a normal command", async () => {
   assert.equal(result.stdout, "hello");
 });
 
+test("runSubprocess closes child stdin so stdin-reading CLIs do not hang", async () => {
+  const result = await runSubprocess(process.execPath, ["-e", "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('eof'))"], { timeoutMs: 1000 });
+  assert.equal(result.stdout, "eof");
+});
+
 test("runSubprocess rejects a non-zero exit with stdout/stderr attached", async () => {
   await assert.rejects(
     runSubprocess(process.execPath, ["-e", "process.stderr.write('boom'); process.exit(3)"]),

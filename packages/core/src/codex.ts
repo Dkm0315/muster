@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
+import { join as pathJoin } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -67,13 +69,32 @@ export async function inspectCodex(command = "codex"): Promise<{ readonly availa
   }
 }
 
+function resolveCodexCommand(command?: string): string {
+  if (command) return command;
+  if (process.env.MUSTER_CODEX_COMMAND) return process.env.MUSTER_CODEX_COMMAND;
+  const home = process.env.HOME;
+  if (home) {
+    const candidates = [
+      pathJoin(home, ".nvm/versions/node/v24.17.0/bin/codex"),
+      pathJoin(home, ".nvm/versions/node/v22.22.3/bin/codex"),
+      pathJoin(home, ".nvm/versions/node/v22.15.1/bin/codex"),
+      pathJoin(home, ".nvm/versions/node/v20.19.5/bin/codex"),
+      pathJoin(home, ".local/bin/codex"),
+    ];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return "codex";
+}
+
 export function buildCodexArgs(input: CodexRunInput, outputLastMessageFile: string): string[] {
-  const args = input.resume && input.sessionId
-    ? ["exec", "resume", input.sessionId, "--json"]
-    : ["exec", "--json"];
-  args.push("-C", input.cwd, "--skip-git-repo-check");
+  const isResume = Boolean(input.resume && input.sessionId);
+  const args = isResume ? ["exec", "resume", "--json"] : ["exec", "--json"];
+  if (!isResume) args.push("-C", input.cwd);
+  args.push("--skip-git-repo-check");
   if (input.model) args.push("-m", input.model);
-  args.push("-s", input.sandbox ?? "workspace-write");
+  if (!isResume) args.push("-s", input.sandbox ?? "workspace-write");
   // `codex exec` is non-interactive (no approval prompt possible) and has NO `-a`
   // flag — that belongs to the interactive root command. Approval policy is set
   // via a config override. `never` is the correct headless value.
@@ -81,6 +102,7 @@ export function buildCodexArgs(input: CodexRunInput, outputLastMessageFile: stri
   if (input.networkAccess) args.push("-c", "sandbox_workspace_write.network_access=true");
   if (input.instructionsFile) args.push("-c", `experimental_instructions_file=${input.instructionsFile}`);
   args.push("-o", outputLastMessageFile);
+  if (isResume && input.sessionId) args.push(input.sessionId);
   args.push(input.prompt);
   return args;
 }
@@ -120,7 +142,7 @@ export function parseCodexEvents(stdout: string): { threadId?: string; failed: b
 
 export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
   if (!input.prompt.trim()) throw new Error("Codex prompt is required.");
-  const command = input.command ?? "codex";
+  const command = resolveCodexCommand(input.command);
   const outputFile = join(tmpdir(), `muster-codex-${randomUUID()}.txt`);
   const args = buildCodexArgs(input, outputFile);
   const started = Date.now();
@@ -151,6 +173,8 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
     const detail = error as Error & { stdout?: string; stderr?: string };
     const events = parseCodexEvents(detail.stdout ?? "");
     const finalMessage = await readFinalMessage(outputFile);
+    const stderr = detail.stderr?.trim() ?? "";
+    const errorMessage = [detail.message, stderr ? truncateForError(stderr) : undefined].filter(Boolean).join(": ");
     return {
       status: "failed",
       command,
@@ -158,13 +182,17 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
       finalMessage,
       threadId: events.threadId,
       stdout: detail.stdout?.trim() ?? "",
-      stderr: detail.stderr?.trim() ?? "",
+      stderr,
       durationMs: Date.now() - started,
-      errorMessage: detail.message,
+      errorMessage,
     };
   } finally {
     await rm(outputFile, { force: true }).catch(() => {});
   }
+}
+
+function truncateForError(value: string): string {
+  return value.length <= 800 ? value : `${value.slice(0, 797)}...`;
 }
 
 async function readFinalMessage(file: string): Promise<string> {

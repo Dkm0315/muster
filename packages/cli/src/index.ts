@@ -486,14 +486,14 @@ Shortcuts:
 async function interactiveChat(state: ChatState): Promise<void> {
   await ensureDefaultConfig();
   printBanner();
-  printChatHeader(state);
+  await printChatHeader(state);
   const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
   let pending = "";
   try {
-    rl.setPrompt(`${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `);
+    rl.setPrompt(chatPrompt(state));
     rl.prompt();
     for await (const line of rl) {
-      const promptLabel = pending ? color("... ", "dim") : `${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `;
+      const promptLabel = pending ? color("... ", "dim") : chatPrompt(state);
       const raw = line.endsWith("\\") ? line.slice(0, -1) : line;
       pending = pending ? `${pending}\n${raw}` : raw;
       if (line.endsWith("\\")) {
@@ -510,7 +510,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       }
       const keepGoing = await handleChatInput(text, state);
       if (!keepGoing) break;
-      rl.setPrompt(`${color("muster", "cyan")}${color(`[${state.sessionName}]`, "dim")}> `);
+      rl.setPrompt(chatPrompt(state));
       rl.prompt();
     }
   } finally {
@@ -518,13 +518,115 @@ async function interactiveChat(state: ChatState): Promise<void> {
   }
 }
 
-function printChatHeader(state: ChatState): void {
-  const width = Math.min(process.stdout.columns || 100, 120);
-  console.log(color(boxLine("top", width), "cyan"));
-  console.log(color(boxText(`Muster Chat  session=${state.sessionName}  cwd=${truncate(process.cwd(), width - 36)}`, width), "cyan"));
-  console.log(color(boxLine("mid", width), "cyan"));
-  console.log(color(boxText("Type normal text to run the agent. Type /help for commands, /exit to leave.", width), "dim"));
-  console.log(color(boxLine("bottom", width), "cyan"));
+function chatPrompt(state: ChatState): string {
+  return `${color("›", "amber")} ${color(`muster:${state.sessionName}`, "dim")} `;
+}
+
+async function printChatHeader(state: ChatState): Promise<void> {
+  const width = Math.min(Math.max((process.stdout.columns || 120) - 2, 100), 240);
+  const inner = width - 4;
+  const leftWidth = Math.max(28, Math.min(42, Math.floor(inner * 0.28)));
+  const gutter = 4;
+  const rightWidth = inner - leftWidth - gutter;
+  const cwd = truncate(process.cwd().replace(process.env.HOME ?? "", "~"), leftWidth - 2);
+  const config = await loadConfig().catch(() => undefined);
+  const runtimeId = state.runtime ?? config?.routing.defaultRuntime ?? "native";
+  const runtime = runtimeId ? config?.runtimes[runtimeId] : undefined;
+  const providerId = state.provider ?? runtime?.provider ?? "provider";
+  const provider = providerId ? config?.providers[providerId] : undefined;
+  const model = state.model ?? firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "model";
+  const skills = await listSkills().catch(() => []);
+  const activeSkills = skills.filter((skill) => skill.status === "active");
+  const skillNames = (activeSkills.length ? activeSkills : skills).slice(0, 16).map((skill) => skill.name);
+  const rightLines = [
+    color("Available Tools", "amber"),
+    ...formatCatalogLines([
+      ["workspace", "read, edit, shell, git"],
+      ["memory", "recall, add, promote, indexed search"],
+      ["sessions", "name, resume, history, reset"],
+      ["skills", "list, inspect, curate, run"],
+      ["plugins", "inspect, load, policy"],
+      ["mcp", "list, add-stdio, test, remove"],
+      ["dashboard", "status, start"],
+      ["agents", "@agent route, sub-runs"],
+    ], rightWidth),
+    "",
+    color("Available Skills", "amber"),
+    ...formatSkillLines(skillNames, rightWidth),
+  ];
+  const leftLines = [
+    "",
+    color("MUSTER", "amber"),
+    color("agent harness", "dim"),
+    "",
+    `${color("model", "amber")}    ${model}`,
+    `${color("provider", "amber")} ${providerId}`,
+    `${color("runtime", "amber")}  ${runtimeId}`,
+    "",
+    `${color("cwd", "amber")}      ${cwd}`,
+    `${color("session", "amber")}  ${state.sessionName}`,
+  ];
+  const rows = Math.max(leftLines.length, rightLines.length);
+  console.log(color(`╭${"─".repeat(width - 2)}╮`, "amber"));
+  console.log(panelTitle(width, `Muster Agent · ${new Date().toISOString().slice(0, 10)}`));
+  for (let index = 0; index < rows; index += 1) {
+    const left = visiblePadEnd(leftLines[index] ?? "", leftWidth);
+    const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
+    console.log(color("│ ", "amber") + left + " ".repeat(gutter) + right + color(" │", "amber"));
+  }
+  const footer = `${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · /help for commands`;
+  console.log(color("├" + "─".repeat(width - 2) + "┤", "amber"));
+  console.log(color("│ ", "amber") + visiblePadEnd(color(footer, "amber"), width - 4) + color(" │", "amber"));
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
+  console.log(`Welcome to Muster. Type a message or ${color("/help", "amber")} for commands.`);
+  console.log(color("Tip: Tab completes slash commands; @agent-name routes a turn; /name saves this conversation for later recall.", "dim"));
+  console.log(color(statusStrip({ model, providerId, sessionName: state.sessionName }), "dim"));
+  console.log("");
+}
+
+function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
+  return runtime?.routes.simple_qa?.model ?? Object.values(runtime?.routes ?? {})[0]?.model;
+}
+
+function formatCatalogLines(items: readonly (readonly [string, string])[], width: number): string[] {
+  return items.map(([name, value]) => `${color(`${name}:`, "amber")} ${truncate(value, Math.max(12, width - name.length - 3))}`);
+}
+
+function formatSkillLines(names: readonly string[], width: number): string[] {
+  if (!names.length) return [color("No active skills found.", "dim")];
+  const lines: string[] = [];
+  let current = "";
+  for (const name of names) {
+    const next = current ? `${current}, ${name}` : name;
+    if (stripAnsi(next).length > width - 2) {
+      lines.push(truncate(current, width));
+      current = name;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(truncate(current, width));
+  return lines.slice(0, 5);
+}
+
+function panelTitle(width: number, title: string): string {
+  const text = ` ${title} `;
+  const left = Math.max(1, Math.floor((width - 2 - stripAnsi(text).length) / 2));
+  const right = Math.max(1, width - 2 - left - stripAnsi(text).length);
+  return color("│", "amber") + color("─".repeat(left), "amber") + color(text, "amber") + color("─".repeat(right), "amber") + color("│", "amber");
+}
+
+function statusStrip(input: { readonly model: string; readonly providerId: string; readonly sessionName: string }): string {
+  return `$ ${input.model} | provider ${input.providerId} | session ${input.sessionName} | ctx -- | 0s`;
+}
+
+function visiblePadEnd(value: string, width: number): string {
+  const visible = stripAnsi(value).length;
+  return value + " ".repeat(Math.max(0, width - visible));
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
@@ -659,8 +761,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   const agentId = routed?.agentId;
   const config = await loadConfig();
   const started = Date.now();
-  process.stdout.write(color(`\n${agentId ? `@${agentId} ` : ""}working`, "cyan"));
-  const timer = setInterval(() => process.stdout.write(color(".", "dim")), 500);
+  const stopWorking = startWorkingStatus(agentId, started);
   let outcome: RunOutcome;
   try {
     outcome = await executeRun(config, {
@@ -677,14 +778,35 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
       timeoutMs: options.timeoutMs,
     });
   } finally {
-    clearInterval(timer);
-    process.stdout.write("\n");
+    stopWorking();
   }
   persistChatTranscriptIfMissing(state.sessionName, prompt, outcome);
   printAssistantResponse(outcome, Date.now() - started);
-  if (outcome.episode.outcome?.kind === "failed") {
-    console.log(color(outcome.episode.outcome.detail ?? "Run failed", "red"));
+}
+
+function startWorkingStatus(agentId: string | undefined, started: number): () => void {
+  const label = agentId ? `@${agentId} working` : "working";
+  if (!process.stdout.isTTY) {
+    console.log(`\n${label}`);
+    return () => {};
   }
+  const frames = ["|", "/", "-", "\\"];
+  let frame = 0;
+  let lastLength = 0;
+  const render = (): void => {
+    const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    const text = `${frames[frame % frames.length]} ${label} ${elapsed}s`;
+    frame += 1;
+    lastLength = Math.max(lastLength, stripAnsi(text).length);
+    process.stdout.write(`\r${color(text, "amber")}${" ".repeat(Math.max(0, lastLength - stripAnsi(text).length))}`);
+  };
+  process.stdout.write("\n");
+  render();
+  const timer = setInterval(render, 250);
+  return () => {
+    clearInterval(timer);
+    process.stdout.write(`\r${" ".repeat(lastLength)}\r`);
+  };
 }
 
 function parseAgentMention(text: string): { agentId: string; prompt: string } | undefined {
@@ -696,9 +818,15 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
 function printAssistantResponse(outcome: RunOutcome, elapsedMs: number): void {
   const status = outcome.episode.outcome?.kind ?? "unknown";
   const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status} ${elapsedMs}ms`;
-  console.log(color(header, status === "completed" ? "green" : "red"));
+  console.log(color(status === "completed" ? header : `✖ ${header}`, status === "completed" ? "green" : "red"));
   if (outcome.recalled.length) console.log(color(`recalled ${outcome.recalled.length} scoped memories`, "dim"));
   if (outcome.fallbackUsed) console.log(color(`fallback=${outcome.fallbackUsed}`, "yellow"));
+  if (status !== "completed") {
+    const detail = outcome.episode.outcome?.kind === "failed" ? outcome.episode.outcome.detail : undefined;
+    if (detail) console.log(color(`reason: ${detail}`, "red"));
+    console.log(color("Run `muster doctor` or `/status` to inspect provider configuration.", "dim"));
+    return;
+  }
   console.log("");
   for (const line of wrapPreserveLines(outcome.episode.responseText || "(empty response)", Math.min(process.stdout.columns || 100, 120) - 2)) {
     console.log(line);
@@ -2019,7 +2147,7 @@ function truncate(value: string, length: number): string {
   return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 3))}...`;
 }
 
-type ColorName = "cyan" | "green" | "yellow" | "red" | "dim";
+type ColorName = "cyan" | "green" | "yellow" | "amber" | "red" | "dim";
 
 function color(value: string, name: ColorName): string {
   if (process.env.NO_COLOR || !process.stdout.isTTY) return value;
@@ -2027,6 +2155,7 @@ function color(value: string, name: ColorName): string {
     cyan: "36",
     green: "32",
     yellow: "33",
+    amber: "38;2;255;176;0",
     red: "31",
     dim: "2",
   };

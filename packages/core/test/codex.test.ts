@@ -32,10 +32,14 @@ test("buildCodexArgs: resume threads the native session id", () => {
     resume: true,
   }, "/tmp/o.txt");
 
-  assert.equal(args[0], "exec");
-  assert.equal(args[1], "resume");
-  assert.equal(args[2], "11111111-2222-3333-4444-555555555555");
-  assert.equal(args[3], "--json");
+  assert.deepEqual(args, [
+    "exec", "resume", "--json",
+    "--skip-git-repo-check",
+    "-c", "approval_policy=never",
+    "-o", "/tmp/o.txt",
+    "11111111-2222-3333-4444-555555555555",
+    "now add a totals row",
+  ]);
   // never passes --no-session-persistence; full native power retained
   assert.ok(!args.includes("--no-session-persistence"));
   assert.ok(!args.includes("-q"));
