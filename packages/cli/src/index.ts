@@ -713,7 +713,7 @@ function printChatInputFrame(): void {
 }
 
 function printChatInputFrameBottom(): void {
-  if (process.stdout.isTTY) output.write("\x1b[1B\r");
+  if (process.stdout.isTTY) output.write("\x1b[2B\r");
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -965,7 +965,7 @@ async function renderLiveSuggestions(
     hintState.selectedIndex = 0;
   }
   const width = Math.min(Math.max((process.stdout.columns || 100) - 8, 56), 110);
-  const visibleSuggestions = suggestions.slice(0, 10);
+  const visibleSuggestions = suggestions.slice(0, 24);
   hintState.selectedIndex = Math.min(hintState.selectedIndex, visibleSuggestions.length - 1);
   const selected = visibleSuggestions[hintState.selectedIndex];
   state.pendingSuggestion = { baseLine, value: selected.value, kind: selected.kind };
@@ -975,7 +975,7 @@ async function renderLiveSuggestions(
   const panel = renderSuggestionPanel(width, visibleSuggestions, hintState.selectedIndex);
   const key = `${baseLine}\n${hintState.selectedIndex}\n${panel}`;
   if (hintState.key === key) return;
-  output.write(`\x1b[s\x1b[2B\r\x1b[0J${panel}\x1b[u`);
+  output.write(`\x1b[s\x1b[3B\r\x1b[0J${panel}\x1b[u`);
   hintState.visible = true;
   hintState.key = key;
   hintState.baseLine = baseLine;
@@ -986,7 +986,7 @@ async function renderLiveSuggestions(
 
 function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean; baseLine?: string; selectedIndex?: number; suggestions?: ChatSuggestion[] }): void {
   if ("renderSeq" in hintState && typeof hintState.renderSeq === "number") hintState.renderSeq += 1;
-  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[2B\r\x1b[0J\x1b[u");
+  if (hintState.visible && process.stdout.isTTY) output.write("\x1b[s\x1b[3B\r\x1b[0J\x1b[u");
   hintState.visible = false;
   hintState.key = "";
   hintState.baseLine = "";
