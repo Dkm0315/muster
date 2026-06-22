@@ -706,7 +706,8 @@ function chatFrameWidth(): number {
 function printChatInputFrame(): void {
   const width = chatFrameWidth();
   console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
-  console.log(color("│ ", "accent") + visiblePadEnd(color("type / then Enter for commands, @ then Enter for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd(color("type / for commands, @ for agents, Tab completes", "dim"), width - 4) + color(" │", "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd(`${color("/commands", "highlight")} ${color("/skills", "highlight")} ${color("/plugins", "highlight")} ${color("/mcp", "highlight")} ${color("/agents", "highlight")} ${color("/tools", "highlight")}`, width - 4) + color(" │", "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd("", width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
   if (process.stdout.isTTY) output.write("\x1b[2A\r");
