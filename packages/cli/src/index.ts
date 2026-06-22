@@ -491,9 +491,10 @@ async function interactiveChat(state: ChatState): Promise<void> {
   printBanner();
   await printChatHeader(state);
   const rl = createInterface({ input, output, historySize: 200, removeHistoryDuplicates: true, completer: chatCompleter });
-  const hintState = { visible: false };
+  const hintState = { visible: false, key: "", active: true };
   emitKeypressEvents(input, rl);
   const onKeypress = (): void => {
+    if (!hintState.active) return;
     setImmediate(() => renderLiveSuggestions(rl, state, hintState).catch(() => {}));
   };
   input.on("keypress", onKeypress);
@@ -523,6 +524,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       rl.prompt();
     }
   } finally {
+    hintState.active = false;
     input.off("keypress", onKeypress);
     clearLiveSuggestions(hintState);
     rl.close();
@@ -530,7 +532,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
 }
 
 function chatPrompt(_state: ChatState): string {
-  return `${color("│", "amber")} ${color("›", "amber")} `;
+  return `${color("›", "highlight")} `;
 }
 
 async function printChatHeader(state: ChatState): Promise<void> {
@@ -554,7 +556,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
   const pluginCount = (pluginPolicy?.allow?.length ?? 0) + Object.keys(pluginPolicy?.entries ?? {}).length;
   const mcpNames = Object.keys(config?.tools?.mcp?.servers ?? {});
   const middleLines = [
-    color("Available Tools", "amber"),
+    color("Available Tools", "accent"),
     ...formatCatalogLines([
       ["workspace", "read, edit, shell, git"],
       ["memory", "recall, add, promote, indexed search"],
@@ -567,41 +569,43 @@ async function printChatHeader(state: ChatState): Promise<void> {
     ], midWidth),
   ];
   const leftLines = [
-    color("MUSTER", "amber"),
+    color("MUSTER", "accent"),
     color("agent harness", "dim"),
     " ",
-    color(model, "amber"),
+    color(model, "accent"),
     color(cwd, "dim"),
     color(`Session: ${state.sessionName}`, "dim"),
   ];
   const rightLines = [
-    color("Commands", "amber"),
-    `${color("/help", "amber")} commands and shortcuts`,
-    `${color("/status", "amber")} model and session`,
-    `${color("/sessions", "amber")} recent chats`,
-    `${color("/tools", "amber")} available tools`,
-    `${color("@agent", "amber")} route a turn`,
+    color("Commands", "accent"),
+    `${color("/help", "highlight")} commands and shortcuts`,
+    `${color("/status", "highlight")} model and session`,
+    `${color("/sessions", "highlight")} recent chats`,
+    `${color("/tools", "highlight")} available tools`,
+    `${color("@agent", "highlight")} route a turn`,
     "",
-    color("Extensions", "amber"),
-    `${color("skills:", "amber")} ${skills.length ? formatSkillList(skillNames, rightWidth - 8) : "none installed"}`,
-    `${color("plugins:", "amber")} ${pluginCount ? `${pluginCount} configured` : "none configured"}`,
-    `${color("mcp:", "amber")} ${mcpNames.length ? truncate(mcpNames.join(", "), rightWidth - 5) : "no servers"}`,
+    color("Extensions", "accent"),
+    `${color("skills:", "accent")} ${skills.length ? formatSkillList(skillNames, rightWidth - 8) : "none installed"}`,
+    `${color("plugins:", "accent")} ${pluginCount ? `${pluginCount} configured` : "none configured"}`,
+    `${color("mcp:", "accent")} ${mcpNames.length ? truncate(mcpNames.join(", "), rightWidth - 5) : "no servers"}`,
   ];
   const rows = Math.max(leftLines.length, middleLines.length, rightLines.length);
-  console.log(color(`╭${"─".repeat(width - 2)}╮`, "amber"));
+  console.log(color(`╭${"─".repeat(width - 2)}╮`, "accent"));
   console.log(panelTitle(width, `Muster Agent · ${new Date().toISOString().slice(0, 10)}`));
   for (let index = 0; index < rows; index += 1) {
     const left = visiblePadEnd(leftLines[index] ?? "", leftWidth);
     const middle = visiblePadEnd(middleLines[index] ?? "", midWidth);
     const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
-    console.log(color("│ ", "amber") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "amber"));
+    console.log(color("│ ", "accent") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "accent"));
   }
   const footer = `${model} · ${providerId} · ${runtimeId} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
-  console.log(color("├" + "─".repeat(width - 2) + "┤", "amber"));
-  console.log(color("│ ", "amber") + visiblePadEnd(color(footer, "amber"), width - 4) + color(" │", "amber"));
-  console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
+  console.log(color("├" + "─".repeat(width - 2) + "┤", "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd(color(footer, "accent"), width - 4) + color(" │", "accent"));
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
   console.log("");
-  console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "amber"));
+  console.log(color(`╭─ chat ${"─".repeat(Math.max(1, width - 9))}╮`, "accent"));
+  console.log(color("│ ", "accent") + visiblePadEnd(color("type / for commands, @ for agents, Tab to complete", "dim"), width - 4) + color(" │", "accent"));
+  console.log(color(`╰─ input ${"─".repeat(Math.max(1, width - 10))}╯`, "accent"));
 }
 
 function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runtimes"][string] | undefined): string | undefined {
@@ -609,7 +613,7 @@ function firstRuntimeModel(runtime: Awaited<ReturnType<typeof loadConfig>>["runt
 }
 
 function formatCatalogLines(items: readonly (readonly [string, string])[], width: number): string[] {
-  return items.map(([name, value]) => `${color(`${name}:`, "amber")} ${truncate(value, Math.max(12, width - name.length - 3))}`);
+  return items.map(([name, value]) => `${color(`${name}:`, "accent")} ${truncate(value, Math.max(12, width - name.length - 3))}`);
 }
 
 function formatSkillLines(names: readonly string[], width: number): string[] {
@@ -637,7 +641,7 @@ function panelTitle(width: number, title: string): string {
   const text = ` ${title} `;
   const left = Math.max(1, Math.floor((width - 2 - stripAnsi(text).length) / 2));
   const right = Math.max(1, width - 2 - left - stripAnsi(text).length);
-  return color("│", "amber") + color("─".repeat(left), "amber") + color(text, "amber") + color("─".repeat(right), "amber") + color("│", "amber");
+  return color("│", "accent") + color("─".repeat(left), "accent") + color(text, "accent") + color("─".repeat(right), "accent") + color("│", "accent");
 }
 
 function visiblePadEnd(value: string, width: number): string {
@@ -650,7 +654,14 @@ function stripAnsi(value: string): string {
 }
 
 async function handleChatInput(text: string, state: ChatState): Promise<boolean> {
-  if (text === "/" || text === "@") return true;
+  if (text === "/") {
+    printChatCommandCatalog();
+    return true;
+  }
+  if (text === "@") {
+    await printChatAgents();
+    return true;
+  }
   if (text.startsWith("/")) return handleChatCommand(text, state);
   await runChatTurn(text, state);
   return true;
@@ -749,16 +760,16 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
 function printChatCommandCatalog(): void {
   printChatPanel("Commands", CHAT_COMMANDS.map((command) => {
     const aliases = command.aliases?.length ? ` (${command.aliases.map((alias) => `/${alias}`).join(", ")})` : "";
-    return `${color(command.usage.padEnd(20), "amber")} ${command.description}${color(aliases, "dim")}`;
+    return `${color(command.usage.padEnd(20), "highlight")} ${command.description}${color(aliases, "dim")}`;
   }));
 }
 
 function printChatShortcuts(): void {
   printChatPanel("Shortcuts", [
-    `${color("Tab".padEnd(18), "amber")} complete slash commands, toolsets, and session names`,
-    `${color("@agent <task>".padEnd(18), "amber")} route a turn with an agent id`,
-    `${color("\\ at line end".padEnd(18), "amber")} continue multiline input`,
-    `${color("Ctrl+D".padEnd(18), "amber")} exit on an empty line`,
+    `${color("Tab".padEnd(18), "highlight")} complete slash commands, toolsets, and session names`,
+    `${color("@agent <task>".padEnd(18), "highlight")} route a turn with an agent id`,
+    `${color("\\ at line end".padEnd(18), "highlight")} continue multiline input`,
+    `${color("Ctrl+D".padEnd(18), "highlight")} exit on an empty line`,
   ]);
 }
 
@@ -785,8 +796,8 @@ function chatCompletions(line: string): string[] {
   return [];
 }
 
-async function renderLiveSuggestions(rl: Interface, state: ChatState, hintState: { visible: boolean }): Promise<void> {
-  if (!process.stdout.isTTY) return;
+async function renderLiveSuggestions(rl: Interface, state: ChatState, hintState: { visible: boolean; key: string; active: boolean }): Promise<void> {
+  if (!hintState.active || !process.stdout.isTTY) return;
   const rows = await liveSuggestionRows(rl.line, state);
   if (!rows.length) {
     clearLiveSuggestions(hintState);
@@ -794,16 +805,18 @@ async function renderLiveSuggestions(rl: Interface, state: ChatState, hintState:
   }
   const width = Math.min(Math.max((process.stdout.columns || 100) - 8, 56), 110);
   const panel = renderSuggestionPanel(width, rows.slice(0, 10));
-  output.write("\x1b7\x1b[0J");
+  const key = `${rl.line}\n${panel}`;
+  if (hintState.key === key) return;
   output.write(`\n${panel}`);
-  output.write("\x1b8");
   hintState.visible = true;
+  hintState.key = key;
+  if (!hintState.active) return;
+  rl.prompt(true);
 }
 
-function clearLiveSuggestions(hintState: { visible: boolean }): void {
-  if (!hintState.visible || !process.stdout.isTTY) return;
-  output.write("\x1b7\x1b[0J\x1b8");
+function clearLiveSuggestions(hintState: { visible: boolean; key: string; active?: boolean }): void {
   hintState.visible = false;
+  hintState.key = "";
 }
 
 async function liveSuggestionRows(line: string, state: ChatState): Promise<string[]> {
@@ -812,19 +825,19 @@ async function liveSuggestionRows(line: string, state: ChatState): Promise<strin
     const fragment = trimmed.slice(1).toLowerCase();
     return CHAT_COMMANDS
       .filter((command) => command.name.startsWith(fragment) || command.aliases?.some((alias) => alias.startsWith(fragment)))
-      .map((command) => `${color(command.usage.padEnd(20), "amber")} ${command.description}`);
+      .map((command) => `${color(command.usage.padEnd(20), "highlight")} ${command.description}`);
   }
   if (/^\/tools\s+\S*$/i.test(trimmed)) {
     const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
     return CHAT_TOOLSETS
       .filter((toolset) => toolset.startsWith(fragment))
-      .map((toolset) => `${color(toolset.padEnd(20), "amber")} toolset`);
+      .map((toolset) => `${color(toolset.padEnd(20), "highlight")} toolset`);
   }
   if (/^\/resume\s+\S*$/i.test(trimmed) || /^\/name\s+\S*$/i.test(trimmed)) {
     const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
     return recentChatSessionNames()
       .filter((name) => name.toLowerCase().startsWith(fragment))
-      .map((name) => `${color(name.padEnd(20), "amber")} chat session`);
+      .map((name) => `${color(name.padEnd(20), "highlight")} chat session`);
   }
   if (trimmed === "@" || /^@[a-zA-Z0-9_.:-]*$/.test(trimmed)) {
     const fragment = trimmed.slice(1).toLowerCase();
@@ -834,16 +847,16 @@ async function liveSuggestionRows(line: string, state: ChatState): Promise<strin
     const suggested = ["research", "debug", "review", "frappe", ...runtimeAgents, ...namedAgents];
     return [...new Set(suggested)]
       .filter((agent) => agent.toLowerCase().startsWith(fragment))
-      .map((agent) => `${color(`@${agent}`.padEnd(20), "amber")} route this turn`);
+      .map((agent) => `${color(`@${agent}`.padEnd(20), "highlight")} route this turn`);
   }
   return [];
 }
 
 function renderSuggestionPanel(width: number, rows: readonly string[]): string {
   const lines = [
-    color(`╭─ suggestions ${"─".repeat(Math.max(1, width - 15))}╮`, "amber"),
-    ...rows.map((row) => color("│ ", "amber") + visiblePadEnd(row, width - 4) + color(" │", "amber")),
-    color(`╰${"─".repeat(width - 2)}╯`, "amber"),
+    color(`╭─ suggestions ${"─".repeat(Math.max(1, width - 15))}╮`, "accent"),
+    ...rows.map((row) => color("│ ", "accent") + visiblePadEnd(row, width - 4) + color(" │", "accent")),
+    color(`╰${"─".repeat(width - 2)}╯`, "accent"),
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -892,7 +905,7 @@ function startWorkingStatus(agentId: string | undefined, started: number): () =>
     const text = `${frames[frame % frames.length]} ${label} ${elapsed}s`;
     frame += 1;
     lastLength = Math.max(lastLength, stripAnsi(text).length);
-    process.stdout.write(`\r${color(text, "amber")}${" ".repeat(Math.max(0, lastLength - stripAnsi(text).length))}`);
+    process.stdout.write(`\r${color(text, "accent")}${" ".repeat(Math.max(0, lastLength - stripAnsi(text).length))}`);
   };
   process.stdout.write("\n");
   render();
@@ -1019,12 +1032,12 @@ async function printChatStatus(state: ChatState): Promise<void> {
     const session = store.findOrCreateSession({ channel: "cli-chat", peer: state.sessionName, title: state.sessionName });
     const messages = store.loadActiveMessages(session.id).length;
     printChatPanel("Status", [
-      `${color("session".padEnd(12), "amber")} ${state.sessionName}`,
-      `${color("runtime".padEnd(12), "amber")} ${runtime}`,
-      `${color("provider".padEnd(12), "amber")} ${provider?.id ?? state.provider ?? "-"}`,
-      `${color("model".padEnd(12), "amber")} ${state.model ?? provider?.defaultModel ?? "-"}`,
-      `${color("messages".padEnd(12), "amber")} ${messages}`,
-      `${color("tokens".padEnd(12), "amber")} in ${session.tokensIn} / out ${session.tokensOut}`,
+      `${color("session".padEnd(12), "accent")} ${state.sessionName}`,
+      `${color("runtime".padEnd(12), "accent")} ${runtime}`,
+      `${color("provider".padEnd(12), "accent")} ${provider?.id ?? state.provider ?? "-"}`,
+      `${color("model".padEnd(12), "accent")} ${state.model ?? provider?.defaultModel ?? "-"}`,
+      `${color("messages".padEnd(12), "accent")} ${messages}`,
+      `${color("tokens".padEnd(12), "accent")} in ${session.tokensIn} / out ${session.tokensOut}`,
       color(`id ${session.id}`, "dim"),
     ]);
   } finally {
@@ -1062,7 +1075,7 @@ function printChatTools(toolset?: string): void {
     grouped.set(entry.toolset, [...(grouped.get(entry.toolset) ?? []), entry]);
   }
   printChatPanel("Tools", [
-    ...[...grouped].map(([name, items]) => `${color(`${name}:`, "amber")} ${items.map((item) => item.name).join(", ")}`),
+    ...[...grouped].map(([name, items]) => `${color(`${name}:`, "accent")} ${items.map((item) => item.name).join(", ")}`),
     color("Use /tools <toolset> to narrow the list.", "dim"),
   ]);
 }
@@ -1072,13 +1085,13 @@ async function printChatSkills(): Promise<void> {
   if (!skills.length) {
     printChatPanel("Skills", [
       color("No installed skills found for this profile.", "dim"),
-      `${color("Commands", "amber")} muster skills list · muster skills curate · muster skills promote`,
+      `${color("Commands", "accent")} muster skills list · muster skills curate · muster skills promote`,
     ]);
     return;
   }
   printChatPanel("Skills", skills.slice(0, 20).map((skill) => {
     const tags = skill.tags.length ? ` · ${skill.tags.slice(0, 4).join(", ")}` : "";
-    return `${color(skill.name.padEnd(24), "amber")} ${skill.status}${tags}`;
+    return `${color(skill.name.padEnd(24), "accent")} ${skill.status}${tags}`;
   }));
 }
 
@@ -1088,16 +1101,16 @@ async function printChatPlugins(): Promise<void> {
   if (!policy) {
     printChatPanel("Plugins", [
       color("No plugin policy configured.", "dim"),
-      `${color("Commands", "amber")} muster plugins inspect <path> · muster plugins load <path>`,
+      `${color("Commands", "accent")} muster plugins inspect <path> · muster plugins load <path>`,
     ]);
     return;
   }
   const entries = Object.entries(policy.entries ?? {});
   printChatPanel("Plugins", [
-    `${color("allow", "amber")} ${(policy.allow ?? []).join(", ") || "-"}`,
-    `${color("deny", "amber")} ${(policy.deny ?? []).join(", ") || "-"}`,
-    `${color("load paths", "amber")} ${(policy.load?.paths ?? []).join(", ") || "-"}`,
-    ...entries.map(([id, entry]) => `${color(id.padEnd(24), "amber")} ${entry.enabled === false ? "disabled" : "enabled"}`),
+    `${color("allow", "accent")} ${(policy.allow ?? []).join(", ") || "-"}`,
+    `${color("deny", "accent")} ${(policy.deny ?? []).join(", ") || "-"}`,
+    `${color("load paths", "accent")} ${(policy.load?.paths ?? []).join(", ") || "-"}`,
+    ...entries.map(([id, entry]) => `${color(id.padEnd(24), "accent")} ${entry.enabled === false ? "disabled" : "enabled"}`),
   ]);
 }
 
@@ -1107,7 +1120,7 @@ async function printChatMcp(): Promise<void> {
   if (!entries.length) {
     printChatPanel("MCP", [
       color("No MCP servers configured.", "dim"),
-      `${color("Commands", "amber")} muster mcp add-stdio <name> <command> · muster mcp test <name>`,
+      `${color("Commands", "accent")} muster mcp add-stdio <name> <command> · muster mcp test <name>`,
     ]);
     return;
   }
@@ -1115,7 +1128,7 @@ async function printChatMcp(): Promise<void> {
     const transport = server.transport.kind === "stdio"
       ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
       : `http ${server.transport.url}`;
-    return `${color(name.padEnd(24), "amber")} ${transport}`;
+    return `${color(name.padEnd(24), "accent")} ${transport}`;
   }));
 }
 
@@ -1124,7 +1137,7 @@ async function printChatAgents(): Promise<void> {
   const agents = config.agents?.list ?? [];
   const lines = Object.values(config.runtimes).map((runtime) => {
     const provider = config.providers[runtime.provider];
-    return `${color(`${runtime.id}:`, "amber")} ${runtime.provider} · ${provider?.defaultModel ?? "-"} · ${runtime.enabled ? "enabled" : "disabled"}`;
+    return `${color(`${runtime.id}:`, "accent")} ${runtime.provider} · ${provider?.defaultModel ?? "-"} · ${runtime.enabled ? "enabled" : "disabled"}`;
   });
   if (!agents.length) {
     printChatPanel("Agents", [...lines, color("No named agents configured. You can still type @agent-name <task> to route a turn.", "dim")]);
@@ -1133,20 +1146,20 @@ async function printChatAgents(): Promise<void> {
   printChatPanel("Agents", [
     ...lines,
     "",
-    ...agents.map((agent) => `${color(`@${agent.id}`, "amber")} ${agent.skills?.join(", ") || "no skill allowlist"}`),
+    ...agents.map((agent) => `${color(`@${agent.id}`, "accent")} ${agent.skills?.join(", ") || "no skill allowlist"}`),
   ]);
 }
 
 function printChatPanel(title: string, lines: readonly string[]): void {
   const width = Math.min(Math.max((process.stdout.columns || 100) - 4, 72), 140);
-  console.log(color(`╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - 5))}╮`, "amber"));
+  console.log(color(`╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - 5))}╮`, "accent"));
   for (const line of lines) {
     const wrapped = wrapPreserveLines(line || " ", width - 4);
     for (const part of wrapped) {
-      console.log(color("│ ", "amber") + visiblePadEnd(part, width - 4) + color(" │", "amber"));
+      console.log(color("│ ", "accent") + visiblePadEnd(part, width - 4) + color(" │", "accent"));
     }
   }
-  console.log(color(`╰${"─".repeat(width - 2)}╯`, "amber"));
+  console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
 }
 
 function resolveChatSessionName(value: string): string {
@@ -2308,7 +2321,7 @@ function truncate(value: string, length: number): string {
   return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 3))}...`;
 }
 
-type ColorName = "cyan" | "green" | "yellow" | "amber" | "red" | "dim";
+type ColorName = "cyan" | "green" | "yellow" | "accent" | "highlight" | "red" | "dim";
 
 function color(value: string, name: ColorName): string {
   if (process.env.NO_COLOR || !process.stdout.isTTY) return value;
@@ -2316,7 +2329,8 @@ function color(value: string, name: ColorName): string {
     cyan: "36",
     green: "32",
     yellow: "33",
-    amber: "38;2;255;176;0",
+    accent: "38;2;20;184;166",
+    highlight: "38;2;103;232;249",
     red: "31",
     dim: "2",
   };
