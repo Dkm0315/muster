@@ -1,9 +1,68 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { addCodexCliProvider, addOpenAICompatibleProvider, ensureDefaultConfig, loadConfig, setRuntimeProvider } from "../src/index.js";
+
+test("default config uses Codex CLI and does not seed a local model route", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
+  await ensureDefaultConfig(cwd);
+
+  const config = await loadConfig(cwd);
+  assert.equal(config.providers.codex?.kind, "codex-cli");
+  assert.equal(config.providers.codex?.defaultModel, "gpt-5.5");
+  assert.equal(config.runtimes.native?.provider, "codex");
+  assert.equal(config.runtimes.native?.routes.simple_qa?.provider, "codex");
+  assert.equal(config.runtimes.native?.routes.simple_qa?.model, "gpt-5.5");
+  assert.equal(config.routing.preferLocalForSensitive, false);
+  assert.equal(config.providers.local, undefined);
+  assert.doesNotMatch(JSON.stringify(config), /"local"/);
+});
+
+test("legacy local model configs are normalized back to Codex on load", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
+  const configDir = join(cwd, ".muster");
+  await mkdir(configDir, { recursive: true });
+  await writeFile(join(configDir, "config.json"), JSON.stringify({
+    version: 1,
+    providers: {
+      local: {
+        id: "local",
+        kind: "openai-compatible",
+        baseUrl: `http://localhost:${11_434}/v1`,
+        defaultModel: ["llama", "3.1"].join(""),
+        timeoutMs: 120_000,
+      },
+    },
+    runtimes: {
+      native: {
+        id: "native",
+        enabled: true,
+        provider: "local",
+        routes: {
+          simple_qa: { provider: "local", model: ["llama", "3.1"].join(""), reasoning: "low" },
+          research: { provider: "local", model: ["llama", "3.1"].join(""), reasoning: "medium" },
+        },
+      },
+    },
+    routing: {
+      oneRuntimePerRun: true,
+      defaultRuntime: "native",
+      preferLocalForSensitive: true,
+      maxCostUsdPerRun: 1,
+      approvalRequiredAboveUsd: 3,
+    },
+  }), "utf8");
+
+  const config = await loadConfig(cwd);
+  assert.equal(config.providers.local, undefined);
+  assert.equal(config.providers.codex?.kind, "codex-cli");
+  assert.equal(config.runtimes.native.provider, "codex");
+  assert.equal(config.runtimes.native.routes.simple_qa.provider, "codex");
+  assert.equal(config.runtimes.native.routes.simple_qa.model, "gpt-5.5");
+  assert.equal(config.routing.preferLocalForSensitive, false);
+});
 
 test("addOpenAICompatibleProvider persists a provider", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
@@ -33,8 +92,8 @@ test("addOpenAICompatibleProvider rejects unsafe provider ids", async () => {
     addOpenAICompatibleProvider(
       {
         id: "../bad",
-        baseUrl: "http://localhost:11434/v1",
-        defaultModel: "llama3.1"
+        baseUrl: "http://127.0.0.1:9900/v1",
+        defaultModel: "custom-model"
       },
       cwd
     ),

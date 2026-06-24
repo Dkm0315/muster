@@ -11,7 +11,7 @@ Its honest breadth multiplier is **MCP (any of the thousands of MCP servers)** +
 
 1. **Hero** — fluid 3D, fresh palette, one signature moment.
 2. **Connect anywhere (channels):** Telegram · Slack · Discord · WhatsApp · Google Chat · MS Teams · WebChat — "one governed envelope; add any surface with ~40 lines."
-3. **Any model, your keys:** the real 20+ provider catalog as a grid — Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Mistral, GLM, Perplexity, Qwen, Groq, Cerebras, OpenRouter, Together, Fireworks, Ollama, LM Studio, vLLM, SGLang, Codex CLI. "Cloud or local. Zero lock-in."
+3. **Any model, your keys:** the real 20+ provider catalog as a grid — Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Mistral, GLM, Perplexity, Qwen, Groq, Cerebras, OpenRouter, Together, Fireworks, LM Studio, vLLM, SGLang, Codex CLI. "Cloud or local. Zero lock-in."
 4. **Tools & integrations:** **MCP — connect any MCP server** (the breadth multiplier, with per-server isolation) · **Capability packs** (Frappe/ERPNext today) · **Flows** (durable, replayable automations) · the built-in tool registry.
 5. **What makes it different (governance):** token ledger · scoped memory · eval-gated skills · `muster verify` · never-wedge compactor. Keep this tight — it's the moat.
 6. **Proof:** the Token Waste Index — ~61% fewer tokens, live and reproducible.

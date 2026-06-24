@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "notion",
+  "name": "Muster Notion",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "productivity",
+  "entrypoint": "src/index.ts",
+  "description": "Notion API tools for workspace search, page retrieval, block inspection, data-source queries, and markdown page creation. Uses explicit token secrets from the active capability context.",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["NOTION_API_KEY", "NOTION_API_TOKEN", "NOTION_API_VERSION"],
+  "evals": ["evals/notion-api.json"],
+  "implementedTools": ["notion_search", "notion_page_get", "notion_block_children", "notion_data_source_query", "notion_create_markdown_page"],
+  "status": "v0: direct Notion HTTP API tools with no ambient env access; target pages/data sources must be shared with the integration."
+}

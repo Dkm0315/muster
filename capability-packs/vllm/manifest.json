@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "vllm",
+  "name": "Muster vLLM Serving",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "mlops",
+  "entrypoint": "src/index.ts",
+  "description": "vLLM serving setup, OpenAI-compatible endpoint checks, metrics summaries, and Muster provider guidance based on Hermes's bundled vLLM skill.",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["VLLM_API_KEY"],
+  "evals": ["evals/vllm.json"],
+  "implementedTools": [
+    "vllm_setup_plan",
+    "vllm_server_check",
+    "vllm_metrics_summary",
+    "vllm_provider_config"
+  ],
+  "status": "v0: setup and endpoint verification for existing vLLM servers; server launch remains an explicit terminal or deployment action."
+}

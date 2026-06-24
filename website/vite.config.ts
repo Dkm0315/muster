@@ -8,7 +8,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         portal: resolve(__dirname, "portal.html"),
-        docs: resolve(__dirname, "docs.html")
+        docs: resolve(__dirname, "docs.html"),
+        onboarding: resolve(__dirname, "onboarding.html")
       }
     }
   }

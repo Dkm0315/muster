@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "claude-code",
+  "name": "Muster Claude Code Runtime",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "agent-runtime",
+  "entrypoint": "src/index.ts",
+  "description": "Claude Code runtime setup, readiness, print/interactive policy, and session workflows.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/claude-code-runtime.json"],
+  "implementedTools": [
+    "claude_code_setup_plan",
+    "claude_code_readiness",
+    "claude_code_mode_policy",
+    "claude_code_session_policy"
+  ],
+  "status": "v0: Claude Code orchestration policy; execution remains in Muster's runClaudeCode adapter."
+}

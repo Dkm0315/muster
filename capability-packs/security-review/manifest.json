@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "security-review",
+  "name": "Muster Security Review",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "security",
+  "entrypoint": "src/index.ts",
+  "description": "Local security-review helpers for pasted diffs, config snippets, and dependency notes. Uses deterministic rules so findings are auditable.",
+  "permissions": [],
+  "sandbox": "none",
+  "evals": ["evals/security-review.json"],
+  "implementedTools": ["scan_text_for_risks", "summarize_risk_findings"],
+  "status": "v0: deterministic text scanning for common secret, injection, transport, and unsafe-eval patterns."
+}

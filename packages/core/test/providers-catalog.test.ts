@@ -16,7 +16,7 @@ import {
 test("provider presets cover cloud, aggregator, local, and CLI categories", () => {
   const categories = new Set(PROVIDER_PRESETS.map((preset) => preset.category));
   assert.deepEqual([...categories].sort(), ["aggregator", "cli", "cloud", "local"]);
-  for (const id of ["openai", "anthropic", "xai", "kimi", "deepseek", "groq", "ollama", "openrouter", "codex-cli", "vllm"]) {
+  for (const id of ["openai", "anthropic", "xai", "kimi", "deepseek", "groq", "openrouter", "codex-cli", "vllm"]) {
     assert.ok(findProviderPreset(id), `preset missing: ${id}`);
   }
   const ids = PROVIDER_PRESETS.map((preset) => preset.id);

@@ -81,6 +81,16 @@ export interface RunMusterChatTuiOptions extends MusterAutocompleteOptions {
   readonly onSubmit: (text: string, sink: MusterChatSink) => Promise<boolean>;
 }
 
+export interface MusterChatHarness {
+  input(data: string): void;
+  type(text: string): void;
+  submit(): Promise<void>;
+  visible(width?: number): string[];
+  text(): string;
+  transcript(): readonly string[];
+  openPicker(command: string): void;
+}
+
 const RESET = "\x1b[0m";
 const ACCENT_RGB = "41;211;255";
 const HIGHLIGHT_RGB = "104;245;168";
@@ -144,6 +154,55 @@ export function createMusterChatEditor(tui: Pick<TUI, "terminal" | "requestRende
   return editor;
 }
 
+export function createMusterChatHarness(options: MusterAutocompleteOptions & {
+  readonly onSubmit?: (text: string, sink: MusterChatSink) => Promise<boolean>;
+  readonly width?: number;
+  readonly rows?: number;
+}): MusterChatHarness {
+  const tui = fakeHarnessTui(options.width ?? 120, options.rows ?? 40);
+  const editor = createMusterChatEditor(tui);
+  const sink = new HarnessSink(editor, options.onSubmit);
+  editor.setAutocompleteProvider(createMusterAutocompleteProvider(options));
+  editor.onSubmit = (text) => {
+    void sink.submit(text);
+  };
+  return {
+    input(data) {
+      if (isClearComposerKey(data)) {
+        editor.handleInput("\x1b");
+        editor.setText("");
+        return;
+      }
+      if (data === "\x1b" && isBareCompletionTrigger(editor.getText())) {
+        editor.handleInput(data);
+        editor.setText("");
+        return;
+      }
+      editor.handleInput(data);
+    },
+    type(text) {
+      for (const char of text) editor.handleInput(char);
+    },
+    async submit() {
+      const text = editor.getText();
+      editor.setText("");
+      await sink.submit(text);
+    },
+    visible(width = options.width ?? 120) {
+      return [...sink.transcriptLines, ...renderMusterComposer(editor, width)];
+    },
+    text() {
+      return editor.getText();
+    },
+    transcript() {
+      return sink.transcriptLines;
+    },
+    openPicker(command) {
+      sink.openPicker(command);
+    },
+  };
+}
+
 export function renderMusterComposer(editor: Editor, width: number): string[] {
   const frameWidth = Math.max(32, Math.floor(width));
   const innerWidth = frameWidth - 4;
@@ -193,6 +252,12 @@ export async function runMusterChatTui(options: RunMusterChatTuiOptions): Promis
   tui.addInputListener((data) => {
     if (data === "\x03" || data === "\x04") {
       screen.stop();
+      return { consume: true };
+    }
+    if (isClearComposerKey(data)) {
+      editor.handleInput("\x1b");
+      editor.setText("");
+      tui.requestRender(true);
       return { consume: true };
     }
     if ((matchesKey(data, "enter") || matchesKey(data, "return")) && isExitCommand(editor.getText())) {
@@ -314,11 +379,13 @@ class MusterChatScreen implements Component, MusterChatSink {
     const composer = renderMusterComposer(this.editor, frameWidth);
     const rows = Math.max(12, this.tui.terminal.rows);
     const status = this.status ? [dim(truncateToWidth(this.status, frameWidth, ""))] : [];
-    const header = fitLines(this.headerLines, frameWidth);
-    const transcriptBudget = Math.max(0, rows - header.length - composer.length - status.length - 1);
-    const transcript = this.lines
-      .flatMap((line) => wrapLine(line, frameWidth))
-      .slice(-transcriptBudget);
+    const fittedHeader = fitLines(this.headerLines, frameWidth);
+    const freeRows = Math.max(0, rows - composer.length - status.length - 1);
+    const reserveTranscriptRows = Math.min(6, Math.max(1, Math.floor(freeRows * 0.45)));
+    const headerBudget = Math.max(0, freeRows - reserveTranscriptRows);
+    const header = renderHeaderWindow(fittedHeader, headerBudget);
+    const transcriptBudget = Math.max(1, rows - header.length - composer.length - status.length - 1);
+    const transcript = renderTranscriptWindow(this.lines, frameWidth, transcriptBudget);
     return [...header, ...transcript, ...status, ...composer].map((line) => padAnsi(line, frameWidth));
   }
 
@@ -329,6 +396,114 @@ class MusterChatScreen implements Component, MusterChatSink {
   private trimTranscript(): void {
     if (this.lines.length > 500) this.lines.splice(0, this.lines.length - 500);
   }
+}
+
+class HarnessSink implements MusterChatSink {
+  readonly transcriptLines: string[] = [];
+  private status = "";
+
+  constructor(
+    private readonly editor: Editor,
+    private readonly onSubmit?: (text: string, sink: MusterChatSink) => Promise<boolean>,
+  ) {}
+
+  appendLine(line: string): void {
+    for (const part of String(line).split(/\r?\n/)) this.transcriptLines.push(part);
+  }
+
+  appendUser(text: string): void {
+    this.appendLine(`${highlight("›")} ${text}`);
+  }
+
+  clearTranscript(): void {
+    this.transcriptLines.length = 0;
+  }
+
+  setHeaderLines(_lines: readonly string[]): void {}
+
+  setStatus(status: string): void {
+    this.status = status;
+  }
+
+  clearStatus(): void {
+    this.status = "";
+  }
+
+  openPicker(command: string): void {
+    this.editor.setText("");
+    for (const char of command) this.editor.handleInput(char);
+  }
+
+  async submit(text: string): Promise<boolean> {
+    const value = text.trim();
+    if (!value) return true;
+    this.editor.addToHistory(value);
+    this.appendUser(value);
+    const keepGoing = await (this.onSubmit?.(value, this) ?? Promise.resolve(true));
+    this.clearStatus();
+    void this.status;
+    return keepGoing;
+  }
+}
+
+function fakeHarnessTui(width: number, rows: number): Pick<TUI, "terminal" | "requestRender"> {
+  return {
+    terminal: { columns: width, rows },
+    requestRender() {},
+  } as Pick<TUI, "terminal" | "requestRender">;
+}
+
+export function renderTranscriptWindow(lines: readonly string[], width: number, budget: number): string[] {
+  if (budget <= 0) return [];
+  const latestUserIndex = findLatestUserLine(lines);
+  if (latestUserIndex < 0) return lines.flatMap((line) => wrapLine(line, width)).slice(-budget);
+
+  const before = lines.slice(0, latestUserIndex).flatMap((line) => wrapLine(line, width));
+  const turn = lines.slice(latestUserIndex).flatMap((line) => wrapLine(line, width));
+  if (turn.length <= budget) {
+    return [...before.slice(-(budget - turn.length)), ...turn].slice(-budget);
+  }
+
+  const userLine = turn[0] ?? wrapLine(lines[latestUserIndex] ?? "", width)[0] ?? "";
+  if (budget === 1) return [userLine];
+  const pinned = turn.slice(1).filter(isPinnedReceiptLine);
+  if (budget >= 3 && pinned.length) {
+    const pinnedBudget = Math.min(pinned.length, budget - 2);
+    const tailBudget = budget - 1 - pinnedBudget;
+    return [userLine, ...pinned.slice(0, pinnedBudget), ...turn.slice(-tailBudget)].slice(0, budget);
+  }
+  return [userLine, ...turn.slice(-(budget - 1))].slice(0, budget);
+}
+
+export function isClearComposerKey(data: string): boolean {
+  return data === "\x15";
+}
+
+function isPinnedReceiptLine(line: string): boolean {
+  const clean = stripAnsi(line).trimStart();
+  return clean.startsWith("memory backend=") || clean.startsWith("timings total=");
+}
+
+export function renderHeaderWindow(lines: readonly string[], budget: number): string[] {
+  if (budget <= 0) return [];
+  if (lines.length <= budget) return [...lines];
+  if (budget === 1) return [lines.at(-1) ?? ""];
+  if (budget === 2) return [lines[0] ?? "", lines.at(-1) ?? ""];
+  const headCount = Math.max(1, Math.floor((budget - 1) / 2));
+  const tailCount = Math.max(1, budget - headCount - 1);
+  const width = Math.max(80, visibleWidth(lines[0] ?? ""));
+  return [
+    ...lines.slice(0, headCount),
+    truncateToWidth(dim("… header collapsed to keep chat visible"), width, ""),
+    ...lines.slice(-tailCount),
+  ];
+}
+
+function findLatestUserLine(lines: readonly string[]): number {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (stripAnsi(lines[index] ?? "").trimStart().startsWith("› ")) return index;
+  }
+  return -1;
 }
 
 function slashCompletionContext(trimmed: string):
@@ -400,12 +575,25 @@ function slashCompletionContext(trimmed: string):
 function filterPickerOptions(options: readonly PickerOption[], fragment: string): AutocompleteItem[] {
   const lower = fragment.toLowerCase();
   return options
-    .filter((option) => option.value.toLowerCase().startsWith(lower) || option.label?.toLowerCase().includes(lower))
+    .map((option, index) => ({ option, index, rank: pickerMatchRank(option, lower) }))
+    .filter((entry) => entry.rank < Number.POSITIVE_INFINITY)
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
     .map((option) => ({
-      value: option.value,
-      label: option.label ?? option.value,
-      description: option.description,
+      value: option.option.value,
+      label: option.option.label ?? option.option.value,
+      description: option.option.description,
     }));
+}
+
+function pickerMatchRank(option: PickerOption, lowerFragment: string): number {
+  if (!lowerFragment) return 0;
+  const value = option.value.toLowerCase();
+  const label = option.label?.toLowerCase() ?? "";
+  if (value.startsWith(lowerFragment)) return 0;
+  if (label.startsWith(lowerFragment)) return 1;
+  if (value.includes(lowerFragment)) return 2;
+  if (label.includes(lowerFragment)) return 3;
+  return Number.POSITIVE_INFINITY;
 }
 
 function pickerOptionsToItems(options: readonly PickerOption[]): AutocompleteItem[] {

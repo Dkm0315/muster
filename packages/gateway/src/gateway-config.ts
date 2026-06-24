@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /** Gateway-local config (.muster/gateway.json): bearer token + adapter bot tokens. */
@@ -86,7 +86,7 @@ export async function initGatewayConfig(cwd = process.cwd()): Promise<{ path: st
   } catch {
     const config: GatewayConfig = { token: randomBytes(24).toString("hex"), port: DEFAULT_GATEWAY_PORT };
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    await writeJsonAtomic(path, config);
     return { path, config, created: true };
   }
 }
@@ -103,4 +103,17 @@ export async function loadGatewayConfig(cwd = process.cwd()): Promise<GatewayCon
     throw new Error(`Gateway config at ${gatewayConfigPath(cwd)} is missing a "token". Re-run: muster gateway init`);
   }
   return parsed as GatewayConfig;
+}
+
+export async function saveGatewayConfig(config: GatewayConfig, cwd = process.cwd()): Promise<string> {
+  const path = gatewayConfigPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeJsonAtomic(path, config);
+  return path;
+}
+
+async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temp, target);
 }

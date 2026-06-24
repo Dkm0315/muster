@@ -100,7 +100,7 @@
   "commands": [
     {
       "cmd": "muster init",
-      "output": "Created or reused Muster config: /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nDefault provider: local OpenAI-compatible endpoint at http://localhost:11434/v1\nNext: muster doctor"
+      "output": "Created or reused Muster config: /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nDefault provider: Codex CLI with model gpt-5.5\nNext: muster doctor"
     },
     {
       "cmd": "muster provider add-openai-compatible stub http://127.0.0.1:53547/v1 stub-model",
@@ -112,7 +112,7 @@
     },
     {
       "cmd": "muster doctor",
-      "output": "ok  config                       /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nok  one-runtime-per-run          routing policy\nok  default-runtime              native\nok  provider:local               openai-compatible http://localhost:11434/v1\nok  provider:stub                openai-compatible http://127.0.0.1:53547/v1\nerr provider:local:models        http://localhost:11434/v1/models\nok  provider:stub:models         http://127.0.0.1:53547/v1/models"
+      "output": "ok  config                       /private/var/folders/k2/n64mwl1j6bvdt7d9cc3z__hw0000gn/T/muster-portal-7xxdPI/.muster/config.json\nok  one-runtime-per-run          routing policy\nok  default-runtime              native\nok  provider:codex               codex-cli gpt-5.5\nok  runtime:native               provider=codex model=gpt-5.5"
     },
     {
       "cmd": "muster memory add --summary We deploy to uat-erp.example.com. --scope user:dhairya --provenance manual",

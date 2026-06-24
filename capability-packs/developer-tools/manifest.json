@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "developer-tools",
+  "name": "Muster Developer Tools",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "developer",
+  "entrypoint": "src/index.ts",
+  "description": "Read-only repository workflow, tool-surface, and command-policy planning for coding, debugging, review, and release work.",
+  "permissions": ["filesystem:read", "git"],
+  "sandbox": "read_only",
+  "evals": ["evals/developer-tools.json"],
+  "implementedTools": [
+    "developer_tools_repo_workflow",
+    "developer_tools_surface_plan",
+    "developer_tools_command_policy",
+    "developer_tools_release_check"
+  ],
+  "status": "v0: mirrors Hermes-style toolset planning and OpenClaw-style per-run allowlists without granting this pack shell execution."
+}

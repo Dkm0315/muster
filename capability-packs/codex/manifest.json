@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "codex",
+  "name": "Muster Codex Runtime",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "agent-runtime",
+  "entrypoint": "src/index.ts",
+  "description": "Codex CLI runtime setup, readiness, session policy, and latency triage workflows.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/codex-runtime.json"],
+  "implementedTools": [
+    "codex_runtime_setup_plan",
+    "codex_runtime_readiness",
+    "codex_session_policy",
+    "codex_runtime_latency_triage"
+  ],
+  "status": "v0: Codex runtime orchestration policy; execution remains in Muster's runCodex adapter."
+}

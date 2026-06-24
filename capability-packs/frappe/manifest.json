@@ -9,12 +9,17 @@
   "sandbox": "network_limited",
   "secrets": ["FRAPPE_SITE_URL", "FRAPPE_API_TOKEN"],
   "evals": ["evals/identity-resolution.json", "evals/permission-scoping.json"],
-  "digest": "sha256:607875fb97dbe1f1af028b24d9e3c28e10a5cc2af2f6c04e749720ebafb3be7c",
-  "description": "Permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; Frappe remains the only authorization authority. Ported from the production frappe2-openclaw-gateway: identity resolution, customization context (custom fields, property setters, workflows, scripts), semantic data resolution with domain DocType priors validated against the live site index, error-aware fetch diagnostics, and artifact dataset export.",
+  "digest": "sha256:b21a04b81e32ef0c94756f557c156a233d92cb1309eb23a3a14077be1732073f",
+  "description": "Permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; Frappe remains the only authorization authority. The pack owns Frappe context induction so the main Muster binary stays light: site URL plus API token, or one-time admin login credentials, can discover installed apps/modules and combine live metadata with Frappe, ERPNext, and Frappe Suite docs.",
   "implementedTools": [
     "frappe_identity_resolve",
     "frappe_semantic_data_resolve_lite",
-    "frappe_records_create"
+    "frappe_records_create",
+    "frappe_docs_context",
+    "frappe_context_setup_plan",
+    "frappe_context_build",
+    "frappe_installed_context",
+    "frappe_module_context"
   ],
   "plannedTools": [
     "frappe_customization_context",

@@ -61,7 +61,7 @@ v0 uses JSONL for episode and feedback records because it is inspectable, append
 
 ## Why OpenAI-Compatible First
 
-OpenAI-compatible endpoints cover OpenAI, Ollama, LM Studio, vLLM, LocalAI, OpenRouter-style gateways, and many private deployments. Provider-specific SDKs can be added only after the routing contract stabilizes.
+OpenAI-compatible endpoints cover OpenAI, LM Studio, vLLM, LocalAI, OpenRouter-style gateways, and many private deployments. Provider-specific SDKs can be added only after the routing contract stabilizes.
 
 ## v0 Operator Surfaces
 

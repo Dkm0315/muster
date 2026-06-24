@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "teams",
+  "name": "Muster Microsoft Teams",
+  "version": "0.1.0",
+  "kind": "channel",
+  "slot": "channel-teams",
+  "entrypoint": "src/index.ts",
+  "description": "Microsoft Teams setup, readiness, and activity debugging helpers for the Muster gateway.",
+  "permissions": ["messages"],
+  "sandbox": "network_limited",
+  "secrets": ["TEAMS_HMAC_SECRET"],
+  "evals": ["evals/teams.json"],
+  "implementedTools": [
+    "teams_setup_plan",
+    "teams_gateway_check",
+    "teams_activity_summary"
+  ],
+  "status": "v0: setup and diagnostics for gateway-backed Teams activity webhooks; production bot registration remains explicit."
+}

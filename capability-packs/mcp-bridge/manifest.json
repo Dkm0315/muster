@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "mcp-bridge",
+  "name": "Muster MCP Bridge",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "mcp",
+  "entrypoint": "src/index.ts",
+  "description": "MCP catalog setup guidance, config linting, security review, and install/test workflow planning based on Hermes and OpenClaw MCP patterns.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/mcp-bridge.json"],
+  "implementedTools": [
+    "mcp_bridge_setup_plan",
+    "mcp_bridge_config_lint",
+    "mcp_bridge_install_workflow",
+    "mcp_bridge_tool_policy"
+  ],
+  "status": "v0: setup, lint, and workflow planning only; actual install/test/OAuth runs through Muster's native mcp commands."
+}

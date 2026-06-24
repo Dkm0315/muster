@@ -52,7 +52,7 @@ test("buildCockpitState summarizes config and recent local run state", async () 
       taskKind: "architecture",
       runtimeId: "native",
       providerId: "local",
-      model: "llama3.1",
+      model: "gpt-5.5",
       reasoning: "high",
       responseText: "Use one runtime per run and preserve evidence.",
       evidence: [
@@ -72,7 +72,7 @@ test("buildCockpitState summarizes config and recent local run state", async () 
   assert.equal(state.configured, true);
   assert.equal(state.generatedFrom, cwd);
   assert.equal(state.configSummary?.defaultRuntime, "native");
-  assert.equal(state.configSummary?.providers[0]?.id, "local");
+  assert.equal(state.configSummary?.providers[0]?.id, "codex");
   assert.equal(state.episodes.length, 1);
   assert.equal(state.episodes[0]?.prompt, "Summarize the harness architecture");
 });

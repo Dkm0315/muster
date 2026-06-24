@@ -55,10 +55,13 @@ test("clearConversationSessionHandles removes all known backend handles for one 
   assert.equal((await loadSessionHandle("other", "codex", cwd))?.handle, "keep");
 });
 
-test("canReuseHandle: resume only when workspace AND model are unchanged", () => {
-  const record = rec();
-  assert.equal(canReuseHandle(record, "/ws/tg", "gpt-5.5"), true);
+test("canReuseHandle: resume only when workspace, model, and injected context are unchanged", () => {
+  const record = rec({ contextHash: "ctx-a" });
+  assert.equal(canReuseHandle(record, "/ws/tg", "gpt-5.5", "ctx-a"), true);
+  assert.equal(canReuseHandle(record, "/ws/tg", "gpt-5.5"), true, "callers without context hashes keep legacy compatibility");
   assert.equal(canReuseHandle(record, "/ws/OTHER", "gpt-5.5"), false, "changed workspace → fresh thread");
   assert.equal(canReuseHandle(record, "/ws/tg", "gpt-5.4"), false, "changed model → fresh thread");
+  assert.equal(canReuseHandle(record, "/ws/tg", "gpt-5.5", "ctx-b"), false, "changed injected memory/skills/rules → fresh thread");
+  assert.equal(canReuseHandle(rec(), "/ws/tg", "gpt-5.5", "ctx-a"), false, "old records without context hash are not reused when context-aware callers opt in");
   assert.equal(canReuseHandle(undefined, "/ws/tg", "gpt-5.5"), false, "no stored handle → fresh thread");
 });

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "google-chat",
+  "name": "Muster Google Chat Channel",
+  "version": "0.1.0",
+  "kind": "channel",
+  "slot": "channel-google-chat",
+  "entrypoint": "src/index.ts",
+  "description": "Google Chat setup, gateway readiness, and event debugging helpers for using Muster behind a Chat app.",
+  "permissions": ["messages", "secrets"],
+  "sandbox": "none",
+  "secrets": ["GOOGLE_CHAT_VERIFICATION_TOKEN"],
+  "evals": ["evals/google-chat-channel.json"],
+  "implementedTools": ["google_chat_setup_plan", "google_chat_gateway_check", "google_chat_event_summary"],
+  "status": "v0: setup and diagnostic helpers; live Google Cloud provisioning remains an explicit external setup step."
+}

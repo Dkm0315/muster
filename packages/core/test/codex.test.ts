@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { buildCodexArgs, parseCodexEvents } from "../src/codex.js";
+import { buildCodexArgs, parseCodexEvents, runCodex } from "../src/codex.js";
 import { clearCodexAppServerSessions, runCodexAppServer } from "../src/codex-app-server.js";
 
 test("buildCodexArgs: fresh turn runs codex exec at full native power", () => {
@@ -129,6 +129,157 @@ rl.on("line", (line) => {
     assert.equal(second.tokenUsage?.cachedInputTokens, 10);
   } finally {
     clearCodexAppServerSessions();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCodexAppServer: serializes concurrent turns on one warm session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "muster-codex-app-server-serial-"));
+  const fake = join(dir, "codex-fake.mjs");
+  const log = join(dir, "turns.log");
+  await writeFile(fake, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const log = ${JSON.stringify(log)};
+let turn = 0;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+function later(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+rl.on("line", async (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: "thread-serial" } } });
+  else if (msg.method === "turn/start") {
+    turn += 1;
+    const id = "turn-" + turn;
+    const prompt = msg.params.input[0].text;
+    appendFileSync(log, "start:" + prompt + "\\n");
+    send({ id: msg.id, result: { turn: { id, status: "inProgress" } } });
+    await later(prompt === "one" ? 60 : 1);
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m-" + id, text: "ok:" + prompt }, threadId: "thread-serial", turnId: id } });
+    send({ method: "turn/completed", params: { threadId: "thread-serial", turn: { id, status: "completed" } } });
+    appendFileSync(log, "done:" + prompt + "\\n");
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  try {
+    await runCodexAppServer({ prompt: "warm", cwd: dir, command: fake, cacheKey: "serial" });
+    const [one, two] = await Promise.all([
+      runCodexAppServer({ prompt: "one", cwd: dir, command: fake, cacheKey: "serial" }),
+      runCodexAppServer({ prompt: "two", cwd: dir, command: fake, cacheKey: "serial" }),
+    ]);
+
+    assert.equal(one.finalMessage, "ok:one");
+    assert.equal(two.finalMessage, "ok:two");
+    const events = (await readFile(log, "utf8")).trim().split("\n");
+    assert.deepEqual(events, ["start:warm", "done:warm", "start:one", "done:one", "start:two", "done:two"]);
+  } finally {
+    clearCodexAppServerSessions();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCodexAppServer: instruction content changes create a fresh cached session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "muster-codex-app-server-instructions-"));
+  const fake = join(dir, "codex-fake.mjs");
+  const instructions = join(dir, "instructions.md");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const threadId = "thread-" + process.pid;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1", status: "inProgress" } } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m", text: threadId }, threadId, turnId: "turn-1" } });
+    send({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  try {
+    await writeFile(instructions, "context one", "utf8");
+    const first = await runCodexAppServer({ prompt: "one", cwd: dir, command: fake, cacheKey: "same-chat", instructionsFile: instructions });
+    await writeFile(instructions, "context two", "utf8");
+    const second = await runCodexAppServer({ prompt: "two", cwd: dir, command: fake, cacheKey: "same-chat", instructionsFile: instructions });
+
+    assert.equal(first.status, "completed");
+    assert.equal(second.status, "completed");
+    assert.notEqual(second.threadId, first.threadId, "changed injected context must not reuse a warm Codex process");
+  } finally {
+    clearCodexAppServerSessions();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCodexAppServer: keepAlive=false closes the app-server instead of caching it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "muster-codex-app-server-no-cache-"));
+  const fake = join(dir, "codex-fake.mjs");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const threadId = "thread-" + process.pid;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1", status: "inProgress" } } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m", text: threadId }, threadId, turnId: "turn-1" } });
+    send({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  try {
+    const first = await runCodexAppServer({ prompt: "one", cwd: dir, command: fake, cacheKey: "same-chat", keepAlive: false });
+    const second = await runCodexAppServer({ prompt: "two", cwd: dir, command: fake, cacheKey: "same-chat", keepAlive: false });
+
+    assert.equal(first.status, "completed");
+    assert.equal(second.status, "completed");
+    assert.notEqual(second.threadId, first.threadId);
+  } finally {
+    clearCodexAppServerSessions();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCodex refuses legacy Codex before passing modern exec flags", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "muster-codex-legacy-"));
+  const fake = join(dir, "codex-legacy.mjs");
+  const unsafeMarker = join(dir, "unsafe.txt");
+  await writeFile(fake, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "exec" && args[1] === "--help") {
+  console.error("Usage: codex [options] <prompt>");
+  process.exit(2);
+}
+if (args.includes("-c")) writeFileSync(${JSON.stringify(unsafeMarker)}, "unsafe");
+process.exit(0);
+`, "utf8");
+  await chmod(fake, 0o755);
+  try {
+    const result = await runCodex({
+      prompt: "hi",
+      cwd: dir,
+      command: fake,
+      instructionsFile: join(dir, "instructions.md"),
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.errorMessage ?? "", /does not support `codex exec --json`/);
+    await assert.rejects(readFile(unsafeMarker, "utf8"));
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

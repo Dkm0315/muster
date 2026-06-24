@@ -4,6 +4,78 @@ All notable changes to Muster are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 semantic versioning.
 
+## [0.1.6] - 2026-06-23
+
+Muster 0.1.6 is the integration and CLI usability release. It moves Muster
+closer to being a practical agent harness people can run directly from the
+terminal or connect behind product/chat surfaces.
+
+### Added
+- **Interactive terminal chat overhaul**: `muster` now opens a focused TUI chat
+  surface with slash-command and `@agent` completion, command pickers, session
+  naming/resume, provider/model selection flows, token/status commands, and a
+  cleaner site-aligned palette.
+- **Capability-pack catalog expansion**: all built-in plugin rows now resolve to
+  real capability packs instead of policy-only placeholders. The catalog covers
+  developer tools, browser QA, web frameworks, research, artifacts, data,
+  security, daily ops, channels, providers, Codex, Claude Code, and MCP bridge
+  workflows.
+- **Provider setup packs** for OpenAI, Anthropic/Claude, vLLM, and
+  Codex/Claude CLI runtimes with setup guidance, readiness checks, model-policy
+  hints, and latency triage.
+- **Auth-heavy MCP setup workflows** for GitHub, Notion, Linear, Google Drive,
+  Firecrawl, Postgres, and n8n, including env readiness, OAuth setup/import
+  paths, installability checks, and safe default tool policies.
+- **Built-in channel packs** for Slack, Google Chat, Discord, WhatsApp, Teams,
+  and Telegram. Telegram remains optional for regions where it is unavailable.
+- **Web framework pack** for Frappe/ERPNext, React, Vue, Vite, Nuxt, and common
+  web stacks, with local/dev/build/deploy/integration runbooks and production
+  readiness checks.
+- **Indexed scoped memory retrieval** using SQLite/FTS so long-running personal
+  and project memory stays fast as conversations grow.
+- **Token ledger visibility** in CLI flows so model spend, replay waste, and
+  skill attribution are inspectable instead of hidden.
+- **Latency probe command**: `muster latency "prompt" --runs 3` separates
+  provider time from Muster overhead, reports p50/p95, and flags whether a slow
+  turn is provider-bound or caused by recall/prompt/persistence overhead.
+- **Local workspace-read fast path**: trivial prompts that only ask to list the
+  current folder are answered by Muster directly with an audited
+  `muster-local/workspace-read` episode, avoiding unnecessary Codex round trips.
+- **Source-backed integration catalog expansion**: `muster plugins catalog` now
+  exposes 116 built-in entries after checking current Hermes and OpenClaw
+  source trees. New setup-plan surfaces cover additional providers, channels,
+  voice, document extraction, file transfer, webhooks, policy, token/cost
+  governance, diagnostics, QA, migration, and memory backends without
+  overclaiming execution before a pack/MCP is wired.
+
+### Changed
+- `muster plugins setup/check/enable` now reports concrete prerequisites:
+  missing env vars, setup URLs, MCP/channel availability, configured defaults,
+  capability-pack readiness, and next commands.
+- Runtime/provider UX is now picker-oriented: users can switch provider, model,
+  runtime, MCPs, plugins, and skills from inside chat instead of memorizing
+  exact IDs.
+- Codex and Claude Code are modeled as first-class runtime capability packs,
+  matching the way Hermes treats autonomous agent CLIs while preserving Muster's
+  own session, memory, and token accounting.
+- Browser and web-search workflows now prefer explicit MCP setup and cited
+  source paths over hidden provider behavior.
+- Default runtime guidance now uses Codex CLI instead of accidental localhost
+  endpoints, keeping fast self-hosted providers opt-in rather than accidental.
+
+### Fixed
+- Serialized warm Codex app-server turns per session and added injected-context
+  hashes to native session handles, preventing concurrent turn event mixing and
+  stale memory/skill/rule reuse across resumed provider sessions.
+- Native Codex and Claude Code attempts now stamp actual `create`/`continue`
+  session mode and session id into the token ledger, so replay-waste warnings
+  catch bloated continued Codex sessions instead of only Pi/API paths.
+- Removed the “pack=no” gap from the built-in plugin catalog.
+- Fixed CLI setup output so release-critical integrations show real setup links
+  and readiness state rather than vague availability text.
+- Hardened OAuth/MCP setup paths so credentials are checked and never printed in
+  CLI output.
+
 ## [0.1.0] - 2026-06-12
 
 First feature-complete core. Not yet 1.0: APIs may shift before stabilization.

@@ -416,7 +416,7 @@ function memorySummary(object: ContextObject): Record<string, unknown> {
 async function memorySearch(args: MemorySearchToolArgs, ctx: ToolContext): Promise<ToolResult> {
   const scopes = parseToolMemoryScopes(args.scopes);
   const limit = memorySearchLimit(args.limit);
-  const results = await searchMemory({ query: args.query, scopes, includeGlobal: args.includeGlobal }, ctx.cwd);
+  const results = await searchMemory({ query: args.query, scopes, includeGlobal: args.includeGlobal, limit }, ctx.cwd);
   return {
     ok: true,
     data: {

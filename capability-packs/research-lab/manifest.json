@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "research-lab",
+  "name": "Muster Research Lab",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "research",
+  "entrypoint": "src/index.ts",
+  "description": "Research helpers for paper discovery and source-backed summaries. Starts with credential-free arXiv search; richer web providers can be attached through MCP.",
+  "permissions": ["network"],
+  "sandbox": "network_limited",
+  "evals": ["evals/arxiv.json"],
+  "implementedTools": ["arxiv_search"],
+  "status": "v0: arXiv Atom search with bounded, structured results."
+}

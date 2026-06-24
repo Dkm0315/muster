@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { runSubprocess } from "./subprocess.js";
 
 const execFileAsync = promisify(execFile);
+const CODEX_EXEC_SUPPORT_CACHE = new Map<string, boolean>();
 
 /**
  * Drives the user's OWN codex CLI at FULL native power (shell, apply_patch,
@@ -63,10 +64,10 @@ export interface CodexRunResult {
   readonly errorMessage?: string;
 }
 
-export async function inspectCodex(command = "codex"): Promise<{ readonly available: boolean; readonly version?: string }> {
+export async function inspectCodex(command = "codex"): Promise<{ readonly available: boolean; readonly version?: string; readonly supportsExec?: boolean }> {
   try {
     const result = await execFileAsync(command, ["--version"], { timeout: 5000 });
-    return { available: true, version: result.stdout.trim() || result.stderr.trim() };
+    return { available: true, version: result.stdout.trim() || result.stderr.trim(), supportsExec: await supportsCodexExec(command) };
   } catch {
     return { available: false };
   }
@@ -75,6 +76,8 @@ export async function inspectCodex(command = "codex"): Promise<{ readonly availa
 function resolveCodexCommand(command?: string): string {
   if (command) return command;
   if (process.env.MUSTER_CODEX_COMMAND) return process.env.MUSTER_CODEX_COMMAND;
+  const appBundle = "/Applications/Codex.app/Contents/Resources/codex";
+  if (existsSync(appBundle)) return appBundle;
   const home = process.env.HOME;
   if (home) {
     const candidates = [
@@ -151,6 +154,18 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
   const outputFile = join(tmpdir(), `muster-codex-${randomUUID()}.txt`);
   const args = buildCodexArgs(input, outputFile);
   const started = Date.now();
+  if (!(await supportsCodexExec(command))) {
+    return {
+      status: "failed",
+      command,
+      args,
+      finalMessage: "",
+      stdout: "",
+      stderr: "",
+      durationMs: Date.now() - started,
+      errorMessage: "Installed Codex CLI does not support `codex exec --json`. Update Codex or use the app-server transport; refusing to pass modern exec flags to a legacy interactive Codex binary.",
+    };
+  }
   // Inherit the real environment (so CODEX_HOME / auth resolve) and overlay
   // any caller-provided env. Without this codex 401s under headless shells.
   const env = { ...process.env, ...(input.env ?? {}) } as NodeJS.ProcessEnv;
@@ -205,5 +220,18 @@ async function readFinalMessage(file: string): Promise<string> {
     return (await readFile(file, "utf8")).trim();
   } catch {
     return "";
+  }
+}
+
+async function supportsCodexExec(command: string): Promise<boolean> {
+  const cached = CODEX_EXEC_SUPPORT_CACHE.get(command);
+  if (cached !== undefined) return cached;
+  try {
+    await execFileAsync(command, ["exec", "--help"], { timeout: 5000 });
+    CODEX_EXEC_SUPPORT_CACHE.set(command, true);
+    return true;
+  } catch {
+    CODEX_EXEC_SUPPORT_CACHE.set(command, false);
+    return false;
   }
 }

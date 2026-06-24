@@ -18,6 +18,10 @@ import {
   viewSkill,
   resolveSkillCommand,
   writeCandidateSkill,
+  listBuiltinSkills,
+  listBuiltinPlugins,
+  enableBuiltinSkill,
+  ensureDefaultConfig,
 } from "../src/index.js";
 import type { EvolveReport } from "../src/index.js";
 
@@ -29,6 +33,124 @@ function report(converged: boolean, tasks = 3): EvolveReport {
     converged,
   };
 }
+
+test("built-in skill catalog includes broad Hermes-derived workflows without duplicate ids", () => {
+  const catalog = listBuiltinSkills();
+  const ids = catalog.map((skill) => skill.id);
+  assert.equal(new Set(ids).size, ids.length, "built-in skill ids must be unique");
+  for (const id of [
+    "apple-notes",
+    "github-repo-management",
+    "computer-use",
+    "ascii-video",
+    "manim-video",
+    "teams-meeting-pipeline",
+    "segment-anything",
+    "xurl",
+    "openhue",
+    "subagent-driven-development",
+    "adversarial-ux-test",
+    "fastmcp",
+    "cloudflare-temporary-deploy",
+    "finance-modeling",
+  ]) {
+    assert.ok(ids.includes(id), `missing Hermes-derived built-in skill: ${id}`);
+  }
+});
+
+test("enabling a high-risk built-in skill writes a guarded Muster-authored profile", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-builtin-skill-"));
+  await ensureDefaultConfig(cwd);
+  const entry = await enableBuiltinSkill("imessage", cwd);
+  const skill = await viewSkill(entry.id, cwd);
+
+  assert.equal(skill.name, "imessage");
+  assert.equal(skill.status, "active");
+  assert.equal(skill.frontmatter.userInvocable, true);
+  assert.match(skill.body, /not a verbatim upstream copy/);
+  assert.match(skill.body, /Ask for confirmation before using credentials/);
+});
+
+test("built-in plugin catalog declares honest actionability levels", () => {
+  const plugins = listBuiltinPlugins();
+  const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]));
+
+  assert.equal(byId.get("slack")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("telegram")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("mcp-bridge")?.actionability, "mcp_installable");
+  assert.equal(byId.get("developer-tools")?.actionability, "mcp_installable");
+  assert.equal(byId.get("web-frameworks")?.actionability, "local_tool");
+  assert.equal(byId.get("browserbase")?.actionability, "setup_plan");
+  assert.equal(byId.get("memory-mem0")?.actionability, "setup_plan");
+  assert.equal(byId.get("langfuse")?.actionability, "setup_plan");
+  assert.equal(byId.get("matrix")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("provider-gemini")?.actionability, "setup_plan");
+  assert.equal(byId.get("provider-groq")?.actionability, "setup_plan");
+  assert.equal(byId.get("provider-perplexity")?.actionability, "setup_plan");
+  assert.equal(byId.get("signal")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("document-extract")?.actionability, "setup_plan");
+  assert.equal(byId.get("qa-lab")?.actionability, "setup_plan");
+  assert.equal(byId.get("active-memory")?.actionability, "setup_plan");
+
+  for (const plugin of plugins) {
+    assert.ok(plugin.actionability, `plugin ${plugin.id} must declare actionability`);
+    if (plugin.setup?.channels?.length) {
+      assert.equal(plugin.actionability, "runtime_adapter", `channel plugin ${plugin.id} must not overclaim end-to-end induction`);
+    }
+    if (plugin.actionability === "mcp_installable") {
+      assert.ok(plugin.setup?.mcpServers?.length || plugin.setup?.defaultMcpServers?.length, `mcp_installable plugin ${plugin.id} needs MCP setup metadata`);
+    }
+    if (plugin.actionability === "local_tool" || plugin.actionability === "end_to_end_workflow") {
+      assert.ok(plugin.packPath, `${plugin.actionability} plugin ${plugin.id} needs a capability pack path`);
+    }
+  }
+});
+
+test("built-in plugin catalog includes source-backed Hermes and OpenClaw breadth without local-provider drift", () => {
+  const plugins = listBuiltinPlugins();
+  const ids = plugins.map((plugin) => plugin.id);
+  assert.equal(new Set(ids).size, ids.length, "built-in plugin ids must be unique");
+
+  for (const id of [
+    "provider-perplexity",
+    "provider-cohere",
+    "provider-azure-foundry",
+    "provider-copilot",
+    "signal",
+    "imessage-channel",
+    "nextcloud-talk",
+    "feishu",
+    "dingtalk",
+    "wecom",
+    "email-channel",
+    "document-extract",
+    "file-transfer",
+    "webhooks",
+    "policy",
+    "tokenjuice",
+    "diagnostics-otel",
+    "voice-call",
+    "deepgram",
+    "elevenlabs",
+    "workboard",
+    "qa-lab",
+    "qa-matrix",
+    "codex-supervisor",
+    "migrate-hermes",
+    "memory-lancedb",
+    "memory-wiki",
+    "active-memory",
+  ]) {
+    assert.ok(ids.includes(id), `missing source-backed built-in plugin: ${id}`);
+  }
+
+  const serialized = JSON.stringify(plugins);
+  const disallowedLocalRoute = new RegExp(["ol", "lama"].join(""), "i");
+  const disallowedLocalModel = new RegExp(["llama", "3"].join(""), "i");
+  assert.doesNotMatch(serialized, disallowedLocalRoute);
+  assert.doesNotMatch(serialized, disallowedLocalModel);
+  assert.doesNotMatch(serialized, new RegExp(`${11_434}`));
+});
 
 test("candidates are quarantined and invisible to injection until promoted", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-skills-"));
@@ -385,6 +507,7 @@ test("promoted skills are hash-pinned and tampering blocks load and injection", 
   assert.match(index.skills["audit-frappe"].digest, /^sha256:[a-f0-9]{64}$/);
   assert.equal(index.skills["audit-frappe"].status, "active");
   assert.deepEqual((await selectSkills("audit frappe deploy", 500, cwd)).included, ["audit-frappe"]);
+  assert.deepEqual((await selectSkills("Reply with exactly: hi", 500, cwd)).included, []);
 
   await writeFile(join(skillsDir(cwd), "audit-frappe", "SKILL.md"), "---\nname: audit-frappe\ndescription: Audit Frappe deployments\nmetadata:\n  muster: {\"version\":\"0.1.0\",\"tags\":[],\"status\":\"active\",\"provenance\":{\"createdBy\":\"user\",\"createdAt\":\"2026-06-19T00:00:00.000Z\"}}\n---\n\nTampered body.\n");
 

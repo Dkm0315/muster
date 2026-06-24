@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "obsidian",
+  "name": "Muster Obsidian",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "knowledge",
+  "entrypoint": "src/index.ts",
+  "description": "Filesystem-first Obsidian vault tools for listing, searching, reading, creating, and appending markdown notes inside one configured vault.",
+  "permissions": ["filesystem:read", "filesystem:write"],
+  "sandbox": "workspace_write",
+  "evals": ["evals/obsidian-vault.json"],
+  "implementedTools": [
+    "obsidian_vault_status",
+    "obsidian_notes_list",
+    "obsidian_note_read",
+    "obsidian_notes_search",
+    "obsidian_note_create",
+    "obsidian_note_append"
+  ],
+  "status": "v0: local vault read/write tools with path traversal protection. Delete, rename, attachment indexing, and non-markdown binary handling are intentionally excluded."
+}

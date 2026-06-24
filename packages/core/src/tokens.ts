@@ -9,6 +9,7 @@ export interface TokenRecord {
   readonly model: string;
   readonly plannedModel?: string;
   readonly inputTokens: number;
+  readonly cachedInputTokens?: number;
   readonly outputTokens: number;
   readonly estimated: boolean;
   readonly promptChars: number;
@@ -68,6 +69,7 @@ export interface BuildTokenRecordInput {
   readonly sessionMode?: string;
   readonly sessionId?: string;
   readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
   readonly outputTokens?: number;
   readonly surfaceId?: string;
   readonly skills?: string[];
@@ -90,6 +92,7 @@ export function buildTokenRecord(input: BuildTokenRecordInput): TokenRecord {
     model: input.model,
     plannedModel: input.plannedModel,
     inputTokens,
+    cachedInputTokens: input.cachedInputTokens,
     outputTokens,
     estimated,
     promptChars: input.prompt.length,

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, stat } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { addMemory, formatMemoryScope, memoryDbPath, memoryPath, parseMemoryScope, promoteMemory, searchMemory } from "../src/index.js";
+import { addMemory, formatMemoryScope, inspectMemoryStore, memoryDbPath, memoryPath, parseMemoryScope, probeMemorySearchLatency, promoteMemory, rebuildMemoryIndex, recallMemory, searchMemory, searchMemoryWithReceipts } from "../src/index.js";
 
 test("searchMemory only returns objects visible to every required scope", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-memory-"));
@@ -91,6 +91,83 @@ test("searchMemory builds and reuses a SQLite index from the JSONL memory log", 
   assert.deepEqual(second.map((object) => object.id).sort(), [added.id, "mem_legacy"].sort());
 });
 
+test("searchMemory hot path does not rescan stale JSONL after SQLite index is initialized", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-no-jsonl-hotpath-"));
+  const scopes = [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")];
+  const indexed = await addMemory({
+    summary: "SQLite hot path should answer this recall without reading JSONL.",
+    provenance: ["hotpath:test"],
+    scopes,
+  }, cwd);
+
+  const first = await searchMemory({ scopes, query: "SQLite hot path" }, cwd);
+  assert.deepEqual(first.map((object) => object.id), [indexed.id]);
+  await appendFile(memoryPath(cwd), "{not valid jsonl and must not be read by search}\n", "utf8");
+
+  const second = await searchMemory({ scopes, query: "SQLite hot path" }, cwd);
+  const receipt = await searchMemoryWithReceipts({ scopes, query: "SQLite hot path", limit: 3 }, cwd);
+
+  assert.deepEqual(second.map((object) => object.id), [indexed.id]);
+  assert.equal(receipt.backend, "sqlite-fts5");
+  assert.equal(receipt.receipts[0]?.memory.id, indexed.id);
+});
+
+test("addMemory updates SQLite without rescanning stale JSONL after index is initialized", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-write-no-jsonl-rescan-"));
+  const scopes = [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")];
+  await addMemory({
+    summary: "Existing indexed memory keeps the DB initialized.",
+    provenance: ["write-hotpath:test"],
+    scopes,
+  }, cwd);
+  await searchMemory({ scopes, query: "Existing indexed memory" }, cwd);
+  await appendFile(memoryPath(cwd), "{not valid jsonl and must not be read before upsert}\n", "utf8");
+
+  const added = await addMemory({
+    summary: "Fresh write still reaches SQLite after stale JSONL corruption.",
+    provenance: ["write-hotpath:test"],
+    scopes,
+  }, cwd);
+  const results = await searchMemory({ scopes, query: "Fresh write still reaches SQLite" }, cwd);
+
+  assert.deepEqual(results.map((object) => object.id), [added.id]);
+});
+
+test("searchMemory applies SQL-level limits before returning memory summaries", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-limit-"));
+  const scopes = [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")];
+  for (let index = 0; index < 25; index += 1) {
+    await addMemory({
+      summary: `limited indexed recall candidate ${index}`,
+      provenance: [`limit:${index}`],
+      scopes,
+    }, cwd);
+  }
+
+  const results = await searchMemory({ scopes, query: "limited indexed recall", limit: 7 }, cwd);
+  assert.equal(results.length, 7);
+});
+
+test("malformed zero-scope legacy rows are not visible to scoped search", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-empty-scope-"));
+  const malformed = {
+    id: "mem_malformed",
+    kind: "note",
+    summary: "This malformed zero scope memory must not leak.",
+    observedAt: "2026-06-22T10:00:00.000Z",
+    confidence: 0.9,
+    provenance: ["legacy:test"],
+    scopes: [],
+    redactionState: "none" as const,
+    links: [],
+  };
+  await mkdir(join(cwd, ".muster", "data"), { recursive: true });
+  await appendFile(memoryPath(cwd), `${JSON.stringify(malformed)}\n`, "utf8");
+
+  const results = await searchMemory({ scopes: [parseMemoryScope("user:dhairya")], query: "malformed zero scope" }, cwd);
+  assert.equal(results.length, 0);
+});
+
 test("indexed memory retrieval stays scoped and accurate across larger stores", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-memory-scale-"));
   const expected: string[] = [];
@@ -108,6 +185,161 @@ test("indexed memory retrieval stays scoped and accurate across larger stores", 
   const results = await searchMemory({ scopes: [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")], query: "retrieval benchmark target" }, cwd);
   assert.deepEqual(results.map((object) => object.id).sort(), expected.sort());
   assert.ok(results.every((object) => object.scopes.map(formatMemoryScope).includes("user:dhairya")));
+});
+
+test("recallMemory uses indexed candidates without losing scoped prompt relevance", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-recall-indexed-"));
+  const scopes = [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")];
+  const expected = await addMemory({
+    summary: "Production deploy target is uat-erp.example.com for Frappe testing.",
+    provenance: ["recall:test"],
+    scopes,
+  }, cwd);
+  for (let index = 0; index < 300; index += 1) {
+    await addMemory({
+      summary: `Background framework note ${index} about plugins and sessions.`,
+      provenance: [`recall:${index}`],
+      scopes,
+    }, cwd);
+  }
+
+  const recalled = await recallMemory("where is the production deploy target for frappe?", scopes, 3, cwd);
+  assert.equal(recalled[0]?.id, expected.id);
+});
+
+test("searchMemoryWithReceipts explains matched terms without filling query recall with recent unrelated memories", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-receipts-"));
+  const scopes = [parseMemoryScope("tenant:hybrow"), parseMemoryScope("user:dhairya")];
+  const expected = await addMemory({
+    summary: "The Frappe production endpoint is uat-erp.example.com.",
+    provenance: ["receipt:test"],
+    scopes,
+  }, cwd);
+  for (let index = 0; index < 80; index += 1) {
+    await addMemory({
+      summary: `Generic production note ${index} without relevant target wording.`,
+      provenance: [`receipt:${index}`],
+      scopes,
+    }, cwd);
+  }
+
+  const result = await searchMemoryWithReceipts({
+    query: "where is the frappe endpoint",
+    scopes,
+    limit: 3,
+    candidateLimit: 10,
+    match: "any",
+  }, cwd);
+
+  assert.equal(result.receipts[0]?.memory.id, expected.id);
+  assert.equal(result.fallbackUsed, false);
+  assert.match(result.receipts[0]?.reason ?? "", /matched/);
+  assert.ok(result.receipts[0]?.matchedTerms.includes("frappe"));
+
+  const unrelated = await searchMemoryWithReceipts({
+    query: "Reply with exactly ok",
+    scopes,
+    limit: 3,
+    candidateLimit: 10,
+    match: "any",
+  }, cwd);
+
+  assert.equal(unrelated.receipts.length, 0);
+  assert.equal(unrelated.fallbackUsed, false);
+});
+
+test("inspectMemoryStore reports source/index health without throwing on malformed JSONL", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-inspect-"));
+  await addMemory({
+    summary: "Muster memory doctor should explain scoped index state.",
+    provenance: ["memory-inspect:test"],
+    scopes: [parseMemoryScope("tenant:f2"), parseMemoryScope("user:goblin")],
+  }, cwd);
+
+  const healthy = await inspectMemoryStore(cwd);
+  assert.equal(healthy.jsonl.valid, true);
+  assert.equal(healthy.jsonl.objectCount, 1);
+  assert.equal(healthy.index.exists, true);
+  assert.equal(healthy.index.readable, true);
+  assert.equal(healthy.index.fresh, true);
+  assert.ok(healthy.scopes.some((entry) => entry.scope === "tenant:f2" && entry.count === 1));
+  assert.equal(healthy.checks.find((check) => check.label === "jsonl_valid")?.status, "passed");
+
+  await appendFile(memoryPath(cwd), "{bad json\n", "utf8");
+  const corrupt = await inspectMemoryStore(cwd);
+  assert.equal(corrupt.jsonl.valid, false);
+  assert.match(corrupt.jsonl.error ?? "", /Invalid JSONL/);
+  assert.equal(corrupt.checks.find((check) => check.label === "jsonl_valid")?.status, "failed");
+});
+
+test("rebuildMemoryIndex repairs corrupt derived SQLite index without rewriting JSONL", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-rebuild-"));
+  const scopes = [parseMemoryScope("tenant:f2"), parseMemoryScope("user:goblin")];
+  const memory = await addMemory({
+    summary: "Corrupt derived index should rebuild from JSONL.",
+    provenance: ["memory-rebuild:test"],
+    scopes,
+  }, cwd);
+  await writeFile(memoryDbPath(cwd), "not sqlite", "utf8");
+
+  const corrupt = await inspectMemoryStore(cwd);
+  assert.equal(corrupt.index.exists, true);
+  assert.equal(corrupt.index.readable, false);
+
+  const rebuilt = await rebuildMemoryIndex(cwd);
+  assert.equal(rebuilt.rebuilt, true);
+  assert.equal(rebuilt.removedExisting, true);
+  assert.equal(rebuilt.inspection.index.readable, true);
+  assert.equal(rebuilt.inspection.index.fresh, true);
+  const results = await searchMemory({ query: "derived index", scopes }, cwd);
+  assert.deepEqual(results.map((object) => object.id), [memory.id]);
+});
+
+test("probeMemorySearchLatency reports p50 and p95 scoped retrieval timings", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-probe-"));
+  const scopes = [parseMemoryScope("tenant:f2"), parseMemoryScope("user:goblin")];
+  await addMemory({
+    summary: "Latency probe target should be recalled quickly.",
+    provenance: ["memory-probe:test"],
+    scopes,
+  }, cwd);
+
+  const probe = await probeMemorySearchLatency({ query: "latency probe target", scopes, runs: 5, limit: 3, match: "any" }, cwd);
+  assert.equal(probe.runs, 5);
+  assert.equal(probe.recalledCount, 1);
+  assert.ok(probe.p50Ms >= 0);
+  assert.ok(probe.p95Ms >= probe.p50Ms);
+  assert.match(probe.backend, /sqlite-/);
+});
+
+test("searchMemoryWithReceipts expands linked graph memories without crossing scopes", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-graph-"));
+  const scopes = [parseMemoryScope("tenant:f2"), parseMemoryScope("user:goblin")];
+  const otherScopes = [parseMemoryScope("tenant:f2"), parseMemoryScope("user:alice")];
+  const child = await addMemory({
+    summary: "Child table field amount is Currency.",
+    provenance: ["memory-graph:test"],
+    scopes,
+  }, cwd);
+  const forbidden = await addMemory({
+    summary: "Forbidden linked memory should not cross into goblin scope.",
+    provenance: ["memory-graph:test"],
+    scopes: otherScopes,
+  }, cwd);
+  await addMemory({
+    summary: "Employee DocType stores structured details through child rows.",
+    provenance: ["memory-graph:test"],
+    scopes,
+    links: [child.id, forbidden.id],
+  }, cwd);
+
+  const plain = await searchMemoryWithReceipts({ query: "employee structured details", scopes, limit: 5, match: "any" }, cwd);
+  assert.ok(!plain.receipts.some((receipt) => receipt.memory.id === child.id));
+
+  const expanded = await searchMemoryWithReceipts({ query: "employee structured details", scopes, limit: 5, match: "any", expandLinked: true }, cwd);
+  assert.ok(expanded.receipts.some((receipt) => receipt.memory.id === child.id));
+  assert.ok(!expanded.receipts.some((receipt) => receipt.memory.id === forbidden.id));
+  assert.equal(expanded.linkedCandidateCount, 1);
 });
 
 test("promoteMemory refuses global promotion unless explicitly allowed", async () => {
@@ -134,6 +366,20 @@ test("promoteMemory refuses global promotion unless explicitly allowed", async (
   assert.notEqual(promoted.id, source.id);
   assert.deepEqual(promoted.scopes.map(formatMemoryScope), ["tenant:hybrow"]);
   assert.ok(promoted.provenance.includes(`promoted-from:${source.id}`));
+});
+
+test("promoteMemory eagerly updates the SQLite index", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-memory-promote-index-"));
+  const source = await addMemory({
+    summary: "Session-only release note that should become tenant searchable.",
+    provenance: ["manual:test"],
+    scopes: [parseMemoryScope("session:release")]
+  }, cwd);
+
+  const promoted = await promoteMemory({ id: source.id, targetScopes: [parseMemoryScope("tenant:hybrow")] }, cwd);
+  const results = await searchMemory({ scopes: [parseMemoryScope("tenant:hybrow")], query: "tenant searchable" }, cwd);
+
+  assert.deepEqual(results.map((object) => object.id), [promoted.id]);
 });
 
 test("parseMemoryScope rejects malformed scopes", () => {

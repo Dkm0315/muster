@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "openai",
+  "name": "Muster OpenAI Provider",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "provider",
+  "entrypoint": "src/index.ts",
+  "description": "Declarative OpenAI provider setup, readiness, model policy, and latency triage workflows.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/openai-provider.json"],
+  "implementedTools": [
+    "openai_provider_setup_plan",
+    "openai_provider_readiness",
+    "openai_model_policy",
+    "openai_latency_triage"
+  ],
+  "status": "v0: provider setup and model-routing guidance; live model probes stay explicit future provider checks."
+}

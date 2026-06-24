@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "browser",
+  "name": "Muster Browser",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "browser",
+  "entrypoint": "src/index.ts",
+  "description": "Browser automation setup, readiness, smoke-test, and risk-policy workflows for Playwright/browser MCP.",
+  "permissions": ["browser"],
+  "sandbox": "read_only",
+  "evals": ["evals/browser.json"],
+  "implementedTools": [
+    "browser_setup_plan",
+    "browser_mcp_readiness",
+    "browser_task_policy",
+    "browser_smoke_plan"
+  ],
+  "status": "v0: uses Muster MCP for execution; pack supplies the auditable setup and policy layer."
+}

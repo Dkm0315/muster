@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, appendFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { test } from "node:test";
@@ -10,7 +10,10 @@ import {
   episodesPath,
   executeRun,
   listEpisodes,
+  listGoalLoopTurns,
   listTokenRecords,
+  loadSessionHandle,
+  promotedMemoryWrite,
   promoteSkill,
   renderIntegrityReport,
   runHarnessChecks,
@@ -18,6 +21,7 @@ import {
   tokensPath,
   verifyIntegrity,
   writeCandidateSkill,
+  clearCodexAppServerSessions,
 } from "../src/index.js";
 import type { EvolveReport, MusterConfig } from "../src/index.js";
 
@@ -98,11 +102,110 @@ test("executeRun records the episode, token usage, and a session-scoped memory c
   }
 });
 
+test("executeRun answers trivial current-folder listing locally without provider latency", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-local-list-"));
+  await mkdir(join(cwd, "apps"));
+  await writeFile(join(cwd, "README.md"), "hello", "utf8");
+  let providerCalls = 0;
+  const server = await startStubServer(() => {
+    providerCalls += 1;
+    return {
+      status: 200,
+      payload: { choices: [{ message: { content: "provider should not answer this" } }] },
+    };
+  });
+  try {
+    const outcome = await executeRun(stubConfig(server.url), {
+      prompt: "List the files and directories in the current folder. Keep it brief.",
+      cwd,
+      skipAgentRules: true,
+    });
+
+    assert.equal(providerCalls, 0);
+    assert.equal(outcome.episode.providerId, "muster-local");
+    assert.equal(outcome.episode.model, "workspace-read");
+    assert.equal(outcome.timings?.providerMs, 0);
+    assert.equal(outcome.timings?.recallMs, 0);
+    assert.match(outcome.episode.responseText, /`README\.md`/);
+    assert.match(outcome.episode.responseText, /`apps\/`/);
+    assert.ok(outcome.episode.evidence.some((item) => item.label === "local_workspace_listing"));
+    assert.ok(outcome.episode.evidence.some((item) => item.label === "memory_recall" && item.detail?.includes("skipped=local_fast_path")));
+
+    const tokens = await listTokenRecords(cwd);
+    assert.equal(tokens[0].provider, "muster-local");
+    assert.equal(tokens[0].inputTokens, 0);
+    assert.equal(tokens[0].outputTokens, 0);
+
+    const goals = await listGoalLoopTurns(cwd);
+    assert.equal(goals[0].memoryWrite.status, "skipped");
+  } finally {
+    server.close();
+  }
+});
+
+test("executeRun does not fast-path folder prompts that ask for reasoning or search", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-local-list-guard-"));
+  await writeFile(join(cwd, "README.md"), "hello", "utf8");
+  let providerCalls = 0;
+  const server = await startStubServer(() => {
+    providerCalls += 1;
+    return {
+      status: 200,
+      payload: { choices: [{ message: { content: "provider handled reasoning" } }] },
+    };
+  });
+  try {
+    const outcome = await executeRun(stubConfig(server.url), {
+      prompt: "Search the current folder and explain which files matter.",
+      cwd,
+      skipAgentRules: true,
+    });
+
+    assert.equal(providerCalls, 1);
+    assert.equal(outcome.episode.providerId, "stub");
+    assert.equal(outcome.episode.responseText, "provider handled reasoning");
+    assert.notEqual(outcome.timings?.providerMs, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("executeRun does not fast-path targeted folders, file contents, or changed-file prompts", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-local-list-guard-targets-"));
+  await mkdir(join(cwd, "packages"));
+  await writeFile(join(cwd, "package.json"), "{}", "utf8");
+  let providerCalls = 0;
+  const server = await startStubServer(() => {
+    providerCalls += 1;
+    return {
+      status: 200,
+      payload: { choices: [{ message: { content: "provider handled specific folder request" } }] },
+    };
+  });
+  try {
+    const prompts = [
+      "List files in packages/core/src directory.",
+      "Show the contents of package.json in this directory.",
+      "Which files changed in this folder?",
+    ];
+    for (const prompt of prompts) {
+      const outcome = await executeRun(stubConfig(server.url), { prompt, cwd, skipAgentRules: true });
+      assert.equal(outcome.episode.providerId, "stub");
+      assert.equal(outcome.episode.responseText, "provider handled specific folder request");
+    }
+    assert.equal(providerCalls, prompts.length);
+  } finally {
+    server.close();
+  }
+});
+
 test("executeRun injects recalled scoped memory into the prompt", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-run-recall-"));
   let observedPrompt = "";
+  let observedMessages: Array<{ role: string; content: string }> = [];
   const server = await startStubServer((body) => {
-    observedPrompt = (JSON.parse(body).messages as Array<{ content: string }>).map((message) => message.content).join("\n");
+    observedMessages = JSON.parse(body).messages as Array<{ role: string; content: string }>;
+    observedPrompt = observedMessages.map((message) => message.content).join("\n");
     return { status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
   });
   try {
@@ -112,15 +215,229 @@ test("executeRun injects recalled scoped memory into the prompt", async () => {
       scopes: [{ kind: "user", id: "tester" }],
     }, cwd);
     await executeRun(stubConfig(server.url), {
-      prompt: "where do we deploy?",
+      prompt: "what is the deployment target?",
       cwd,
       scopes: [{ kind: "user", id: "tester" }],
     });
     assert.match(observedPrompt, /Recalled context/);
     assert.match(observedPrompt, /uat-erp\.pwhr\.in/);
+    assert.equal(observedMessages.at(-1)?.role, "user");
+    assert.equal(observedMessages.at(-1)?.content, "what is the deployment target?");
+    assert.equal(observedMessages.some((message) => message.role === "system" && message.content.includes("Recalled context")), true);
+    assert.equal(observedMessages.some((message) => message.role === "user" && message.content.includes("Operating discipline")), false);
   } finally {
     server.close();
   }
+});
+
+test("executeRun keeps simple provider prompts compact when no context is needed", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-compact-"));
+  let observedMessages: Array<{ role: string; content: string }> = [];
+  const server = await startStubServer((body) => {
+    observedMessages = JSON.parse(body).messages as Array<{ role: string; content: string }>;
+    return { status: 200, payload: { choices: [{ message: { content: "hi" } }] } };
+  });
+  try {
+    await executeRun(stubConfig(server.url), { prompt: "hi", cwd });
+    assert.deepEqual(observedMessages.map((message) => message.role), ["system", "user"]);
+    assert.equal(observedMessages.at(-1)?.content, "hi");
+    assert.equal(observedMessages[0].content.includes("Operating discipline"), false);
+    assert.ok(observedMessages[0].content.length < 120);
+  } finally {
+    server.close();
+  }
+});
+
+test("executeRun records exact Codex app-server token usage in the ledger", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-codex-app-server-tokens-"));
+  const fake = join(cwd, "codex-fake.mjs");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const threadId = "thread-ledger";
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1", status: "inProgress" } } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m", text: "ledger ok" }, threadId, turnId: "turn-1" } });
+    send({ method: "thread/tokenUsage/updated", params: { threadId, turnId: "turn-1", tokenUsage: { last: { inputTokens: 1234, cachedInputTokens: 321, outputTokens: 56 } } } });
+    send({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  const previousCommand = process.env.MUSTER_CODEX_COMMAND;
+  const previousTransport = process.env.MUSTER_CODEX_TRANSPORT;
+  process.env.MUSTER_CODEX_COMMAND = fake;
+  process.env.MUSTER_CODEX_TRANSPORT = "app-server";
+  try {
+    const outcome = await executeRun(defaultConfig(), {
+      prompt: "token ledger exact usage",
+      cwd,
+      workspaceDir: cwd,
+      runtime: "codex",
+      conversationKey: "cli-chat:ledger",
+      nativeSession: true,
+      skipAgentRules: true,
+      skipMemoryWrite: true,
+    });
+    assert.equal(outcome.episode.responseText, "ledger ok");
+    const records = await listTokenRecords(cwd);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].inputTokens, 1234);
+    assert.equal(records[0].cachedInputTokens, 321);
+    assert.equal(records[0].outputTokens, 56);
+    assert.equal(records[0].estimated, false);
+    const handle = await loadSessionHandle("cli-chat:ledger", "codex", cwd);
+    assert.equal(handle?.handle, "thread-ledger");
+    assert.match(handle?.contextHash ?? "", /^[a-f0-9]{64}$/);
+  } finally {
+    clearCodexAppServerSessions();
+    if (previousCommand === undefined) delete process.env.MUSTER_CODEX_COMMAND;
+    else process.env.MUSTER_CODEX_COMMAND = previousCommand;
+    if (previousTransport === undefined) delete process.env.MUSTER_CODEX_TRANSPORT;
+    else process.env.MUSTER_CODEX_TRANSPORT = previousTransport;
+  }
+});
+
+test("executeRun flags replay waste on continued native Codex sessions", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-codex-waste-"));
+  const fake = join(cwd, "codex-fake.mjs");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const threadId = "thread-waste";
+let turn = 0;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    turn += 1;
+    const id = "turn-" + turn;
+    const inputTokens = turn === 1 ? 20 : 50000;
+    send({ id: msg.id, result: { turn: { id, status: "inProgress" } } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m-" + turn, text: "ok " + turn }, threadId, turnId: id } });
+    send({ method: "thread/tokenUsage/updated", params: { threadId, turnId: id, tokenUsage: { last: { inputTokens, cachedInputTokens: turn === 1 ? 0 : 49000, outputTokens: 2 } } } });
+    send({ method: "turn/completed", params: { threadId, turn: { id, status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  const previousCommand = process.env.MUSTER_CODEX_COMMAND;
+  const previousTransport = process.env.MUSTER_CODEX_TRANSPORT;
+  process.env.MUSTER_CODEX_COMMAND = fake;
+  process.env.MUSTER_CODEX_TRANSPORT = "app-server";
+  try {
+    const base = {
+      cwd,
+      workspaceDir: cwd,
+      runtime: "codex" as const,
+      conversationKey: "cli-chat:waste",
+      nativeSession: true,
+      skipAgentRules: true,
+      skipMemoryWrite: true,
+    };
+    const first = await executeRun(defaultConfig(), { ...base, prompt: "one" });
+    const second = await executeRun(defaultConfig(), { ...base, prompt: "two" });
+
+    assert.equal(first.episode.responseText, "ok 1");
+    assert.equal(second.episode.responseText, "ok 2");
+    const records = await listTokenRecords(cwd);
+    assert.equal(records.length, 2);
+    assert.equal(records[0].sessionMode, "create");
+    assert.equal(records[0].wasteRatio, undefined);
+    assert.equal(records[1].sessionMode, "continue");
+    assert.equal(records[1].sessionId, "thread-waste");
+    assert.ok((records[1].wasteRatio ?? 0) > 3);
+  } finally {
+    clearCodexAppServerSessions();
+    if (previousCommand === undefined) delete process.env.MUSTER_CODEX_COMMAND;
+    else process.env.MUSTER_CODEX_COMMAND = previousCommand;
+    if (previousTransport === undefined) delete process.env.MUSTER_CODEX_TRANSPORT;
+    else process.env.MUSTER_CODEX_TRANSPORT = previousTransport;
+  }
+});
+
+test("executeRun records goal-loop retrieval and memory write disposition", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-goal-loop-"));
+  const recalled = await addMemory({
+    summary: "Goal loop retrieval evidence should show matched terms.",
+    provenance: ["goal-loop:seed"],
+    scopes: [{ kind: "user", id: "tester" }],
+  }, cwd);
+  const server = await startStubServer(() => ({
+    status: 200,
+    payload: { choices: [{ message: { content: "The answer is recorded." } }] },
+  }));
+  try {
+    const outcome = await executeRun(stubConfig(server.url), {
+      prompt: "goal loop retrieval evidence",
+      cwd,
+      scopes: [{ kind: "user", id: "tester" }],
+    });
+    const turns = await listGoalLoopTurns(cwd);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].runId, outcome.plan.runId);
+    assert.equal(turns[0].activeGoal, "goal loop retrieval evidence");
+    assert.equal(turns[0].createdAt, outcome.episode.createdAt);
+    assert.equal(turns[0].status, "completed");
+    assert.equal(turns[0].memoryWrite.status, "remembered");
+    assert.equal(turns[0].retrieval.backend, "sqlite-fts5");
+    assert.equal(turns[0].retrieval.receipts[0]?.memoryId, recalled.id);
+    assert.ok(turns[0].retrieval.receipts[0]?.matchedTerms.includes("goal"));
+    assert.deepEqual(turns[0].retrieval.receipts[0]?.provenance, ["goal-loop:seed"]);
+    assert.equal(turns[0].followUpRetrieval.needed, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("executeRun records rejected memory write and follow-up need on failed run", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-goal-loop-fail-"));
+  const server = await startStubServer(() => ({
+    status: 500,
+    payload: { error: { message: "provider down" } },
+  }));
+  try {
+    const outcome = await executeRun(stubConfig(server.url), {
+      prompt: "missing recall should be followed up",
+      cwd,
+      scopes: [{ kind: "user", id: "tester" }],
+    });
+    const turns = await listGoalLoopTurns(cwd);
+
+    assert.equal(outcome.episode.outcome.kind, "failed");
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].status, "failed");
+    assert.deepEqual(turns[0].memoryWrite, { status: "rejected", reason: "run did not complete; no memory auto-promotion" });
+    assert.equal(turns[0].followUpRetrieval.needed, true);
+    assert.equal(turns[0].followUpRetrieval.reason, "no_scoped_memory_recalled");
+    assert.equal(turns[0].followUpRetrieval.query, "missing recall should be followed up");
+  } finally {
+    server.close();
+  }
+});
+
+test("promotedMemoryWrite records source and target memory ids", async () => {
+  const memory = await addMemory({
+    summary: "Tenant-level deployment preference.",
+    provenance: ["goal-loop:test"],
+    scopes: [{ kind: "tenant", id: "hybrow" }],
+  }, await mkdtemp(join(tmpdir(), "muster-goal-promoted-")));
+
+  const write = promotedMemoryWrite(memory, "mem_source");
+
+  assert.equal(write.status, "promoted");
+  assert.equal(write.memoryId, memory.id);
+  assert.equal(write.sourceMemoryId, "mem_source");
+  assert.deepEqual(write.scope, ["tenant:hybrow"]);
 });
 
 test("executeRun applies selected skill env only during the provider attempt", async () => {

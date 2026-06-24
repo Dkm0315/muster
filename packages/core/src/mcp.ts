@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { persistToolResult } from "./context-renderer.js";
 import type { FlowToolRegistry } from "./flow.js";
+import { mcpOAuthAuthorizationHeader } from "./mcp-oauth.js";
 
 /**
  * Minimal MCP client — newline-delimited JSON-RPC 2.0 over stdio, plus a
@@ -17,6 +18,17 @@ export interface McpServerConfig {
     | { readonly kind: "http"; readonly url: string; readonly headers?: Record<string, string> };
   readonly tools?: { readonly include?: string[]; readonly exclude?: string[] };
   readonly limits?: { readonly toolTimeoutMs?: number; readonly maxResultChars?: number; readonly maxCallsPerTurn?: number };
+  readonly auth?: "oauth";
+  readonly oauth?: {
+    readonly setupUrl?: string;
+    readonly scope?: string;
+    readonly clientName?: string;
+    readonly authorizationUrl?: string;
+    readonly tokenUrl?: string;
+    readonly clientId?: string;
+    readonly clientSecret?: string;
+    readonly redirectPort?: number;
+  };
 }
 
 export interface McpToolInfo {
@@ -173,7 +185,15 @@ export async function connectMcpServer(name: string, config: McpServerConfig, cw
       transport ??= new StdioTransport(config.transport.command, config.transport.args ?? [], config.transport.env);
       return transport.request(method, params, timeoutMs);
     }
-    return httpRequest(config.transport.url, config.transport.headers ?? {}, method, params, timeoutMs);
+    const headers = { ...(config.transport.headers ?? {}) };
+    if (config.auth === "oauth") {
+      const authorization = await mcpOAuthAuthorizationHeader(name, cwd);
+      if (!authorization) {
+        throw new Error(`MCP server "${name}" requires OAuth login. Run: muster mcp oauth setup ${name}`);
+      }
+      headers.authorization = authorization;
+    }
+    return httpRequest(config.transport.url, headers, method, params, timeoutMs);
   };
 
   let tools: McpToolInfo[] = [];

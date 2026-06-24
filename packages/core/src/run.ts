@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { writeFile, rm } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAgentRules } from "./agent-rules.js";
 import { defaultHookBus, type HookBus } from "./hooks.js";
+import { appendGoalLoopTurn, buildGoalLoopTurn, rememberedMemoryWrite, type GoalLoopMemoryWrite } from "./goal-loop.js";
 import { runClaudeCode } from "./claude.js";
 import { runCodex } from "./codex.js";
 import { runCodexAppServer } from "./codex-app-server.js";
@@ -14,13 +15,19 @@ import { messagesToTranscript, openSessionStore } from "./sessions.js";
 /** Token budget for the provider-direct rendered transcript (bounds runaway multi-turn context). */
 const DEFAULT_CONTEXT_BUDGET_TOKENS = 16_000;
 
+const FAST_SIMPLE_QA_RULES = "Answer only the user's request. If unsure, say so. Do not mention internal rules or process.";
+
 /** Split a conversation key ("channel:...:peer") into the session store's (channel, peer). */
 function splitConversationKey(key: string): { channel: string; peer: string } {
   const idx = key.lastIndexOf(":");
   return idx === -1 ? { channel: key, peer: "default" } : { channel: key.slice(0, idx), peer: key.slice(idx + 1) };
 }
+
+function hashSystemContext(system: string): string {
+  return createHash("sha256").update(system).digest("hex");
+}
 import { applySkillEnvForRun, exportClaudeSkillSnapshot, recordSkillUse, resolveAgentSkillAllowlist, selectSkills } from "./skills.js";
-import { addMemory, searchMemory } from "./memory.js";
+import { addMemory, searchMemoryWithReceipts, type SearchMemoryReceiptResult } from "./memory.js";
 import { runPiEmbeddedAgent, type PiAgentRunResult, type PiSessionMode } from "./pi.js";
 import { completeChat } from "./provider.js";
 import { classifyTask, planRun } from "./router.js";
@@ -67,6 +74,8 @@ export interface RunOptions {
   readonly resume?: boolean;
   /** Native CLI session continuity. Disable for faster one-off Codex turns. */
   readonly nativeSession?: boolean;
+  /** Keep native app-server transports alive after the turn. Interactive chat uses this; one-shot commands should not. */
+  readonly nativeSessionKeepAlive?: boolean;
   /**
    * Conversation identity (e.g. the surface conversation id). When set, the
    * native provider session for THIS conversation is resumed across turns via
@@ -98,10 +107,27 @@ export interface RunOutcome {
   readonly episode: EpisodeRecord;
   readonly tokens: TokenRecord;
   readonly recalled: ContextObject[];
+  readonly recallReceipt?: SearchMemoryReceiptResult;
+  readonly timings?: RunTimingBreakdown;
   readonly fallbackUsed?: string;
   readonly piResult?: PiAgentRunResult;
   /** Native codex session handle to persist for resuming the next turn. */
   readonly codexThreadId?: string;
+}
+
+export interface RunTimingBreakdown {
+  readonly totalMs: number;
+  readonly planningMs: number;
+  readonly recallMs: number;
+  readonly promptBuildMs: number;
+  readonly providerMs: number;
+  readonly persistMs: number;
+}
+
+interface LocalFastAnswer {
+  readonly responseText: string;
+  readonly label: string;
+  readonly detail: string;
 }
 
 function defaultScopes(): MemoryScope[] {
@@ -109,34 +135,46 @@ function defaultScopes(): MemoryScope[] {
   return [{ kind: "user", id: user }];
 }
 
-function promptTokens(text: string): Set<string> {
-  return new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
-}
+async function maybeAnswerLocalWorkspacePrompt(prompt: string, cwd: string): Promise<LocalFastAnswer | undefined> {
+  const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
+  const asksForListing = /\b(list|show|what(?:'s| is)?|which)\b/.test(normalized)
+    && /\b(files?|directories|folders?|present|contents?)\b/.test(normalized);
+  const currentFolderOnly = /\b(current|this|working|personal)\s+(folder|directory)\b/.test(normalized)
+    || /\b(folder|directory)\s+(i am in|i'm in|we are in|we're in)\b/.test(normalized);
+  const targetedPath = /(?:^|\s)(?:\.{1,2}\/|~\/|\/|[a-z0-9_.-]+\/[a-z0-9_.\/-]*)/.test(normalized);
+  const fileTarget = /\b[a-z0-9_-]+\.[a-z0-9]{1,8}\b/.test(normalized);
+  const needsProvider = /\b(explain|summari[sz]e|analy[sz]e|why|compare|find|search|grep|read|open|modify|change|changed|status|diff|delete|install|content of|contents of)\b/.test(normalized);
+  if (!asksForListing || !currentFolderOnly || targetedPath || fileTarget || needsProvider) return undefined;
 
-function recallScore(prompt: Set<string>, summary: string): number {
-  if (!prompt.size) return 0;
-  const summaryTokens = promptTokens(summary);
-  let hits = 0;
-  for (const token of prompt) {
-    for (const candidate of summaryTokens) {
-      if (candidate === token || candidate.startsWith(token) || token.startsWith(candidate)) {
-        hits += 1;
-        break;
-      }
-    }
-  }
-  return hits / prompt.size;
+  const includeHidden = /\b(hidden|dotfiles?|all files)\b/.test(normalized);
+  const entries = (await readdir(cwd, { withFileTypes: true }))
+    .filter((entry) => includeHidden || !entry.name.startsWith("."))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const visible = entries.slice(0, 200).map((entry) => `\`${entry.name}${entry.isDirectory() ? "/" : ""}\``);
+  const suffix = entries.length > visible.length ? `\n\n...and ${entries.length - visible.length} more entries.` : "";
+  const responseText = visible.length
+    ? `Current folder contains:\n\n${visible.map((entry) => `- ${entry}`).join("\n")}${suffix}`
+    : "Current folder is empty.";
+  return {
+    responseText,
+    label: "local_workspace_listing",
+    detail: `listed=${Math.min(entries.length, visible.length)} total=${entries.length} include_hidden=${includeHidden}`,
+  };
 }
 
 export async function recallMemory(prompt: string, scopes: MemoryScope[], limit: number, cwd: string): Promise<ContextObject[]> {
-  const visible = await searchMemory({ scopes, includeGlobal: true }, cwd);
-  const tokens = promptTokens(prompt);
-  return visible
-    .map((object) => ({ object, score: recallScore(tokens, object.summary) }))
-    .filter((entry) => entry.score > 0.15)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.object);
+  return (await recallMemoryWithReceipt(prompt, scopes, limit, cwd)).receipts.map((receipt) => receipt.memory);
+}
+
+export async function recallMemoryWithReceipt(prompt: string, scopes: MemoryScope[], limit: number, cwd: string): Promise<SearchMemoryReceiptResult> {
+  return searchMemoryWithReceipts({
+    query: prompt,
+    scopes,
+    includeGlobal: true,
+    limit,
+    candidateLimit: Math.max(limit * 20, 50),
+    match: "any",
+  }, cwd);
 }
 
 export function buildRecalledBlock(recalled: readonly ContextObject[]): string {
@@ -171,6 +209,13 @@ interface AttemptResult {
   readonly route: ModelRoute;
   readonly piResult?: PiAgentRunResult;
   readonly codexThreadId?: string;
+  readonly sessionMode?: string;
+  readonly sessionId?: string;
+  readonly tokenUsage?: {
+    readonly inputTokens?: number;
+    readonly cachedInputTokens?: number;
+    readonly outputTokens?: number;
+  };
 }
 
 interface PromptParts {
@@ -204,7 +249,8 @@ const runClaudeCodeBackend: CliBackendRunner = async (route, prompts, options) =
   const stored = options.conversationKey && !options.sessionId
     ? await loadSessionHandle(options.conversationKey, "claude", stateCwd)
     : undefined;
-  const reuse = canReuseHandle(stored, claudeCwd, route.model);
+  const contextHash = hashSystemContext(prompts.system);
+  const reuse = canReuseHandle(stored, claudeCwd, route.model, contextHash);
   const sessionId = options.conversationKey
     ? (reuse ? stored.handle : (options.sessionId ?? randomUUID()))
     : options.sessionId;
@@ -228,6 +274,7 @@ const runClaudeCodeBackend: CliBackendRunner = async (route, prompts, options) =
         handle: sessionId,
         cwd: claudeCwd,
         model: route.model,
+        contextHash,
         updatedAt: new Date().toISOString(),
       }, stateCwd);
     } else {
@@ -242,8 +289,10 @@ const runClaudeCodeBackend: CliBackendRunner = async (route, prompts, options) =
     responseText,
     status: claudeResult.status,
     errorMessage: claudeResult.status === "failed" ? (claudeResult.errorMessage || claudeResult.stderr.trim() || "claude command failed") : undefined,
-    route,
-  };
+      route,
+      sessionMode: sessionId ? (reuse ? "continue" : "create") : undefined,
+      sessionId,
+    };
 };
 
 const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
@@ -264,7 +313,8 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
   const stored = useNativeSession && options.conversationKey && !options.sessionId
     ? await loadSessionHandle(options.conversationKey, "codex", stateCwd)
     : undefined;
-  const reuse = canReuseHandle(stored, workspaceDir, route.model);
+  const contextHash = hashSystemContext(prompts.system);
+  const reuse = canReuseHandle(stored, workspaceDir, route.model, contextHash);
   try {
     const codexEnv = options.codexHome ? { CODEX_HOME: options.codexHome } : undefined;
     const useAppServer = useNativeSession
@@ -279,6 +329,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
           networkAccess: true,
           env: codexEnv,
           timeoutMs: options.timeoutMs,
+          keepAlive: options.nativeSessionKeepAlive ?? true,
           cacheKey: options.conversationKey
             ? `${options.conversationKey}\0${workspaceDir}\0${route.model ?? ""}`
             : undefined,
@@ -322,6 +373,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
           handle: finalCodexResult.threadId,
           cwd: workspaceDir,
           model: route.model,
+          contextHash,
           updatedAt: new Date().toISOString(),
         }, stateCwd);
       } else if (finalCodexResult.status === "failed") {
@@ -338,6 +390,9 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
       errorMessage: finalCodexResult.status === "failed" ? (finalCodexResult.errorMessage || "codex run failed") : undefined,
       route,
       codexThreadId: finalCodexResult.threadId,
+      sessionMode: useNativeSession && finalCodexResult.threadId ? (reuse ? "continue" : "create") : undefined,
+      sessionId: finalCodexResult.threadId,
+      tokenUsage: "tokenUsage" in finalCodexResult ? finalCodexResult.tokenUsage : undefined,
     };
   } finally {
     if (instructionsFile) await rm(instructionsFile, { force: true }).catch(() => {});
@@ -381,6 +436,8 @@ async function attemptRoute(
       errorMessage: piResult.errorMessage,
       route,
       piResult,
+      sessionMode: piResult.sessionMode,
+      sessionId: piResult.sessionId,
     };
   }
   const provider = config.providers[route.provider];
@@ -399,7 +456,10 @@ async function attemptRoute(
   const runCwd = options.cwd ?? process.cwd();
   const store = options.conversationKey ? openSessionStore(runCwd) : undefined;
   try {
-    let messages: ChatMessage[] = [{ role: "user", content: prompts.combined }];
+    let messages: ChatMessage[] = [
+      ...(prompts.system.trim() ? [{ role: "system" as const, content: prompts.system }] : []),
+      { role: "user", content: prompts.user },
+    ];
     let sessionId: string | undefined;
     if (store && options.conversationKey) {
       const { channel, peer } = splitConversationKey(options.conversationKey);
@@ -430,7 +490,9 @@ async function attemptRoute(
 }
 
 export async function executeRun(config: MusterConfig, options: RunOptions): Promise<RunOutcome> {
+  const runStartedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
+  const planningStartedAt = Date.now();
   const plan = options.runtime === "pi" || options.runtime === "claude-code" || options.runtime === "claude" || options.runtime === "codex"
     ? planForManagedRuntime(options.runtime === "pi" ? "pi" : options.runtime === "codex" ? "codex" : "claude-code", options)
     : planRun(config, {
@@ -440,9 +502,105 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         sensitive: options.sensitive,
         cwd,
       });
+  const planningMs = Date.now() - planningStartedAt;
 
   const scopes = options.scopes ?? defaultScopes();
-  const recalled = await recallMemory(options.prompt, scopes, options.recallLimit ?? 5, cwd);
+  const localFastAnswer = await maybeAnswerLocalWorkspacePrompt(options.prompt, options.workspaceDir ?? cwd);
+  if (localFastAnswer) {
+    const persistStartedAt = Date.now();
+    const recallReceipt: SearchMemoryReceiptResult = {
+      query: options.prompt,
+      scopes,
+      includeGlobal: false,
+      backend: "sqlite-fts5",
+      requestedLimit: options.recallLimit ?? 5,
+      candidateCount: 0,
+      receipts: [],
+      fallbackUsed: false,
+    };
+    const evidence: EvidenceRecord[] = [
+      {
+        kind: "tool_result",
+        label: localFastAnswer.label,
+        status: "observed",
+        detail: localFastAnswer.detail,
+      },
+      {
+        kind: "system_check",
+        label: "memory_recall",
+        status: "observed",
+        detail: "skipped=local_fast_path recalled=0 candidates=0",
+      },
+      {
+        kind: "model_response",
+        label: "final_response",
+        status: "observed",
+        detail: `${localFastAnswer.responseText.length} chars; provider_skipped=local_fast_path`,
+      },
+    ];
+    const episode: EpisodeRecord = {
+      id: plan.runId,
+      createdAt: plan.createdAt,
+      cwd,
+      prompt: options.prompt,
+      taskKind: plan.taskKind,
+      runtimeId: plan.runtimeId,
+      providerId: "muster-local",
+      model: "workspace-read",
+      responseText: localFastAnswer.responseText,
+      evidence,
+      outcome: { kind: "completed" },
+    };
+    await appendEpisode(episode, cwd);
+    const durationMs = Date.now() - runStartedAt;
+    const tokens = buildTokenRecord({
+      runId: plan.runId,
+      provider: "muster-local",
+      model: "workspace-read",
+      plannedModel: plan.route.model,
+      prompt: options.prompt,
+      recalledContext: "",
+      responseText: localFastAnswer.responseText,
+      durationMs,
+      inputTokens: 0,
+      outputTokens: 0,
+      surfaceId: options.surfaceId,
+    });
+    await appendTokenRecord(tokens, cwd);
+    const memoryWrite: GoalLoopMemoryWrite = { status: "skipped", reason: "local workspace read; no model memory write" };
+    await appendGoalLoopTurn(buildGoalLoopTurn({
+      runId: plan.runId,
+      episodeId: episode.id,
+      createdAt: episode.createdAt,
+      activeGoal: options.prompt,
+      taskKind: plan.taskKind,
+      status: "completed",
+      scopes,
+      recallReceipt,
+      memoryWrite,
+    }), cwd);
+    const persistMs = Date.now() - persistStartedAt;
+    return {
+      plan,
+      episode,
+      tokens,
+      recalled: [],
+      recallReceipt,
+      timings: {
+        totalMs: Date.now() - runStartedAt,
+        planningMs,
+        recallMs: 0,
+        promptBuildMs: 0,
+        providerMs: 0,
+        persistMs,
+      },
+    };
+  }
+  const recallStartedAt = Date.now();
+  const recallReceipt = await recallMemoryWithReceipt(options.prompt, scopes, options.recallLimit ?? 5, cwd);
+  const recallMs = Date.now() - recallStartedAt;
+  const recalled = recallReceipt.receipts.map((receipt) => receipt.memory);
+  const promptBuildStartedAt = Date.now();
   const recalledBlock = buildRecalledBlock(recalled);
   const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
   const skillAllowlist = resolveAgentSkillAllowlist(config, options.agentId);
@@ -464,7 +622,11 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         "Treat this as self-knowledge — never quote or narrate this section.",
       ].filter(Boolean).join(" ")
     : undefined;
-  const preamble = [identityBlock, rules?.text, skills.block, recalledBlock].filter(Boolean).join("\n\n");
+  const hasRunContext = Boolean(identityBlock || skills.block || recalledBlock);
+  const rulesText = rules?.source === "default" && plan.taskKind === "simple_qa" && !hasRunContext
+    ? FAST_SIMPLE_QA_RULES
+    : rules?.text;
+  const preamble = [identityBlock, rulesText, skills.block, recalledBlock].filter(Boolean).join("\n\n");
   const assembledPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
   let fullPrompt = assembledPrompt;
   const hooks = options.hooks ?? defaultHookBus;
@@ -486,6 +648,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     system: hookRewrote ? "" : preamble,
     claudePluginDirs: claudeSkillSnapshot ? [claudeSkillSnapshot.pluginDir] : undefined,
   };
+  const promptBuildMs = Date.now() - promptBuildStartedAt;
 
   const rootSpan = startSpan("muster.run", {
     kind: "internal",
@@ -521,6 +684,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const skillEnv = await applySkillEnvForRun(skills.included, config, cwd, process.env, skillDiscovery);
   let attempt: AttemptResult;
   let fallbackUsed: string | undefined;
+  const providerStartedAt = Date.now();
   try {
     attempt = await tracedAttempt(plan.route);
 
@@ -545,8 +709,10 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     skillEnv.restore();
     await claudeSkillSnapshot?.cleanup();
   }
+  const providerMs = Date.now() - providerStartedAt;
 
   const durationMs = Date.now() - startedAt;
+  const persistStartedAt = Date.now();
 
   if (attempt.piResult?.eventTrace) {
     for (const trace of attempt.piResult.eventTrace) {
@@ -559,6 +725,20 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         });
       }
     }
+  }
+  evidence.push({
+    kind: "system_check",
+    label: "memory_recall",
+    status: "observed",
+    detail: `backend=${recallReceipt.backend} recalled=${recallReceipt.receipts.length} candidates=${recallReceipt.candidateCount} fallback=${recallReceipt.fallbackUsed}`,
+  });
+  for (const receipt of recallReceipt.receipts) {
+    evidence.push({
+      kind: "system_check",
+      label: `memory:${receipt.memory.id}`,
+      status: "observed",
+      detail: `${receipt.reason}; score=${receipt.score.toFixed(3)}; scopes=${receipt.memory.scopes.map((scope) => `${scope.kind}:${scope.id}`).join(",")}; confidence=${receipt.memory.confidence}; provenance=${receipt.memory.provenance.join(",")}`,
+    });
   }
   evidence.push({
     kind: "model_response",
@@ -591,8 +771,11 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     recalledContext: recalledBlock,
     responseText: attempt.responseText,
     durationMs,
-    sessionMode: options.sessionMode,
-    sessionId: attempt.piResult?.sessionId,
+    sessionMode: attempt.sessionMode ?? options.sessionMode,
+    sessionId: attempt.sessionId ?? attempt.piResult?.sessionId,
+    inputTokens: attempt.tokenUsage?.inputTokens,
+    outputTokens: attempt.tokenUsage?.outputTokens,
+    cachedInputTokens: attempt.tokenUsage?.cachedInputTokens,
     surfaceId: options.surfaceId,
     skills: skills.includedReceipts.length ? skills.includedReceipts : undefined,
   });
@@ -607,15 +790,41 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     cwd,
   });
 
+  let memoryWrite: GoalLoopMemoryWrite = attempt.status === "completed"
+    ? { status: "skipped", reason: options.skipMemoryWrite ? "skipMemoryWrite=true" : "empty response" }
+    : { status: "rejected", reason: "run did not complete; no memory auto-promotion" };
   if (attempt.status === "completed" && attempt.responseText && !options.skipMemoryWrite) {
-    await addMemory({
+    const remembered = await addMemory({
       kind: "episode_summary",
       summary: `${plan.taskKind}: ${options.prompt.slice(0, 100)} -> ${attempt.responseText.slice(0, 200)}`,
       provenance: [`run:${plan.runId}`],
       scopes: [{ kind: "session", id: plan.runId }, ...scopes.filter((scope) => scope.kind !== "global")],
       confidence: 0.6,
     }, cwd);
+    memoryWrite = rememberedMemoryWrite(remembered);
   }
 
-  return { plan, episode, tokens, recalled, fallbackUsed, piResult: attempt.piResult, codexThreadId: attempt.codexThreadId };
+  await appendGoalLoopTurn(buildGoalLoopTurn({
+    runId: plan.runId,
+    episodeId: episode.id,
+    createdAt: episode.createdAt,
+    activeGoal: options.prompt,
+    taskKind: plan.taskKind,
+    status: episode.outcome?.kind ?? "unknown",
+    scopes,
+    recallReceipt,
+    memoryWrite,
+  }), cwd);
+
+  const persistMs = Date.now() - persistStartedAt;
+  const timings: RunTimingBreakdown = {
+    totalMs: Date.now() - runStartedAt,
+    planningMs,
+    recallMs,
+    promptBuildMs,
+    providerMs,
+    persistMs,
+  };
+
+  return { plan, episode, tokens, recalled, recallReceipt, timings, fallbackUsed, piResult: attempt.piResult, codexThreadId: attempt.codexThreadId };
 }

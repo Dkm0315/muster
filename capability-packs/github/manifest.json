@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "github",
+  "name": "Muster GitHub",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "developer",
+  "entrypoint": "src/index.ts",
+  "description": "Read-only GitHub repository, issue, and pull request inspection tools. Authenticated requests use a declared token secret from the active capability context.",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_TOKEN"],
+  "evals": ["evals/github-read.json"],
+  "implementedTools": ["github_repo_summary", "github_issue_search", "github_pull_request_list"],
+  "status": "v0: read-only GitHub API tools with token redaction by construction; write actions remain delegated to explicit MCP/CLI workflows."
+}

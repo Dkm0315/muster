@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-web-search",
+  "name": "Muster Codex Web Search",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "research",
+  "entrypoint": "src/index.ts",
+  "description": "Codex-backed web-search setup, readiness, routing, and citation policy workflows.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/codex-web-search.json"],
+  "implementedTools": [
+    "codex_web_search_setup_plan",
+    "codex_web_search_readiness",
+    "codex_web_research_policy",
+    "codex_web_search_fallback_plan"
+  ],
+  "status": "v0: web-search routing policy; direct local search remains in web-search pack and external browsing remains explicit."
+}

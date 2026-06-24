@@ -170,7 +170,12 @@ test("the frappe pack loads through loadCapabilityPack and runs inside a flow", 
     assert.deepEqual(
       [...loaded.toolNames].sort(),
       [
+        "frappe-federated-bridge__frappe_context_build",
+        "frappe-federated-bridge__frappe_context_setup_plan",
+        "frappe-federated-bridge__frappe_docs_context",
         "frappe-federated-bridge__frappe_identity_resolve",
+        "frappe-federated-bridge__frappe_installed_context",
+        "frappe-federated-bridge__frappe_module_context",
         "frappe-federated-bridge__frappe_records_create",
         "frappe-federated-bridge__frappe_semantic_data_resolve_lite",
       ],

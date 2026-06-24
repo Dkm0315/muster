@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "artifact-studio",
+  "name": "Muster Artifact Studio",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "artifacts",
+  "entrypoint": "src/index.ts",
+  "description": "Pure artifact helpers for turning structured inputs into markdown reports, CSV, and lightweight dashboard manifests.",
+  "permissions": [],
+  "sandbox": "none",
+  "evals": ["evals/artifact-studio.json"],
+  "implementedTools": ["markdown_report", "rows_to_csv", "dashboard_manifest"],
+  "status": "v0: deterministic artifact builders that return strings/JSON for the caller to save or render."
+}

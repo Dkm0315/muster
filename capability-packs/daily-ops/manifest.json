@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "daily-ops",
+  "name": "Muster Daily Ops",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "productivity",
+  "entrypoint": "src/index.ts",
+  "description": "Local planning and daily-brief helpers that organize user-provided tasks, notes, and follow-ups.",
+  "permissions": [],
+  "sandbox": "none",
+  "evals": ["evals/daily-ops.json"],
+  "implementedTools": ["daily_brief", "prioritize_tasks"],
+  "status": "v0: pure planning helpers; calendar/email connectors remain MCP/plugin setup work."
+}

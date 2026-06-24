@@ -65,7 +65,7 @@
           <h2>1 · Initialize</h2>
           <pre class="mono codeblock">$ muster init
 Created or reused Muster config: .muster/config.json
-Default provider: local OpenAI-compatible endpoint at http://localhost:11434/v1
+Default provider: Codex CLI with model gpt-5.5
 Next: muster doctor</pre>
           <p><code>muster doctor</code> checks the config, routing policy (<em>one active runtime per run</em>), and probes every configured provider's <code>/models</code> endpoint. <code>muster doctor --fix</code> repairs the config and data directory.</p>
 
@@ -127,7 +127,6 @@ $ muster status        # one-screen mission control</pre>
           <table class="docs-table">
             <thead><tr><th>id</th><th>provider</th><th>base URL</th><th>notes</th></tr></thead>
             <tbody>
-              <tr><td>ollama</td><td>Ollama (local)</td><td>http://localhost:11434/v1</td><td>No API key. Pull models with: ollama pull &lt;model&gt;</td></tr>
               <tr><td>lmstudio</td><td>LM Studio (local)</td><td>http://localhost:1234/v1</td><td>No API key. Start the LM Studio server first.</td></tr>
               <tr><td>vllm</td><td>vLLM (self-hosted)</td><td>http://localhost:8000/v1</td><td>Point --base-url at your vLLM server.</td></tr>
               <tr><td>sglang</td><td>SGLang (self-hosted)</td><td>http://localhost:30000/v1</td><td>Point --base-url at your SGLang server.</td></tr>
@@ -255,7 +254,7 @@ Usage:
   muster provider add-openai-compatible &lt;id&gt; &lt;base-url&gt; &lt;model&gt; [--api-key-env OPENAI_API_KEY]
   muster provider add-codex-cli &lt;id&gt; &lt;model&gt;
   muster provider presets
-  muster provider add &lt;preset&gt; [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter, ...)
+  muster provider add &lt;preset&gt; [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, openrouter, ...)
   muster runtime use-provider &lt;runtime-id&gt; &lt;provider-id&gt; [model]
   muster pi inspect [--home /path/to/home]
   muster pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]

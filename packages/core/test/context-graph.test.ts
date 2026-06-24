@@ -77,7 +77,7 @@ test("buildEpisodeContextGraph turns recorded episodes into graphable context", 
     taskKind: "research",
     runtimeId: "native",
     providerId: "local",
-    model: "llama3.1",
+    model: "gpt-5.5",
     reasoning: "medium",
     responseText: "Redis runbook is ready.",
     evidence: [{ kind: "model_response", label: "assistant response", status: "observed" }]

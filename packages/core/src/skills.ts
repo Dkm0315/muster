@@ -597,7 +597,12 @@ export async function selectSkills(task: string, budgetTokens = 500, cwd = proce
     .filter((skill) => isSkillAllowed(skill, availability.skillAllowlist))
     .filter((skill) => isSkillAvailableForModel(skill, availability));
   if (!active.length) return { block: "", included: [], dropped: [], includedReceipts: [] };
-  const taskTokens = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
+  const stopwords = new Set([
+    "about", "after", "again", "also", "answer", "could", "exactly", "from", "give", "have", "into",
+    "just", "like", "make", "need", "please", "reply", "show", "that", "the", "this", "what", "when",
+    "where", "which", "with", "work", "would", "your",
+  ]);
+  const taskTokens = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2 && !stopwords.has(token)));
   const scored = active
     .map((skill) => {
       const haystack = `${skill.name} ${skill.description} ${skill.tags.join(" ")}`.toLowerCase();

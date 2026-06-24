@@ -39,8 +39,8 @@ const visibleCandidates = (activeCandidates.length ? activeCandidates : state.ca
 const providerCount = state.configSummary?.providers.length ?? 0;
 const runtimeCount = state.configSummary?.runtimes.length ?? 0;
 const runId = shortRunId(activeEpisode?.id ?? "demo-run");
-const runtimeLabel = `${activeEpisode?.runtimeId ?? state.configSummary?.defaultRuntime ?? "native"} (${activeEpisode?.model ?? "llama3.1"})`;
-const routeLabel = `${activeEpisode?.providerId ?? "local"}:${activeEpisode?.model ?? "llama3.1"} -> primary`;
+const runtimeLabel = `${activeEpisode?.runtimeId ?? state.configSummary?.defaultRuntime ?? "native"} (${activeEpisode?.model ?? "gpt-5.5"})`;
+const routeLabel = `${activeEpisode?.providerId ?? "codex"}:${activeEpisode?.model ?? "gpt-5.5"} -> primary`;
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <main class="cockpit" aria-label="Muster Terminal Cockpit">

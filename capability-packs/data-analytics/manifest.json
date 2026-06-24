@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "data-analytics",
+  "name": "Muster Data Analytics",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "data",
+  "entrypoint": "src/index.ts",
+  "description": "Local dataframe-style helpers for profiling rows, summarizing numeric fields, and preparing chart-ready records.",
+  "permissions": [],
+  "sandbox": "none",
+  "evals": ["evals/data-analytics.json"],
+  "implementedTools": ["profile_rows", "numeric_summary"],
+  "status": "v0: pure row profiling; database MCPs remain the governed path for live data access."
+}

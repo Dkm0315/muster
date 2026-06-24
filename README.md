@@ -1,6 +1,6 @@
 # Muster — the AI agent harness you can audit
 
-**Open-source agent runtime with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and integrity verification. Works with Claude, OpenAI, Gemini, Grok, Kimi, DeepSeek, Ollama, and 20+ providers. TypeScript, MIT, self-hosted.**
+**Open-source agent runtime with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and integrity verification. Works with Claude, OpenAI, Gemini, Grok, Kimi, DeepSeek, and 20+ providers. TypeScript, MIT, self-hosted.**
 
 > Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
@@ -66,7 +66,7 @@ AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
 | 🌊 **Flow engine** | Tool/agent/gate steps, preflight, durable runs, replay/diff, `flow loop --cron`. |
 | 📡 **One gateway, every chat app** | Telegram · Slack · Discord · WhatsApp · Google Chat · Teams + a zero-dep web client. |
 | 🔌 **MCP client** | Per-server isolation, circuit breakers, capped results. |
-| 🧰 **20+ providers** | Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Groq, Ollama, vLLM… zero lock-in. |
+| 🧰 **20+ providers** | Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Groq, vLLM… zero lock-in. |
 | 💓 **Pulse scheduler** | Heartbeat that feels alive at ~5% of the token cost — zero-LLM preflight + daily budget. |
 | 👥 **Pull-based subagents** | Durable run store, exactly-once results, no zombie processes. |
 
@@ -75,7 +75,7 @@ AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
 
 
 ```bash
-muster provider add anthropic                 # or kimi / ollama / add-openai-compatible <any-url>
+muster provider add anthropic                 # or kimi / add-openai-compatible <any-url>
 muster run "where do we deploy?"              # governed run: memory recall + ledger + evidence
 muster tokens                                 # per-run cost table, replay-waste flags
 muster verify                                 # store integrity
@@ -141,12 +141,12 @@ Honest table: they have breadth and ecosystems we don't (yet). We have the gover
 
 - **AI agents for business systems**: the Frappe/ERPNext capability pack ships permission-scoped tools where every action executes as the real user — see [`capability-packs/frappe/`](capability-packs/frappe/FRAPPE_SURFACE_SPEC.md). Built from a production deployment serving thousands of employees.
 - **Cost-controlled agent fleets**: per-profile ledgers, per-flow budgets, waste alerts.
-- **Regulated / BFSI / air-gapped**: local models (Ollama, vLLM, SGLang), no cloud required, full audit trail.
+- **Regulated / BFSI / air-gapped**: local models (vLLM, SGLang), no cloud required, full audit trail.
 - **Agent CI**: `muster evolve` as a pipeline gate — your agent's behavior is regression-tested like code.
 
 ## Keywords
 
-AI agent framework · LLM agent harness · agent memory · token cost tracking · agent observability · eval-driven development · agentic workflows · Claude agent SDK · OpenAI agents · Ollama agents · self-hosted AI agent · AI governance · agent audit trail · ERPNext AI · Frappe AI assistant · multi-provider LLM routing
+AI agent framework · LLM agent harness · agent memory · token cost tracking · agent observability · eval-driven development · agentic workflows · Claude agent SDK · OpenAI agents · self-hosted AI agent · AI governance · agent audit trail · ERPNext AI · Frappe AI assistant · multi-provider LLM routing
 
 ## Maturity — v0.1, feature-complete core
 

@@ -11,7 +11,7 @@ const episode: EpisodeRecord = {
   taskKind: "simple_qa",
   runtimeId: "native",
   providerId: "local",
-  model: "llama3.1",
+  model: "gpt-5.5",
   responseText: "There are 7 pending invoices.",
   evidence: [
     {

@@ -9,7 +9,7 @@ const plan: RunPlan = {
   runtimeId: "native",
   route: {
     provider: "local",
-    model: "llama3.1",
+    model: "gpt-5.5",
     reasoning: "medium"
   },
   sensitive: false,
@@ -84,7 +84,7 @@ test("buildTrustEnvelope returns a ready deterministic execution envelope", () =
   assert.deepEqual(envelope.route, {
     runtimeId: "native",
     provider: "local",
-    model: "llama3.1",
+    model: "gpt-5.5",
     reasoning: "medium",
     taskKind: "coding",
     sensitive: false

@@ -10,11 +10,11 @@ test("planRun chooses one runtime and classifies architecture prompts", () => {
 
   assert.equal(plan.runtimeId, "native");
   assert.equal(plan.taskKind, "architecture");
-  assert.equal(plan.route.provider, "local");
+  assert.equal(plan.route.provider, "codex");
   assert.equal(plan.route.reasoning, "high");
 });
 
-test("sensitive prompts prefer local runtime when policy requests it", () => {
+test("sensitive prompts stay on configured Codex default unless local is explicitly configured", () => {
   const config = defaultConfig();
   const plan = planRun(config, {
     prompt: "Analyze these private customer logs",
@@ -23,6 +23,7 @@ test("sensitive prompts prefer local runtime when policy requests it", () => {
 
   assert.equal(plan.runtimeId, "native");
   assert.equal(plan.sensitive, true);
+  assert.equal(plan.route.provider, "codex");
 });
 
 test("planRun rejects routes that reference missing providers", () => {

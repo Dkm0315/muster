@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { connectMcpServer, connectMcpServers } from "../src/index.js";
+import { connectMcpServer, connectMcpServers, writeMcpOAuthToken } from "../src/index.js";
 
 /** A fake MCP server speaking newline-delimited JSON-RPC over stdio. */
 const FAKE_SERVER = `
@@ -109,4 +110,48 @@ test("a non-existent MCP command fails cleanly and does NOT crash the host", asy
   const result = await handle.call("anything", {});
   assert.equal(result.ok, false);
   handle.close();
+});
+
+test("OAuth HTTP MCP refuses unauthenticated setup before making requests", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-mcp-oauth-missing-"));
+  const handle = await connectMcpServer("linear", {
+    transport: { kind: "http", url: "https://mcp.linear.app/mcp" },
+    auth: "oauth",
+    limits: { toolTimeoutMs: 100 },
+  }, cwd);
+  assert.equal(handle.status, "failed");
+  assert.match(handle.error ?? "", /requires OAuth login/);
+});
+
+test("OAuth HTTP MCP sends bearer token from profile token store", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-mcp-oauth-token-"));
+  let seenAuthorization = "";
+  const server = createServer((req, res) => {
+    seenAuthorization = String(req.headers.authorization ?? "");
+    let body = "";
+    req.on("data", (chunk) => { body += String(chunk); });
+    req.on("end", () => {
+      const message = JSON.parse(body) as { id: number; method: string };
+      const result = message.method === "initialize"
+        ? { protocolVersion: "2025-06-18", serverInfo: { name: "oauth-fake" } }
+        : { tools: [] };
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    await writeMcpOAuthToken("oauth-fake", { accessToken: "tok_test" }, cwd);
+    const handle = await connectMcpServer("oauth-fake", {
+      transport: { kind: "http", url: `http://127.0.0.1:${address.port}/mcp` },
+      auth: "oauth",
+    }, cwd);
+    assert.equal(handle.status, "ready");
+    assert.equal(seenAuthorization, "Bearer tok_test");
+    handle.close();
+  } finally {
+    server.close();
+  }
 });

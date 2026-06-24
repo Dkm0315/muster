@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { profileConfigPath, profileConfigWritePath } from "./profiles.js";
 import { findProviderPreset, presetToProviderConfig } from "./providers-catalog.js";
-import type { MusterConfig, ProviderConfig } from "./types.js";
+import type { MusterConfig, ProviderConfig, TaskKind } from "./types.js";
 
 export const CONFIG_DIR = ".muster";
 export const CONFIG_FILE = "config.json";
@@ -11,11 +11,10 @@ export function defaultConfig(): MusterConfig {
   return {
     version: 1,
     providers: {
-      local: {
-        id: "local",
-        kind: "openai-compatible",
-        baseUrl: "http://localhost:11434/v1",
-        defaultModel: "llama3.1",
+      codex: {
+        id: "codex",
+        kind: "codex-cli",
+        defaultModel: "gpt-5.5",
         timeoutMs: 120_000
       }
     },
@@ -23,19 +22,19 @@ export function defaultConfig(): MusterConfig {
       native: {
         id: "native",
         enabled: true,
-        provider: "local",
+        provider: "codex",
         routes: {
-          simple_qa: { provider: "local", model: "llama3.1", reasoning: "low" },
-          research: { provider: "local", model: "llama3.1", reasoning: "medium" },
-          architecture: { provider: "local", model: "llama3.1", reasoning: "high" },
-          private_analysis: { provider: "local", model: "llama3.1", reasoning: "medium" }
+          simple_qa: { provider: "codex", model: "gpt-5.5", reasoning: "low" },
+          research: { provider: "codex", model: "gpt-5.5", reasoning: "medium" },
+          architecture: { provider: "codex", model: "gpt-5.5", reasoning: "high" },
+          private_analysis: { provider: "codex", model: "gpt-5.5", reasoning: "medium" }
         }
       }
     },
     routing: {
       oneRuntimePerRun: true,
       defaultRuntime: "native",
-      preferLocalForSensitive: true,
+      preferLocalForSensitive: false,
       maxCostUsdPerRun: 1,
       approvalRequiredAboveUsd: 3
     }
@@ -53,7 +52,7 @@ export async function ensureDefaultConfig(cwd = process.cwd()): Promise<string> 
     await readFile(target, "utf8");
     return target;
   } catch {
-    await writeFile(target, `${JSON.stringify(defaultConfig(), null, 2)}\n`, "utf8");
+    await writeJsonAtomic(target, defaultConfig());
     return target;
   }
 }
@@ -64,7 +63,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<MusterConfig> {
   if (parsed.version !== 1) {
     throw new Error(`Unsupported Muster config version: ${String(parsed.version)}`);
   }
-  return parsed;
+  return normalizeConfig(parsed);
 }
 
 export async function saveConfig(config: MusterConfig, cwd = process.cwd()): Promise<void> {
@@ -73,7 +72,73 @@ export async function saveConfig(config: MusterConfig, cwd = process.cwd()): Pro
   // (configPath/loadConfig) still inherit the default until a scoped config exists.
   const target = profileConfigWritePath(cwd);
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await writeJsonAtomic(target, config);
+}
+
+async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temp, target);
+}
+
+function normalizeConfig(config: MusterConfig): MusterConfig {
+  const fallback = defaultConfig();
+  const defaultRoute = fallback.runtimes.native.routes.simple_qa!;
+  const rawConfig = config as Partial<MusterConfig>;
+  const providers = { ...fallback.providers, ...(rawConfig.providers ?? {}) };
+  let changed = false;
+  if (!rawConfig.providers) changed = true;
+  for (const [id, provider] of Object.entries(providers)) {
+    if (isRetiredLocalModelProvider(id, provider)) {
+      delete providers[id];
+      changed = true;
+    }
+  }
+  if (!providers.codex) {
+    providers.codex = fallback.providers.codex;
+    changed = true;
+  }
+  const runtimes = Object.fromEntries(
+    Object.entries(rawConfig.runtimes ?? fallback.runtimes).map(([runtimeId, runtime]) => {
+      const providerMissing = !providers[runtime.provider];
+      const provider = providerMissing ? "codex" : runtime.provider;
+      const routes = Object.fromEntries(
+        Object.entries(runtime.routes).map(([taskKind, route]) => {
+          if (providerMissing || !providers[route.provider] || isRetiredLocalModelName(route.model)) {
+            changed = true;
+            const fallbackRoute = fallback.runtimes.native.routes[taskKind as TaskKind] ?? defaultRoute;
+            return [taskKind, { ...route, provider: "codex", model: fallbackRoute.model, reasoning: route.reasoning ?? fallbackRoute.reasoning }];
+          }
+          return [taskKind, route];
+        })
+      );
+      if (providerMissing) changed = true;
+      return [runtimeId, { ...runtime, provider, routes }];
+    })
+  );
+  const routing = { ...fallback.routing, ...(rawConfig.routing ?? {}) };
+  if (!rawConfig.runtimes || !rawConfig.routing) changed = true;
+  if (routing.preferLocalForSensitive) {
+    routing.preferLocalForSensitive = false;
+    changed = true;
+  }
+  return changed ? { ...config, providers, runtimes, routing } : config;
+}
+
+function isRetiredLocalModelProvider(id: string, provider: ProviderConfig): boolean {
+  if (id === "local") return true;
+  if (provider.baseUrl) {
+    try {
+      if (Number(new URL(provider.baseUrl).port) === 11_434) return true;
+    } catch {
+      // Invalid URLs are validated by explicit config commands; loading remains tolerant.
+    }
+  }
+  return isRetiredLocalModelName(provider.defaultModel);
+}
+
+function isRetiredLocalModelName(model: string | undefined): boolean {
+  return new RegExp(`^${["llama", "3"].join("")}(\\.|$)`, "i").test(model ?? "");
 }
 
 export async function addOpenAICompatibleProvider(

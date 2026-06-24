@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "huggingface",
+  "name": "Muster Hugging Face",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "mlops",
+  "entrypoint": "src/index.ts",
+  "description": "Read-mostly Hugging Face Hub tools for model and dataset discovery, repo metadata, and download/auth guidance. Optional token support allows private or gated resources without exposing secrets.",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["HF_TOKEN", "HUGGINGFACE_TOKEN"],
+  "evals": ["evals/huggingface-hub.json"],
+  "implementedTools": [
+    "hf_models_search",
+    "hf_model_info",
+    "hf_datasets_search",
+    "hf_dataset_info",
+    "hf_download_guidance"
+  ],
+  "status": "v0: read-only Hub API inspection plus download guidance. Upload, repo mutation, jobs, endpoints, and webhook actions are intentionally excluded from the default pack."
+}

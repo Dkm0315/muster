@@ -14,7 +14,7 @@ export interface ProviderPreset {
 /**
  * Provider presets so no API or AI provider is ever a bottleneck. Anything
  * speaking the OpenAI-compatible chat protocol works out of the box; CLI
- * runtimes (Claude Code, Codex, Pi) and local servers are first-class too.
+ * runtimes (Claude Code, Codex, Pi) and self-hosted servers are first-class too.
  * Add any unlisted provider with: provider add-openai-compatible <id> <base-url> <model>.
  */
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
@@ -38,7 +38,6 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
   { id: "together", label: "Together AI", kind: "openai-compatible", baseUrl: "https://api.together.xyz/v1", apiKeyEnv: "TOGETHER_API_KEY", defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo", category: "aggregator" },
   { id: "fireworks", label: "Fireworks AI", kind: "openai-compatible", baseUrl: "https://api.fireworks.ai/inference/v1", apiKeyEnv: "FIREWORKS_API_KEY", defaultModel: "accounts/fireworks/models/llama-v3p3-70b-instruct", category: "aggregator" },
   // Local / self-hosted (open source, air-gap friendly)
-  { id: "ollama", label: "Ollama (local)", kind: "openai-compatible", baseUrl: "http://localhost:11434/v1", defaultModel: "llama3.2", category: "local", notes: "No API key. Pull models with: ollama pull <model>" },
   { id: "lmstudio", label: "LM Studio (local)", kind: "openai-compatible", baseUrl: "http://localhost:1234/v1", defaultModel: "local-model", category: "local", notes: "No API key. Start the LM Studio server first." },
   { id: "vllm", label: "vLLM (self-hosted)", kind: "openai-compatible", baseUrl: "http://localhost:8000/v1", defaultModel: "served-model", category: "local", notes: "Point --base-url at your vLLM server." },
   { id: "sglang", label: "SGLang (self-hosted)", kind: "openai-compatible", baseUrl: "http://localhost:30000/v1", defaultModel: "served-model", category: "local", notes: "Point --base-url at your SGLang server." },

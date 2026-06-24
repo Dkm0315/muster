@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "slack",
+  "name": "Muster Slack Channel",
+  "version": "0.1.0",
+  "kind": "channel",
+  "slot": "channel-slack",
+  "entrypoint": "src/index.ts",
+  "description": "Slack app setup, signing-secret readiness, and event debugging helpers for using Muster in Slack.",
+  "permissions": ["messages", "secrets"],
+  "sandbox": "none",
+  "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
+  "evals": ["evals/slack-channel.json"],
+  "implementedTools": ["slack_setup_plan", "slack_gateway_check", "slack_event_summary"],
+  "status": "v0: setup and diagnostic helpers; Slack app creation and OAuth installation stay in Slack."
+}

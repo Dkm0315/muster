@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { printBanner, renderBanner } from "./banner.js";
-import { runMusterChatTui, type MusterChatSink, type MusterCompletionCatalog, type PickerOption } from "./chat-tui.js";
+import { createMusterAutocompleteProvider, runMusterChatTui, type MusterChatSink, type MusterCompletionCatalog, type PickerOption } from "./chat-tui.js";
+import { hasCompletedMusterOnboarding, runMusterOnboardingTui } from "./onboarding-tui.js";
 import {
   openSessionStore,
   clearConversationSessionHandles,
@@ -34,6 +35,7 @@ import {
   configPath,
   ensureDefaultConfig,
   evalPath,
+  retrievalEvalPath,
   findEpisode,
   flowPath,
   flowRunPath,
@@ -59,12 +61,25 @@ import {
   listLearningCandidates,
   listEpisodes,
   listMemory,
+  inspectMemoryStore,
+  probeMemorySearchLatency,
+  rebuildMemoryIndex,
   listBuiltinMcpServers,
+  type BuiltinMcpCatalogEntry,
+  type BuiltinMcpInstallSpec,
+  type BuiltinPluginCatalogEntry,
+  mcpOAuthStatus,
+  writeMcpOAuthToken,
   listPiModels,
   listBuiltinPlugins,
   listBuiltinSkills,
+  appendGoalLoopTurn,
+  buildGoalLoopTurn,
+  promotedMemoryWrite,
+  recentGoalLoopTurns,
   loadConfig,
   saveConfig,
+  formatMemoryScope,
   parseMemoryScope,
   planRun,
   promoteMemory,
@@ -72,10 +87,18 @@ import {
   runPiAgent,
   runPiInteractive,
   runEvalCases,
+  runRetrievalEvalPathWithArtifacts,
+  runRetrievalEvalPath,
+  decideHybridRetrievalGate,
+  seedFrappeGraphRetrievalEvalPack,
+  seedRepresentativeRetrievalEvalPack,
+  seedRetrievalEvalCase,
+  listRetrievalEvalCases,
   scanMigrationSource,
   applyOpenclawProfile,
   seedEvalFromEpisode,
   searchMemory,
+  searchMemoryWithReceipts,
   createToolRegistry,
   registerBuiltinTools,
   setRuntimeProvider,
@@ -115,14 +138,19 @@ import {
   loadGatewayConfig,
   loadPairings,
   pollTelegram,
+  saveGatewayConfig,
   startGatewayServer
 } from "@musterhq/gateway";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes, createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import type { CapabilityPluginPolicy, ChatMessage, EvidenceRecord, FeedbackValue, FlowRunEvent, FlowRunState, FlowToolRegistry, McpServerConfig, MemoryScope, MessageRow, MigrationSource, RunOutcome } from "@musterhq/core";
+import type { GatewayConfig } from "@musterhq/gateway";
 
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...warningArgs: Parameters<typeof process.emitWarning> extends [string | Error, ...infer Rest] ? Rest : never[]) => {
@@ -140,6 +168,10 @@ process.on("warning", (warning) => {
 const [, , command, ...args] = process.argv;
 
 async function main(): Promise<void> {
+  if (command === "--skip-onboarding" || command === "--no-onboarding") {
+    await chat([command, ...args]);
+    return;
+  }
   switch (command) {
     case undefined:
       await chat(args);
@@ -152,6 +184,10 @@ async function main(): Promise<void> {
       return;
     case "init":
       await init();
+      return;
+    case "onboard":
+    case "onboarding":
+      await runMusterOnboardingTui(args);
       return;
     case "doctor":
       await doctor(args);
@@ -192,8 +228,14 @@ async function main(): Promise<void> {
     case "context":
       await context(args);
       return;
+    case "latency":
+      await latencyCommand(args);
+      return;
     case "memory":
       await memory(args);
+      return;
+    case "goal":
+      await goalCommand(args);
       return;
     case "tui":
       await tui();
@@ -258,6 +300,12 @@ async function main(): Promise<void> {
     case "gateway":
       await gatewayCommand(args);
       return;
+    case "channels":
+      await channelsCommand(args);
+      return;
+    case "integrations":
+      await integrationsCommand(args);
+      return;
     case "pairing":
       await pairingCommand(args);
       return;
@@ -270,8 +318,10 @@ function printHelp(): void {
   console.log(`Muster v0
 
 Usage:
-  muster                                    # open interactive chat
+  muster                                    # first run: onboarding; after setup: interactive chat
+  muster --skip-onboarding                  # open chat even if onboarding is incomplete
   muster init
+  muster onboard [--preview] [--color=always|never] [--step purpose|style|provider|integrations|channels|memory|finish]
   muster doctor [--fix]
   muster status
   muster chat
@@ -285,22 +335,33 @@ Usage:
   muster candidates
   muster eval seed <episode-id> [--expect "..."] [--forbid "..."]
   muster eval run [path-or-dir]
+  muster eval retrieval seed <id> --query "..." --scope user:me --expect mem_... | --expect-none
+  muster eval retrieval seed-pack <id> [--tenant f2] [--user goblin] [--other-user goblin-other] [--distractors 250]
+  muster eval retrieval seed-frappe-pack <id> [--tenant f2] [--user goblin] [--app frappe_app] [--module HR] [--doctype Employee] [--child-doctype "Employee Detail"] [--distractors 250]
+  muster eval retrieval list [path-or-dir]
+  muster eval retrieval <path-or-dir> [--min-recall 1] [--min-mrr 1] [--max-leakage-rate 0] [--max-stale-hit-rate 0] [--max-p95-ms 50] [--artifact-dir DIR]
   muster capability inspect <path>
   muster capability load <path> [--allow-high-risk]
-  muster plugins list | catalog | enable <id> | disable <id> | policy | inspect <path> | load <path>
-  muster mcp list | add-stdio <name> <command> [args...] | test <name>
+  muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
+  muster mcp list | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
+  muster channels list | status [channel] | setup <channel> [--public-url URL] [secret env flags]
+  muster integrations [list|guide]         # layman setup guide for chat apps, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
+  muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
   muster memory add --summary "..." --scope user:me --provenance manual
   muster memory search --scope user:me [--query "..."] [--include-global]
+  muster memory status [--probe --scope user:me --query "..."]
+  muster memory doctor [--fix] [--probe --scope user:me --query "..."]
   muster memory promote <memory-id> --to tenant:acme [--allow-global]
+  muster goal status [--limit 10]       # active-goal loop ledger: retrieval, memory write, follow-up needs
   muster tui
   muster tui ask "your prompt"
   muster provider list
   muster provider add-openai-compatible <id> <base-url> <model> [--api-key-env OPENAI_API_KEY]
   muster provider add-codex-cli <id> <model>
   muster provider presets
-  muster provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, ollama, openrouter, ...)
+  muster provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, openrouter, vllm, ...)
   muster runtime use-provider <runtime-id> <provider-id> [model]
   muster pi inspect [--home /path/to/home]
   muster pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
@@ -346,7 +407,7 @@ async function init(): Promise<void> {
   printBanner();
   const target = await ensureDefaultConfig();
   console.log(`Created or reused Muster config: ${target}`);
-  console.log("Default provider: local OpenAI-compatible endpoint at http://localhost:11434/v1");
+  console.log("Default provider: Codex CLI via your local `codex` login");
   console.log("Next: muster doctor");
 }
 
@@ -438,12 +499,16 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "name", usage: "/name <name>", description: "switch current reference name" },
   { name: "history", usage: "/history [limit]", description: "show current chat history" },
   { name: "memory", usage: "/memory <query>", description: "search scoped memory" },
+  { name: "scope", usage: "/scope <kind:id...|add kind:id|clear>", description: "set or inspect memory recall scopes" },
+  { name: "scopes", usage: "/scopes", description: "show active memory recall scopes" },
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
   { name: "skills", usage: "/skills [id]", description: "show or enable built-in skills", aliases: ["skill"] },
   { name: "plugins", usage: "/plugins [id]", description: "show or enable built-in plugins", aliases: ["plugin"] },
   { name: "mcp", usage: "/mcp [id]", description: "show configured and suggested MCP servers" },
   { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
   { name: "tokens", usage: "/tokens [limit]", description: "show token ledger", aliases: ["usage", "ledger"] },
+  { name: "goal", usage: "/goal [status]", description: "show active goal-loop retrieval and memory ledger" },
+  { name: "receipt", usage: "/receipt [limit]", description: "show recent retrieval receipts and memory write decisions" },
   { name: "new", usage: "/new [name]", description: "start/switch to a fresh named chat and clear provider handles" },
   { name: "reset", usage: "/reset", description: "clear provider handles for this named chat" },
   { name: "clear", usage: "/clear", description: "clear the terminal screen", aliases: ["cls"] },
@@ -472,13 +537,25 @@ const CHAT_SKILL_OPTIONS = listBuiltinSkills().map((skill) => ({
 const CHAT_PLUGIN_OPTIONS = listBuiltinPlugins().map((plugin) => ({
   value: plugin.id,
   label: plugin.id,
-  description: `${plugin.category} · ${plugin.source} · risk ${plugin.risk}`,
+  description: `${plugin.category} · ${plugin.actionability} · ${plugin.source} · risk ${plugin.risk}`,
 }));
 const CHAT_MCP_OPTIONS = listBuiltinMcpServers().map((server) => ({
   value: server.id,
   label: server.id,
   description: `${server.category} · ${server.source} · risk ${server.risk}`,
 }));
+
+function defaultChatScopes(): MemoryScope[] {
+  return [parseMemoryScope(`user:${process.env.USER || process.env.USERNAME || "local"}`)];
+}
+
+function activeChatScopes(state: ChatState): MemoryScope[] {
+  return state.scopes.length ? state.scopes : defaultChatScopes();
+}
+
+function formatChatScopes(scopes: readonly MemoryScope[]): string {
+  return scopes.map(formatMemoryScope).join(", ");
+}
 
 async function chat(commandArgs: string[]): Promise<void> {
   if (commandArgs.includes("--help") || commandArgs.includes("-h")) {
@@ -490,11 +567,11 @@ async function chat(commandArgs: string[]): Promise<void> {
     runtime: readFlag(commandArgs, "--runtime"),
     provider: readFlag(commandArgs, "--provider"),
     model: readFlag(commandArgs, "--model"),
-    speedMode: commandArgs.includes("--one-shot-speed") ? "fast" : "session",
+    speedMode: commandArgs.includes("--fast") ? "fast" : "session",
     scopes: readFlags(commandArgs, "--scope").map(parseMemoryScope),
     recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
   };
-  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms", "--continue", "--tools", "--complete", "--limit"]).filter((arg) => !["--commands", "--shortcuts", "--list", "--sessions", "--history", "--fast", "--session-speed"].includes(arg)).join(" ").trim();
+  const prompt = stripFlags(commandArgs, ["--session", "--name", "--runtime", "--provider", "--model", "--scope", "--recall-limit", "--timeout-ms", "--continue", "--tools", "--complete", "--limit"]).filter((arg) => !["--commands", "--shortcuts", "--list", "--sessions", "--history", "--fast", "--session-speed", "--skip-onboarding", "--no-onboarding"].includes(arg)).join(" ").trim();
   if (commandArgs.includes("--list") || commandArgs.includes("--sessions")) {
     printChatSessions(readNumberFlag(commandArgs, "--limit") ?? 15);
     return;
@@ -520,7 +597,7 @@ async function chat(commandArgs: string[]): Promise<void> {
   const completeIndex = commandArgs.indexOf("--complete");
   if (completeIndex >= 0) {
     const fragment = commandArgs[completeIndex + 1] ?? "";
-    console.log(chatCompletions(fragment).join("\n"));
+    console.log((await chatTuiCompletions(fragment, state)).join("\n"));
     return;
   }
   const toolsIndex = commandArgs.indexOf("--tools");
@@ -530,8 +607,12 @@ async function chat(commandArgs: string[]): Promise<void> {
     return;
   }
   if (prompt) {
-    await runChatTurn(prompt, state, { timeoutMs: readNumberFlag(commandArgs, "--timeout-ms") });
+    await runChatTurn(prompt, state, { timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"), keepAlive: false });
     return;
+  }
+  if (shouldLaunchOnboarding(commandArgs)) {
+    const onboarding = await runMusterOnboardingTui(process.stdin.isTTY && process.stdout.isTTY ? [] : ["--preview"]);
+    if (!onboarding.handoffToChat) return;
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Interactive chat requires a TTY. Use: muster chat "your prompt" or muster chat --history --session main.');
@@ -539,14 +620,21 @@ async function chat(commandArgs: string[]): Promise<void> {
   await interactiveChat(state);
 }
 
+function shouldLaunchOnboarding(commandArgs: readonly string[]): boolean {
+  if (command !== undefined) return false;
+  if (commandArgs.includes("--skip-onboarding") || commandArgs.includes("--no-onboarding")) return false;
+  if (process.env.MUSTER_SKIP_ONBOARDING === "1") return false;
+  return !hasCompletedMusterOnboarding();
+}
+
 function printChatHelp(): void {
   console.log(`muster chat
 
 Usage:
   muster chat                               # interactive terminal chat
-  muster chat "your prompt"                 # one-shot turn in the main named session
-  muster chat --session work "prompt"       # one-shot turn in a named session
-  muster chat --one-shot-speed              # use one-shot Codex exec instead of persistent app-server
+  muster chat "your prompt"                 # session-backed turn in the main named session
+  muster chat --session work "prompt"       # session-backed turn in a named session
+  muster chat --fast "prompt"               # explicit one-shot Codex exec fallback
   muster chat --continue [name]             # resume by name, or most recent named chat
   muster chat --session work --history      # show a named session
   muster chat --tools [toolset]             # list built-in tools
@@ -682,6 +770,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
   const providerId = state.provider ?? runtime?.provider ?? "provider";
   const provider = providerId ? config?.providers[providerId] : undefined;
   const model = state.model ?? firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "model";
+  const scopes = activeChatScopes(state);
   const skills = await listSkills().catch(() => []);
   const activeSkills = skills.filter((skill) => skill.status === "active");
   const skillNames = (activeSkills.length ? activeSkills : skills).slice(0, 16).map((skill) => skill.name);
@@ -708,6 +797,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
     color(model, "accent"),
     color(cwd, "dim"),
     color(truncate(`Session: ${state.sessionName}`, leftWidth), "dim"),
+    color(truncate(`Scope: ${formatChatScopes(scopes)}`, leftWidth), "dim"),
   ];
   const rightLines = [
     color("Commands", "accent"),
@@ -731,7 +821,7 @@ async function printChatHeader(state: ChatState): Promise<void> {
     const right = visiblePadEnd(rightLines[index] ?? "", rightWidth);
     console.log(color("│ ", "accent") + left + " ".repeat(gutter) + middle + " ".repeat(gutter) + right + color(" │", "accent"));
   }
-  const footer = `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "fast"} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
+  const footer = `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "fast"} · scopes ${formatChatScopes(scopes)} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpNames.length)} mcp · /help`;
   console.log(color("├" + "─".repeat(width - 2) + "┤", "accent"));
   console.log(color("│ ", "accent") + visiblePadEnd(color(footer, "accent"), width - 4) + color(" │", "accent"));
   console.log(color(`╰${"─".repeat(width - 2)}╯`, "accent"));
@@ -749,7 +839,7 @@ async function chatStatusLine(state: ChatState): Promise<string> {
   const pluginPolicy = config?.plugins;
   const pluginCount = (pluginPolicy?.allow?.length ?? 0) + Object.keys(pluginPolicy?.entries ?? {}).length;
   const mcpCount = Object.keys(config?.tools?.mcp?.servers ?? {}).length;
-  return `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "session"} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpCount)} mcp · /help`;
+  return `${model} · ${providerId} · ${runtimeId} · speed ${state.speedMode ?? "fast"} · scopes ${formatChatScopes(activeChatScopes(state))} · ${formatCompactNumber(8)} tool groups · ${formatCompactNumber(skills.length)} skills · ${formatCompactNumber(pluginCount)} plugins · ${formatCompactNumber(mcpCount)} mcp · /help`;
 }
 
 async function captureConsoleToSink<T>(fn: () => Promise<T>, sink: MusterChatSink): Promise<T> {
@@ -988,6 +1078,12 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
     case "memory":
       await printChatMemory(args, state);
       return true;
+    case "scope":
+      await updateChatScopes(args, state);
+      return true;
+    case "scopes":
+      printChatScopes(state);
+      return true;
     case "tools":
       printChatTools(args);
       return true;
@@ -1009,6 +1105,10 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
     case "usage":
     case "ledger":
       console.log(renderTokenTable(await listTokenRecords(), args ? Number(args) || 20 : 20));
+      return true;
+    case "goal":
+    case "receipt":
+      await printGoalStatus(args ? Number(args) || 5 : 5);
       return true;
     case "new": {
       state.sessionName = safeChatSessionName(args || `chat-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
@@ -1070,6 +1170,19 @@ function chatCompletions(line: string): string[] {
     return recentChatSessionNames().filter((name) => name.toLowerCase().startsWith(fragment));
   }
   return [];
+}
+
+async function chatTuiCompletions(line: string, state: ChatState): Promise<string[]> {
+  await ensureDefaultConfig();
+  const provider = createMusterAutocompleteProvider({
+    commands: CHAT_COMMANDS,
+    toolsets: CHAT_TOOLSETS,
+    recentSessions: recentChatSessionNames,
+    catalog: createChatCompletionCatalog(state),
+    agents: chatAgentOptions,
+  });
+  const suggestions = await provider.getSuggestions([line], 0, line.length, { signal: new AbortController().signal });
+  return suggestions?.items.map((item) => item.value) ?? [];
 }
 
 async function renderLiveSuggestions(
@@ -1190,7 +1303,7 @@ function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggesti
   return `${lines.join("\n")}\n`;
 }
 
-async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?: number } = {}): Promise<void> {
+async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?: number; keepAlive?: boolean } = {}): Promise<void> {
   await ensureDefaultConfig();
   const routed = parseAgentMention(text);
   const prompt = routed ? routed.prompt : text;
@@ -1211,7 +1324,9 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
       conversationKey: chatConversationKey(state.sessionName),
       surfaceId: "cli-chat",
       agentId,
-      nativeSession: (state.speedMode ?? "session") !== "fast",
+      skipAgentRules: true,
+      nativeSession: (state.speedMode ?? "fast") !== "fast",
+      nativeSessionKeepAlive: options.keepAlive ?? true,
       timeoutMs: options.timeoutMs,
     });
   } finally {
@@ -1271,6 +1386,10 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
 
 function printAssistantResponse(outcome: RunOutcome): void {
   const status = outcome.episode.outcome?.kind ?? "unknown";
+  if (process.env.MUSTER_TIMINGS === "1" && outcome.timings) {
+    const t = outcome.timings;
+    console.log(color(`timings total=${t.totalMs}ms provider=${t.providerMs}ms recall=${t.recallMs}ms prompt=${t.promptBuildMs}ms persist=${t.persistMs}ms planning=${t.planningMs}ms`, "dim"));
+  }
   if (status !== "completed") {
     const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status}`;
     console.log(color(`✖ ${header}`, "red"));
@@ -1279,11 +1398,24 @@ function printAssistantResponse(outcome: RunOutcome): void {
     console.log(color("Run `muster doctor` or `/status` to inspect provider configuration.", "dim"));
     return;
   }
-  if (outcome.recalled.length) console.log(color(`recalled ${outcome.recalled.length} memories`, "dim"));
+  if (outcome.recallReceipt) {
+    const receipt = outcome.recallReceipt;
+    const receiptScopes = receipt.scopes ?? uniqueMemoryScopes(outcome.recalled.flatMap((memory) => memory.scopes));
+    const scopeSummary = receiptScopes.map(formatMemoryScope).join(",");
+    const summary = `memory backend=${receipt.backend} recalled=${receipt.receipts.length} candidates=${receipt.candidateCount} scopes=${scopeSummary}${receipt.fallbackUsed ? " expanded=true" : ""}`;
+    console.log(color(summary, receipt.receipts.length ? "dim" : "yellow"));
+    for (const item of receipt.receipts.slice(0, 3)) {
+      console.log(color(`  ${item.memory.id} score=${item.score.toFixed(3)} ${item.reason}`, "dim"));
+    }
+  }
   if (outcome.fallbackUsed) console.log(color(`fallback=${outcome.fallbackUsed}`, "yellow"));
   for (const line of wrapPreserveLines(outcome.episode.responseText || "(empty response)", Math.min(process.stdout.columns || 100, 120) - 2)) {
     console.log(line);
   }
+}
+
+function uniqueMemoryScopes(scopes: readonly MemoryScope[]): MemoryScope[] {
+  return [...new Map(scopes.map((scope) => [formatMemoryScope(scope), scope])).values()];
 }
 
 function persistChatTranscriptIfMissing(sessionName: string, prompt: string, outcome: RunOutcome): void {
@@ -1385,7 +1517,9 @@ async function printChatStatus(state: ChatState): Promise<void> {
       `${color("runtime".padEnd(12), "accent")} ${runtime}`,
       `${color("provider".padEnd(12), "accent")} ${provider?.id ?? providerId ?? "-"}`,
       `${color("model".padEnd(12), "accent")} ${model ?? "-"}`,
-      `${color("speed".padEnd(12), "accent")} ${state.speedMode ?? "session"}${(state.speedMode ?? "session") === "fast" ? " (one-shot Codex exec)" : " (persistent Codex app-server)"}`,
+      `${color("speed".padEnd(12), "accent")} ${state.speedMode ?? "fast"}${(state.speedMode ?? "fast") === "fast" ? " (one-shot Codex exec)" : " (persistent Codex app-server)"}`,
+      `${color("scopes".padEnd(12), "accent")} ${formatChatScopes(activeChatScopes(state))}${state.scopes.length ? " (explicit)" : " (default)"}`,
+      `${color("recall".padEnd(12), "accent")} limit ${state.recallLimit ?? 5}`,
       `${color("messages".padEnd(12), "accent")} ${messages}`,
       `${color("tokens".padEnd(12), "accent")} in ${session.tokensIn} / out ${session.tokensOut}`,
       color(`id ${session.id}`, "dim"),
@@ -1422,6 +1556,7 @@ async function printChatProviders(): Promise<void> {
 async function switchChatProvider(args: string, state: ChatState): Promise<void> {
   if (!args) {
     await printChatProviders();
+    openNextPicker(state, "/provider");
     return;
   }
   const [providerId, ...modelParts] = args.split(/\s+/).filter(Boolean);
@@ -1473,6 +1608,7 @@ async function cloudChatProvider(args: string, state: ChatState): Promise<void> 
       return `${color(preset.id.padEnd(14), "accent")} ${preset.label.padEnd(38)} ${preset.defaultModel.padEnd(28)} ${key}`;
     }));
     console.log(color("Use /cloud <preset> to add and switch, for example /cloud openrouter or /cloud anthropic.", "dim"));
+    openNextPicker(state, "/cloud");
     return;
   }
   const preset = PROVIDER_PRESETS.find((item) => item.id === presetId);
@@ -1492,7 +1628,8 @@ async function switchChatModel(args: string, state: ChatState): Promise<void> {
     const providerId = state.provider ?? runtime?.provider;
     const provider = providerId ? config.providers[providerId] : undefined;
     console.log(color(`model=${state.model ?? firstRuntimeModel(runtime) ?? provider?.defaultModel ?? "-"} provider=${providerId ?? "-"}`, "cyan"));
-    console.log(color("Usage: /model <name>", "dim"));
+    console.log(color("Choose from the picker, or type /model <name>.", "dim"));
+    openNextPicker(state, "/model");
     return;
   }
   const config = await loadConfig();
@@ -1529,12 +1666,13 @@ async function switchChatRuntime(args: string, state: ChatState): Promise<void> 
       `${color("pi".padEnd(18), "accent")} Pi managed provider runtime`,
     ]);
     console.log(color("Use /runtime claude-code, /runtime codex, /runtime pi, or /provider <id> [model].", "dim"));
+    openNextPicker(state, "/runtime");
     return;
   }
   if (runtimeId === "claude" || runtimeId === "claude-code") {
     state.runtime = "claude-code";
     state.provider = "claude-code";
-    state.model = state.model ?? "sonnet";
+    state.model = "sonnet";
     await refreshChatTuiHeader(state);
     const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
     console.log(color(`runtime=claude-code provider=claude-code model=${state.model} provider_handles_cleared=${cleared}`, "green"));
@@ -1545,7 +1683,7 @@ async function switchChatRuntime(args: string, state: ChatState): Promise<void> 
   if (runtimeId === "codex") {
     state.runtime = "codex";
     state.provider = "codex";
-    state.model = state.model ?? "gpt-5.5";
+    state.model = "gpt-5.5";
     await refreshChatTuiHeader(state);
     const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
     console.log(color(`runtime=codex provider=codex model=${state.model} provider_handles_cleared=${cleared}`, "green"));
@@ -1555,7 +1693,7 @@ async function switchChatRuntime(args: string, state: ChatState): Promise<void> 
   if (runtimeId === "pi") {
     state.runtime = "pi";
     state.provider = "pi-default";
-    state.model = state.model ?? "pi-default";
+    state.model = "pi-default";
     await refreshChatTuiHeader(state);
     const cleared = await clearConversationSessionHandles(chatConversationKey(state.sessionName));
     console.log(color(`runtime=pi provider=pi-default model=${state.model} provider_handles_cleared=${cleared}`, "green"));
@@ -1581,9 +1719,10 @@ function switchChatSpeed(args: string, state: ChatState): void {
   const mode = args.trim().toLowerCase();
   if (!mode) {
     printChatPanel("Speed", chatSpeedOptions().map((option) => {
-      const active = option.value === (state.speedMode ?? "session") ? "*" : " ";
+      const active = option.value === (state.speedMode ?? "fast") ? "*" : " ";
       return `${color(active, "accent")} ${color(option.value.padEnd(10), "accent")} ${option.description ?? ""}`;
     }));
+    openNextPicker(state, "/speed");
     return;
   }
   if (mode !== "session" && mode !== "fast") {
@@ -1612,15 +1751,65 @@ async function printChatMemory(query: string, state: ChatState): Promise<void> {
     console.log(color("Usage: /memory <query>", "yellow"));
     return;
   }
-  const scopes = state.scopes.length ? state.scopes : [parseMemoryScope(`user:${process.env.USER || process.env.USERNAME || "local"}`)];
-  const results = await searchMemory({ query, scopes, includeGlobal: true }, process.cwd());
-  if (!results.length) {
-    console.log("No matching scoped memory.");
+  const scopes = activeChatScopes(state);
+  const result = await searchMemoryWithReceipts({ query, scopes, includeGlobal: true, limit: 8, candidateLimit: 50, match: "any" }, process.cwd());
+  if (!result.receipts.length) {
+    console.log(`No matching scoped memory. scopes=${formatChatScopes(scopes)} backend=${result.backend} candidates=${result.candidateCount}`);
     return;
   }
-  for (const memory of results.slice(0, 8)) {
+  console.log(color(`memory query="${query}" scopes=${formatChatScopes(scopes)} backend=${result.backend} candidates=${result.candidateCount}`, "dim"));
+  for (const receipt of result.receipts.slice(0, 8)) {
+    const memory = receipt.memory;
     console.log(color(`${memory.id} ${memory.kind} ${memory.observedAt}`, "cyan"));
     console.log(`  ${memory.summary}`);
+    console.log(color(`  score=${receipt.score.toFixed(3)} reason=${receipt.reason} scopes=${memory.scopes.map(formatMemoryScope).join(",")}`, "dim"));
+  }
+}
+
+function printChatScopes(state: ChatState): void {
+  const explicit = state.scopes.length > 0;
+  printChatPanel("Memory Scopes", [
+    `${color("active".padEnd(12), "accent")} ${formatChatScopes(activeChatScopes(state))}`,
+    `${color("mode".padEnd(12), "accent")} ${explicit ? "explicit" : "default local user"}`,
+    `${color("recall".padEnd(12), "accent")} limit ${state.recallLimit ?? 5}`,
+    color("Use /scope user:pavan tenant:f2 to replace, /scope add tenant:f2 to append, or /scope clear.", "dim"),
+  ]);
+}
+
+async function updateChatScopes(args: string, state: ChatState): Promise<void> {
+  const parts = args.split(/\s+/).filter(Boolean);
+  if (!parts.length) {
+    printChatScopes(state);
+    return;
+  }
+  const action = parts[0].toLowerCase();
+  try {
+    if (action === "clear" || action === "default") {
+      state.scopes = [];
+      await refreshChatTuiHeader(state);
+      console.log(color(`scopes=${formatChatScopes(activeChatScopes(state))} mode=default`, "green"));
+      return;
+    }
+    if (action === "add") {
+      const additions = parts.slice(1).map(parseMemoryScope);
+      if (!additions.length) {
+        console.log(color("Usage: /scope add <kind:id> [...]", "yellow"));
+        return;
+      }
+      const merged = new Map(activeChatScopes(state).map((scope) => [formatMemoryScope(scope), scope]));
+      for (const scope of additions) merged.set(formatMemoryScope(scope), scope);
+      state.scopes = [...merged.values()];
+      await refreshChatTuiHeader(state);
+      console.log(color(`scopes=${formatChatScopes(state.scopes)}`, "green"));
+      return;
+    }
+    const scopes = parts.map(parseMemoryScope);
+    state.scopes = scopes;
+    await refreshChatTuiHeader(state);
+    console.log(color(`scopes=${formatChatScopes(scopes)}`, "green"));
+  } catch (error) {
+    console.log(color(error instanceof Error ? error.message : String(error), "yellow"));
+    console.log(color("Usage: /scope user:pavan tenant:f2 | /scope add tenant:f2 | /scope clear", "dim"));
   }
 }
 
@@ -1674,6 +1863,7 @@ async function printChatSkills(selection: string | undefined, state: ChatState):
       `${color("Built-ins", "accent")} ${grouped.join(" · ")}`,
       `${color("Enable", "accent")} /skills <id> · muster skills enable <id> · muster skills catalog`,
     ]);
+    openNextPicker(state, "/skills");
     return;
   }
   printChatPanel("Skills", [
@@ -1685,10 +1875,12 @@ async function printChatSkills(selection: string | undefined, state: ChatState):
     `${color("More built-ins", "accent")} ${grouped.join(" · ")}`,
     `${color("Enable", "accent")} /skills <id>`,
   ]);
+  openNextPicker(state, "/skills");
 }
 
 async function printChatPlugins(selection: string | undefined, state: ChatState): Promise<void> {
-  const selected = selection?.trim();
+  const parsed = parseChatSelection(selection);
+  const selected = parsed.value;
   if (selected) {
     try {
       const current = await loadConfig();
@@ -1705,11 +1897,12 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
         openNextPicker(state, plugin?.category === "web" || plugin?.id === "browser" || plugin?.id === "mcp-bridge" ? "/mcp" : "/skills");
         return;
       }
-      const plugin = await enableBuiltinPlugin(selected, process.cwd(), { allowHighRisk: false });
+      const plugin = await enableBuiltinPlugin(selected, process.cwd(), { allowHighRisk: parsed.allowHighRisk });
       printChatPanel("Plugins", [
         `${color("enabled", "green")} ${color(plugin.id, "accent")} · ${plugin.category} · risk=${plugin.risk}`,
         plugin.description,
         ...(pluginSetupUrl(plugin.id) ? [`${color("Setup", "accent")} ${pluginSetupUrl(plugin.id)}`] : []),
+        ...chatPluginSetupLines(plugin),
         plugin.packPath ? `pack=${plugin.packPath}` : color("Policy enabled. Add MCP/tools or credentials when this integration needs execution.", "dim"),
       ]);
       openNextPicker(state, plugin.category === "web" || plugin.id === "browser" || plugin.id === "mcp-bridge" ? "/mcp" : "/skills");
@@ -1720,9 +1913,11 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
           ? `${color(match.id, "accent")} ${match.category} · risk=${match.risk} · ${match.description}`
           : color(error instanceof Error ? error.message : String(error), "yellow"),
         match?.risk === "high"
-          ? `${color("High risk", "yellow")} enable outside chat with: muster plugins enable ${match.id} --allow-high-risk`
+          ? `${color("High risk", "yellow")} review setup, then enable in chat with: /plugins ${match.id} --allow-high-risk`
           : `${color("Try", "accent")} /plugins ${listBuiltinPlugins().slice(0, 5).map((plugin) => plugin.id).join(" · ")}`,
+        ...(match ? chatPluginSetupLines(match).slice(0, 5) : []),
       ]);
+      if (match) openNextPicker(state, `/plugins ${match.id}`);
     }
     return;
   }
@@ -1737,6 +1932,7 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
       `${color("Built-ins", "accent")} ${grouped.join(" · ")}`,
       `${color("Enable", "accent")} /plugins <id> · muster plugins enable <id> · muster plugins catalog`,
     ]);
+    openNextPicker(state, "/plugins");
     return;
   }
   const entries = Object.entries(policy.entries ?? {});
@@ -1749,10 +1945,56 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
     `${color("More built-ins", "accent")} ${grouped.join(" · ")}`,
     `${color("Enable", "accent")} /plugins <id>`,
   ]);
+  openNextPicker(state, "/plugins");
 }
 
 async function printChatMcp(selection: string | undefined, state: ChatState): Promise<void> {
-  const selected = selection?.trim();
+  const parsed = parseChatSelection(selection);
+  const selected = parsed.value;
+  if (selected === "test") {
+    const target = parsed.rest[0];
+    if (!target) {
+      printChatPanel("MCP", [
+        color("Usage: /mcp test <id>", "yellow"),
+        "Pick a configured MCP server from the next picker, then submit /mcp test <id>.",
+      ]);
+      openNextPicker(state, "/mcp");
+      return;
+    }
+    await printMcpTest(target, { setExitCode: false });
+    return;
+  }
+  if (selected === "check" || selected === "doctor") {
+    const target = parsed.rest[0];
+    if (!target) {
+      for (const entry of listBuiltinMcpServers()) await printMcpCheck(entry);
+      return;
+    }
+    const entry = findBuiltinMcpEntry(target);
+    if (!entry) {
+      printChatPanel("MCP", [
+        color(`Unknown built-in MCP "${target}".`, "yellow"),
+        `${color("Try", "accent")} /mcp ${listBuiltinMcpServers().slice(0, 5).map((server) => server.id).join(" · ")}`,
+      ]);
+      openNextPicker(state, "/mcp");
+      return;
+    }
+    await printMcpCheck(entry);
+    return;
+  }
+  if (selected === "install") {
+    const target = parsed.rest[0];
+    if (!target) {
+      printChatPanel("MCP", [
+        color("Usage: /mcp install <id>", "yellow"),
+        "Pick an MCP server from the next picker, then submit /mcp install <id>.",
+      ]);
+      openNextPicker(state, "/mcp");
+      return;
+    }
+    await printChatMcp(target, state);
+    return;
+  }
   if (selected) {
     const candidate = listBuiltinMcpServers().find((server) => server.id === selected);
     if (candidate) {
@@ -1775,6 +2017,7 @@ async function printChatMcp(selection: string | undefined, state: ChatState): Pr
         `${color("Add", "accent")} ${candidate.commandHint}`,
         `${color("Setup needed", "yellow")} This MCP needs credentials or a connection URL before Muster can enable it automatically.`,
       ]);
+      openNextPicker(state, "/mcp");
       return;
     }
   }
@@ -1789,6 +2032,7 @@ async function printChatMcp(selection: string | undefined, state: ChatState): Pr
       `${color("Suggested", "accent")} ${grouped.join(" · ")}`,
       `${color("Inspect", "accent")} /mcp <id> for the exact add command`,
     ]);
+    openNextPicker(state, "/mcp");
     return;
   }
   printChatPanel("MCP", [
@@ -1802,6 +2046,14 @@ async function printChatMcp(selection: string | undefined, state: ChatState): Pr
     `${color("Suggested", "accent")} ${grouped.join(" · ")}`,
     `${color("Inspect", "accent")} /mcp <id>`,
   ]);
+  openNextPicker(state, "/mcp");
+}
+
+function parseChatSelection(input: string | undefined): { value: string; rest: string[]; allowHighRisk: boolean } {
+  const parts = (input ?? "").split(/\s+/).filter(Boolean);
+  const allowHighRisk = parts.includes("--allow-high-risk") || parts.includes("--yes") || parts.includes("--confirm");
+  const values = parts.filter((part) => !part.startsWith("--"));
+  return { value: values[0] ?? "", rest: values.slice(1), allowHighRisk };
 }
 
 async function chatAgentOptions(): Promise<string[]> {
@@ -1826,17 +2078,17 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
         case "session":
           return filterPickerOptions(recentChatSessionNames().map((name) => ({ value: name, label: name, description: "chat session" })), request.fragment);
         case "provider":
-          return filterPickerOptions(await chatProviderOptions(), request.fragment);
+          return filterPickerOptions(await chatProviderOptions(state), request.fragment);
         case "provider-model":
-          return filterPickerOptions(await chatModelOptions(request.providerId ?? state.provider), request.fragment);
+          return filterPickerOptions(await chatModelOptions(request.providerId ?? state.provider, state), request.fragment);
         case "model":
-          return filterPickerOptions(await chatModelOptions(state.provider), request.fragment);
+          return filterPickerOptions(await chatModelOptions(state.provider, state), request.fragment);
         case "runtime":
-          return filterPickerOptions(await chatRuntimeOptions(), request.fragment);
+          return filterPickerOptions(await chatRuntimeOptions(state), request.fragment);
         case "cloud":
           return filterPickerOptions(chatCloudOptions(), request.fragment);
         case "speed":
-          return filterPickerOptions(chatSpeedOptions(state.speedMode ?? "session"), request.fragment);
+          return filterPickerOptions(chatSpeedOptions(state.speedMode ?? "fast"), request.fragment);
         case "skill":
           return filterPickerOptions(chatSkillOptions(), request.fragment);
         case "plugin":
@@ -1854,10 +2106,11 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
   };
 }
 
-async function chatProviderOptions(): Promise<PickerOption[]> {
+async function chatProviderOptions(state?: ChatState): Promise<PickerOption[]> {
   const config = await loadConfig();
-  const activeRuntime = config.runtimes[config.routing.defaultRuntime];
-  const activeProvider = activeRuntime?.provider;
+  const activeRuntimeId = state?.runtime ?? config.routing.defaultRuntime;
+  const activeRuntime = config.runtimes[activeRuntimeId];
+  const activeProvider = state?.provider ?? activeRuntime?.provider;
   const configured = Object.values(config.providers).map((provider) => ({
     value: provider.id,
     label: provider.id,
@@ -1877,13 +2130,16 @@ async function chatProviderOptions(): Promise<PickerOption[]> {
   ], activeProvider);
 }
 
-async function chatModelOptions(providerId?: string): Promise<PickerOption[]> {
+async function chatModelOptions(providerId?: string, state?: ChatState): Promise<PickerOption[]> {
   const config = await loadConfig();
-  const activeRuntime = config.runtimes[config.routing.defaultRuntime];
-  const id = providerId ?? activeRuntime?.provider;
+  const activeRuntimeId = state?.runtime ?? config.routing.defaultRuntime;
+  const activeRuntime = config.runtimes[activeRuntimeId];
+  const id = providerId ?? state?.provider ?? activeRuntime?.provider;
   const provider = id ? config.providers[id] : undefined;
   const preset = id ? PROVIDER_PRESETS.find((entry) => entry.id === id) : undefined;
-  const activeModel = firstRuntimeModel(activeRuntime) ?? provider?.defaultModel;
+  const activeModel = id && id === (state?.provider ?? activeRuntime?.provider)
+    ? state?.model ?? firstRuntimeModel(activeRuntime) ?? provider?.defaultModel
+    : provider?.defaultModel ?? preset?.defaultModel;
   const base = [
     provider?.defaultModel,
     preset?.defaultModel,
@@ -1896,9 +2152,9 @@ async function chatModelOptions(providerId?: string): Promise<PickerOption[]> {
   })), activeModel);
 }
 
-async function chatRuntimeOptions(): Promise<PickerOption[]> {
+async function chatRuntimeOptions(state?: ChatState): Promise<PickerOption[]> {
   const config = await loadConfig();
-  const activeRuntime = config.routing.defaultRuntime;
+  const activeRuntime = state?.runtime ?? config.routing.defaultRuntime;
   return sortPickerOptions([
     ...Object.values(config.runtimes).map((runtime) => ({
       value: runtime.id,
@@ -1952,6 +2208,63 @@ function sortPickerOptions(options: readonly PickerOption[], active?: string): P
 }
 
 async function enableChatBuiltinMcp(id: string): Promise<boolean> {
+  return configureBuiltinMcp(id);
+}
+
+function builtinMcpConfig(id: string): McpServerConfig | undefined {
+  const entry = findBuiltinMcpEntry(id);
+  return entry ? mcpConfigFromCatalogEntry(entry) : undefined;
+}
+
+function mcpConfigFromCatalogEntry(entry: BuiltinMcpCatalogEntry): McpServerConfig | undefined {
+  if (!entry.install) return undefined;
+  return mcpConfigFromInstallSpec(entry.install);
+}
+
+function mcpConfigFromInstallSpec(install: BuiltinMcpInstallSpec): McpServerConfig | undefined {
+  if (install.transport.kind === "stdio" && install.transport.args?.some((arg: string) => arg.includes("${") && !resolveMcpInstallTemplate(arg))) return undefined;
+  const transport = install.transport.kind === "http"
+    ? {
+        kind: "http" as const,
+        url: resolveMcpInstallTemplate(install.transport.url) ?? install.transport.url,
+        ...(install.transport.headers ? { headers: resolveMcpInstallRecord(install.transport.headers) } : {}),
+      }
+    : {
+        kind: "stdio" as const,
+        command: install.transport.command,
+        args: install.transport.args?.map((arg) => resolveMcpInstallTemplate(arg)).filter((arg): arg is string => Boolean(arg)),
+        ...(install.transport.env ? { env: resolveMcpInstallRecord(install.transport.env) } : {}),
+      };
+  const config: McpServerConfig = {
+    transport,
+    ...(install.auth ? { auth: install.auth } : {}),
+    ...(install.oauth ? { oauth: install.oauth } : {}),
+    ...(install.tools ? { tools: install.tools } : {}),
+    ...(install.limits ? { limits: install.limits } : {}),
+  };
+  return config;
+}
+
+function resolveMcpInstallRecord(record: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, value]) => [key, resolveMcpInstallTemplate(value)])
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0),
+  );
+}
+
+function resolveMcpInstallTemplate(value: string): string | undefined {
+  if (value === "${CWD}") return process.cwd();
+  const fullEnv = /^\$\{([A-Z_][A-Z0-9_]*)\}$/.exec(value);
+  if (fullEnv) return process.env[fullEnv[1]];
+  if (/^[A-Z_][A-Z0-9_]*(?:\|[A-Z_][A-Z0-9_]*)+$/.test(value)) {
+    return value.split("|").map((name) => process.env[name]).find((candidate): candidate is string => Boolean(candidate));
+  }
+  if (/^[A-Z_][A-Z0-9_]*$/.test(value) && process.env[value]) return process.env[value];
+  return value.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_match, name: string) => process.env[name] ?? "");
+}
+
+async function configureBuiltinMcp(id: string): Promise<boolean> {
   const server = builtinMcpConfig(id);
   if (!server) return false;
   const config = await loadConfig();
@@ -1971,25 +2284,144 @@ async function enableChatBuiltinMcp(id: string): Promise<boolean> {
   return true;
 }
 
-function builtinMcpConfig(id: string): McpServerConfig | undefined {
-  switch (id) {
-    case "filesystem":
-      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", process.cwd()] } };
-    case "git":
-      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-git", process.cwd()] } };
-    case "github":
-      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] } };
-    case "browser":
-      return { transport: { kind: "stdio", command: "npx", args: ["-y", "@playwright/mcp"] } };
-    case "postgres":
-      return process.env.DATABASE_URL
-        ? { transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-postgres", process.env.DATABASE_URL] } }
-        : undefined;
-    case "sqlite":
-      return { transport: { kind: "stdio", command: "npx", args: ["-y", "mcp-server-sqlite", ".muster/muster.db"] } };
-    default:
-      return undefined;
+function findBuiltinMcpEntry(id: string): BuiltinMcpCatalogEntry | undefined {
+  return listBuiltinMcpServers().find((entry) => entry.id === id);
+}
+
+function missingEnv(names: readonly string[] | undefined): string[] {
+  return (names ?? []).filter((name) => !process.env[name]);
+}
+
+function missingSetupEnv(setup: BuiltinPluginCatalogEntry["setup"] | undefined): string[] {
+  const exact = missingEnv(setup?.requiresEnv);
+  const alternatives = (setup?.requiresAnyEnv ?? [])
+    .filter((group) => group.length && group.every((name) => !process.env[name]))
+    .map((group) => group.join("|"));
+  return [...exact, ...alternatives];
+}
+
+function missingMcpEnv(entry: BuiltinMcpCatalogEntry | undefined): string[] {
+  const exact = missingEnv(entry?.requiresEnv);
+  const alternatives = (entry?.requiresAnyEnv ?? [])
+    .filter((group) => group.length && group.every((name) => !process.env[name]))
+    .map((group) => group.join("|"));
+  return [...exact, ...alternatives];
+}
+
+async function printPluginSetupStatus(
+  plugin: BuiltinPluginCatalogEntry,
+  options: { readonly configureDefaults?: boolean } = {},
+): Promise<void> {
+  const setup = plugin.setup;
+  if (!setup) return;
+  const configured: string[] = [];
+  const defaultServers = setup.defaultMcpServers ?? [];
+  if (options.configureDefaults) {
+    for (const id of defaultServers) {
+      const entry = findBuiltinMcpEntry(id);
+      if (missingMcpEnv(entry).length) continue;
+      if (await configureBuiltinMcp(id)) configured.push(id);
+    }
   }
+  if (configured.length) console.log(`configured_mcp=${configured.join(",")}`);
+  const missing = missingSetupEnv(setup);
+  if (missing.length) console.log(`missing_env=${missing.join(",")}`);
+  if (setup.channels?.length) {
+    console.log(`available_channels=${setup.channels.join(",")}`);
+    const gateway = await loadGatewayConfig().catch(() => undefined);
+    for (const channel of setup.channels) {
+      const spec = findChannelSpec(channel);
+      const ready = spec && gateway ? channelReady(spec.id, gateway) : false;
+      console.log(`channel=${channel} status=${ready ? "ready" : "needs_setup"} command="muster channels setup ${channel}"`);
+    }
+  }
+  if (setup.mcpServers?.length) console.log(`available_mcp=${setup.mcpServers.join(",")}`);
+  for (const id of setup.mcpServers ?? []) {
+    const entry = findBuiltinMcpEntry(id);
+    if (!entry) continue;
+    const entryMissing = missingMcpEnv(entry);
+    const canConfigure = Boolean(builtinMcpConfig(id));
+    const status = configured.includes(id) ? "configured" : entryMissing.length ? `needs_env:${entryMissing.join(",")}` : canConfigure ? "installable" : "manual_setup";
+    console.log(`mcp=${id} status=${status} command="${entry.commandHint}"`);
+  }
+  for (const url of setup.setupUrls ?? []) console.log(`setup_url=${url}`);
+  for (const note of setup.notes ?? []) console.log(`note=${note}`);
+  for (const action of pluginNextActions(plugin)) console.log(action);
+}
+
+function cliRepoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function resolveBuiltinPackPath(plugin: BuiltinPluginCatalogEntry): Promise<string | undefined> {
+  if (!plugin.packPath) return undefined;
+  for (const candidate of [
+    resolve(process.cwd(), plugin.packPath),
+    resolve(cliRepoRoot(), plugin.packPath),
+    resolve(cliRepoRoot(), "..", plugin.packPath),
+  ]) {
+    if (await directoryExists(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+async function rawPackToolCount(packPath: string): Promise<number> {
+  try {
+    const raw = JSON.parse(await readFile(resolve(packPath, "manifest.json"), "utf8")) as { implementedTools?: unknown };
+    return Array.isArray(raw.implementedTools) ? raw.implementedTools.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function printPluginPackStatus(plugin: BuiltinPluginCatalogEntry): Promise<void> {
+  if (!plugin.packPath) {
+    console.log("pack=- status=policy_only");
+    return;
+  }
+  const packPath = await resolveBuiltinPackPath(plugin);
+  if (!packPath) {
+    console.log(`pack=${plugin.packPath} status=missing`);
+    return;
+  }
+  const report = await inspectCapabilityPack(packPath);
+  const tools = await rawPackToolCount(packPath);
+  console.log(`pack=${plugin.packPath} status=${report.status} tools=${tools} path=${packPath}`);
+  if (report.blockers.length) console.log(`pack_blockers=${report.blockers.join("; ")}`);
+  if (report.warnings.length) console.log(`pack_warnings=${report.warnings.join("; ")}`);
+}
+
+async function printPluginCheck(plugin: BuiltinPluginCatalogEntry): Promise<void> {
+  const config = await loadConfig();
+  const entry = config.plugins?.entries?.[plugin.id];
+  const enabled = entry ? entry.enabled !== false : false;
+  console.log(`plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk} enabled=${enabled} action=${plugin.actionability}`);
+  await printPluginPackStatus(plugin);
+  const missing = missingSetupEnv(plugin.setup);
+  console.log(`plugin_env=${missing.length ? "needs_env" : "ready"}${missing.length ? ` missing=${missing.join(",")}` : ""}`);
+  await printPluginSetupStatus(plugin);
+  if (plugin.setup?.mcpServers?.length) {
+    for (const id of plugin.setup.mcpServers) {
+      const mcp = findBuiltinMcpEntry(id);
+      if (mcp) await printMcpCheck(mcp);
+    }
+  }
+  const next = enabled
+    ? plugin.setup?.mcpServers?.length
+      ? `muster mcp check ${plugin.setup.mcpServers[0]}`
+      : plugin.setup?.channels?.length
+        ? `muster channels setup ${plugin.setup.channels[0]}`
+        : "muster plugins list"
+    : `muster plugins enable ${plugin.id}${plugin.risk === "high" ? " --allow-high-risk" : ""}`;
+  console.log(`next="${next}"`);
 }
 
 function providerSetupUrl(providerId: string): string | undefined {
@@ -2019,6 +2451,8 @@ function providerSetupUrl(providerId: string): string | undefined {
 }
 
 function pluginSetupUrl(pluginId: string): string | undefined {
+  const plugin = listBuiltinPlugins().find((entry) => entry.id === pluginId || entry.aliases?.includes(pluginId));
+  if (plugin?.setup?.setupUrls?.[0]) return plugin.setup.setupUrls[0];
   const urls: Record<string, string> = {
     browser: "https://github.com/microsoft/playwright-mcp",
     "web-search": "https://brave.com/search/api/",
@@ -2035,7 +2469,78 @@ function pluginSetupUrl(pluginId: string): string | undefined {
     "claude-code": "https://docs.anthropic.com/en/docs/claude-code/setup",
     "mcp-bridge": "https://modelcontextprotocol.io/",
   };
-  return urls[pluginId];
+  return urls[plugin?.id ?? pluginId];
+}
+
+function chatPluginSetupLines(plugin: BuiltinPluginCatalogEntry): string[] {
+  const setup = plugin.setup;
+  if (!setup) return pluginNextActions(plugin).map((line) => color(line, "dim")).slice(0, 5);
+  const lines: string[] = [];
+  const missing = missingSetupEnv(setup);
+  if (missing.length) lines.push(`${color("Missing env", "yellow")} ${missing.join(", ")}`);
+  if (setup.defaultMcpServers?.length) lines.push(`${color("Default MCP", "accent")} ${setup.defaultMcpServers.join(", ")} configured by CLI enable`);
+  if (setup.channels?.length) lines.push(`${color("Channel setup", "accent")} ${setup.channels.map((id) => `muster channels setup ${id}`).join(" · ")}`);
+  if (setup.mcpServers?.length) lines.push(`${color("MCP options", "accent")} ${setup.mcpServers.join(", ")}`);
+  for (const note of setup.notes ?? []) lines.push(color(note, "dim"));
+  lines.push(...pluginNextActions(plugin).map((line) => color(line, "dim")));
+  return lines.slice(0, 8);
+}
+
+function pluginNextActions(plugin: BuiltinPluginCatalogEntry): string[] {
+  const actions: string[] = [];
+  const providerPreset = pluginProviderPresetId(plugin);
+  const setupUrl = plugin.setup?.setupUrls?.[0] ?? pluginSetupUrl(plugin.id);
+  const missing = missingSetupEnv(plugin.setup);
+
+  if (providerPreset) {
+    actions.push(`next_action=provider_add command="muster provider add ${providerPreset}"`);
+    actions.push(`next_action=provider_switch command="/provider ${providerPreset}"`);
+    const preset = PROVIDER_PRESETS.find((entry) => entry.id === providerPreset);
+    if (preset) actions.push(`provider_default model=${preset.defaultModel} key_env=${preset.apiKeyEnv ?? "-"}`);
+    if (missing.length) actions.push(`next_action=credentials missing=${missing.join(",")} setup_url=${setupUrl ?? "-"}`);
+    return actions;
+  }
+
+  if (plugin.setup?.channels?.length) {
+    for (const channel of plugin.setup.channels) {
+      actions.push(`next_action=channel_setup command="muster channels setup ${channel}"`);
+    }
+  }
+
+  const installableMcps = (plugin.setup?.defaultMcpServers?.length ? plugin.setup.defaultMcpServers : plugin.setup?.mcpServers) ?? [];
+  if (installableMcps.length) {
+    for (const id of installableMcps.slice(0, 4)) {
+      const entry = findBuiltinMcpEntry(id);
+      const missingMcp = missingMcpEnv(entry);
+      const command = missingMcp.length ? `muster mcp check ${id}` : `muster mcp install ${id}`;
+      actions.push(`next_action=mcp_${missingMcp.length ? "check" : "install"} command="${command}"`);
+    }
+  }
+
+  if (plugin.packPath) {
+    actions.push(`next_action=enable_pack command="muster plugins enable ${plugin.id}${plugin.risk === "high" ? " --allow-high-risk" : ""}"`);
+  }
+
+  if (plugin.category === "memory") {
+    actions.push("next_action=memory_policy command=\"muster memory status --probe\" note=\"Muster keeps scoped SQLite/FTS memory local unless you explicitly sync an external memory provider.\"");
+  }
+
+  if (!actions.length && plugin.actionability === "setup_plan") {
+    actions.push(`next_action=setup_plan command="muster plugins setup ${plugin.id}"`);
+  }
+
+  if (setupUrl) actions.push(`next_action=open_setup url=${setupUrl}`);
+  if (plugin.actionability === "setup_plan") actions.push("note=setup_plan means this is discoverable and guided, not an installed execution adapter yet.");
+  return actions;
+}
+
+function pluginProviderPresetId(plugin: BuiltinPluginCatalogEntry): string | undefined {
+  const candidates = [
+    plugin.id,
+    plugin.id.startsWith("provider-") ? plugin.id.slice("provider-".length) : undefined,
+    ...(plugin.aliases ?? []),
+  ].filter((value): value is string => Boolean(value));
+  return candidates.find((candidate) => PROVIDER_PRESETS.some((preset) => preset.id === candidate));
 }
 
 function mcpSetupUrl(id: string): string | undefined {
@@ -2046,6 +2551,10 @@ function mcpSetupUrl(id: string): string | undefined {
     browser: "https://github.com/microsoft/playwright-mcp",
     postgres: "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
     sqlite: "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
+    "parallel-search": "https://docs.parallel.ai/integrations/mcp/search-mcp",
+    firecrawl: "https://www.firecrawl.dev/app/api-keys",
+    linear: "https://linear.app/docs/mcp",
+    n8n: "https://github.com/CyberSamuraiX/hermes-n8n-mcp",
     "google-drive": "https://console.cloud.google.com/apis/credentials",
     notion: "https://www.notion.so/profile/integrations",
   };
@@ -2054,11 +2563,25 @@ function mcpSetupUrl(id: string): string | undefined {
 
 function filterPickerOptions(options: readonly PickerOption[], fragment: string): PickerOption[] {
   const lower = fragment.toLowerCase();
-  return options.filter((option) => option.value.toLowerCase().startsWith(lower) || option.label?.toLowerCase().includes(lower));
+  return options
+    .map((option, index) => ({ option, index, rank: pickerMatchRank(option, lower) }))
+    .filter((entry) => entry.rank < Number.POSITIVE_INFINITY)
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map((entry) => entry.option);
+}
+
+function pickerMatchRank(option: PickerOption, lowerFragment: string): number {
+  if (!lowerFragment) return 0;
+  const value = option.value.toLowerCase();
+  const label = option.label?.toLowerCase() ?? "";
+  if (value.startsWith(lowerFragment)) return 0;
+  if (label.startsWith(lowerFragment)) return 1;
+  if (value.includes(lowerFragment)) return 2;
+  if (label.includes(lowerFragment)) return 3;
+  return Number.POSITIVE_INFINITY;
 }
 
 function modelHintsForProvider(providerId: string | undefined, kind: string | undefined): string[] {
-  if (providerId === "local" || providerId === "ollama") return ["llama3.1", "llama3.2", "qwen2.5-coder", "mistral", "codellama"];
   if (providerId === "codex" || providerId === "codex-cli" || kind === "codex-cli") return ["gpt-5.5", "gpt-5.4", "o4-mini", "o3", "gpt-4.1"];
   if (providerId === "anthropic") return ["claude-fable-5", "claude-sonnet-4.6", "claude-opus-4.5", "sonnet"];
   if (providerId === "openai") return ["gpt-5.4", "gpt-5.5", "gpt-4.1", "o4-mini"];
@@ -2229,7 +2752,143 @@ async function evalCommand(args: string[]): Promise<void> {
     if (results.some((result) => result.status === "failed")) process.exitCode = 1;
     return;
   }
-  throw new Error("Usage: muster eval <seed|run>");
+  if (subcommand === "retrieval") {
+    if (args.includes("--help") || args.includes("-h")) {
+      console.log("Usage:");
+      console.log("  muster eval retrieval seed <id> --query \"...\" --scope user:me --expect mem_... | --expect-none");
+      console.log("  muster eval retrieval seed-pack <id> [--tenant f2] [--user goblin] [--other-user goblin-other] [--distractors 250]");
+      console.log("  muster eval retrieval seed-frappe-pack <id> [--tenant f2] [--user goblin] [--app frappe_app] [--module HR] [--doctype Employee] [--child-doctype \"Employee Detail\"] [--distractors 250]");
+      console.log("  muster eval retrieval list [path-or-dir]");
+      console.log("  muster eval retrieval <path-or-dir> [--min-recall 1] [--min-mrr 1] [--max-leakage-rate 0] [--max-stale-hit-rate 0] [--max-p95-ms 50] [--artifact-dir DIR]");
+      return;
+    }
+    if (args[1] === "seed-pack") {
+      const pack = await seedRepresentativeRetrievalEvalPack({
+        id: args[2],
+        tenant: readFlag(args, "--tenant"),
+        user: readFlag(args, "--user"),
+        otherUser: readFlag(args, "--other-user"),
+        distractorCount: readNumberFlag(args, "--distractors"),
+      });
+      console.log(`retrieval_pack=${pack.id}`);
+      console.log(`path=${pack.dir}`);
+      console.log(`scopes=${pack.scopes.join(",")}`);
+      console.log(`fixtures=${pack.fixtures.length}`);
+      console.log(`mem_exact=${pack.memoryIds.exact}`);
+      console.log(`mem_fresh=${pack.memoryIds.fresh}`);
+      console.log(`mem_stale=${pack.memoryIds.stale}`);
+      console.log(`mem_forbidden=${pack.memoryIds.forbidden}`);
+      console.log(`distractors=${pack.memoryIds.distractors.length}`);
+      return;
+    }
+    if (args[1] === "seed-frappe-pack") {
+      const pack = await seedFrappeGraphRetrievalEvalPack({
+        id: args[2],
+        tenant: readFlag(args, "--tenant"),
+        user: readFlag(args, "--user"),
+        otherUser: readFlag(args, "--other-user"),
+        app: readFlag(args, "--app"),
+        module: readFlag(args, "--module"),
+        doctype: readFlag(args, "--doctype"),
+        childDoctype: readFlag(args, "--child-doctype"),
+        distractorCount: readNumberFlag(args, "--distractors"),
+      });
+      console.log(`retrieval_pack=${pack.id}`);
+      console.log(`kind=frappe-graph`);
+      console.log(`path=${pack.dir}`);
+      console.log(`scopes=${pack.scopes.join(",")}`);
+      console.log(`fixtures=${pack.fixtures.length}`);
+      console.log(`mem_doctype=${pack.memoryIds.exact}`);
+      console.log(`mem_fresh=${pack.memoryIds.fresh}`);
+      console.log(`mem_stale=${pack.memoryIds.stale}`);
+      console.log(`mem_forbidden=${pack.memoryIds.forbidden}`);
+      console.log(`mem_graph=${pack.memoryIds.graph?.join(",") ?? ""}`);
+      console.log(`distractors=${pack.memoryIds.distractors.length}`);
+      return;
+    }
+    if (args[1] === "seed") {
+      const id = args[2];
+      const query = readFlag(args, "--query");
+      if (!id || !query) throw new Error("Usage: muster eval retrieval seed <id> --query \"...\" --scope user:me --expect mem_... | --expect-none");
+      const fixture = await seedRetrievalEvalCase({
+        id,
+        query,
+        scopes: readFlags(args, "--scope"),
+        expectedIds: readFlags(args, "--expect"),
+        expectedNone: args.includes("--expect-none"),
+        forbiddenIds: readFlags(args, "--forbid"),
+        staleIds: readFlags(args, "--stale"),
+        staleBefore: readFlag(args, "--stale-before"),
+        graphExpand: args.includes("--graph-expand"),
+        includeGlobal: args.includes("--include-global"),
+        topK: readNumberFlag(args, "--top-k"),
+      });
+      console.log(`retrieval_eval=${fixture.id}`);
+      console.log(`path=${retrievalEvalPath(fixture.id)}`);
+      console.log(`query=${fixture.query}`);
+      console.log(`scopes=${fixture.scopes.join(",")}`);
+      console.log(`expected=${fixture.expectedNone ? "none" : fixture.expectedIds.join(",")}`);
+      if (fixture.forbiddenIds?.length) console.log(`forbidden=${fixture.forbiddenIds.join(",")}`);
+      if (fixture.staleIds?.length) console.log(`stale=${fixture.staleIds.join(",")}`);
+      if (fixture.staleBefore) console.log(`stale_before=${fixture.staleBefore}`);
+      return;
+    }
+    if (args[1] === "list") {
+      const listings = await listRetrievalEvalCases(args[2]);
+      if (!listings.length) {
+        console.log("No retrieval eval fixtures found.");
+        return;
+      }
+      console.log("id\ttopK\tgraph\tscopes\texpected\tforbidden\tstale\tstale_before\tpath");
+      for (const { path, fixture } of listings) {
+        console.log([
+          fixture.id,
+          String(fixture.topK ?? 5),
+          fixture.graphExpand ? "yes" : "no",
+          fixture.scopes.join(","),
+          fixture.expectedNone ? "none" : String(fixture.expectedIds.length),
+          String(fixture.forbiddenIds?.length ?? 0),
+          String(fixture.staleIds?.length ?? 0),
+          fixture.staleBefore ?? "-",
+          path,
+        ].join("\t"));
+      }
+      return;
+    }
+    const target = args[1] === "run" ? args[2] : args[1];
+    if (!target) throw new Error("Usage: muster eval retrieval <path-or-dir>");
+    const thresholds = {
+      minRecallAtK: readNumberFlag(args, "--min-recall") ?? 1,
+      minMrr: readNumberFlag(args, "--min-mrr") ?? 1,
+      maxLeakageRate: readNonNegativeNumberFlag(args, "--max-leakage-rate") ?? 0,
+      maxStaleHitRate: readNonNegativeNumberFlag(args, "--max-stale-hit-rate") ?? 0,
+      maxP95LatencyMs: readNonNegativeNumberFlag(args, "--max-p95-ms"),
+    };
+    const artifactDir = readFlag(args, "--artifact-dir");
+    const artifact = artifactDir
+      ? await runRetrievalEvalPathWithArtifacts(target, thresholds, artifactDir)
+      : undefined;
+    const suite = artifact?.suite ?? await runRetrievalEvalPath(target, thresholds);
+    const gate = decideHybridRetrievalGate(suite);
+    console.log(`retrieval_suite status=${suite.status} cases=${suite.caseCount} recall@5=${suite.recallAtK.toFixed(3)} mrr@5=${suite.mrr.toFixed(3)} leakage_rate=${suite.leakageRate.toFixed(3)} unexpected_hit_rate=${suite.unexpectedHitRate.toFixed(3)} stale_hit_rate=${suite.staleHitRate.toFixed(3)} p95_ms=${suite.p95LatencyMs.toFixed(3)}`);
+    console.log(`hybrid_gate allowed=${gate.allowed} reason=${gate.reason}`);
+    if (artifact) {
+      console.log(`artifact_dir=${artifact.artifactDir}`);
+      console.log(`artifact_manifest=${artifact.manifestPath}`);
+      console.log(`artifact_cases=${artifact.casesPath}`);
+      console.log(`artifact_suite=${artifact.suitePath}`);
+      console.log(`artifact_memory_status=${artifact.memoryStatusPath}`);
+    }
+    for (const check of suite.checks) {
+      console.log(`check=${check.label} status=${check.status} detail=${check.detail}`);
+    }
+    for (const result of suite.results) {
+      console.log(`case=${result.id} status=${result.status} recall@5=${result.recallAtK.toFixed(3)} mrr@5=${result.mrr.toFixed(3)} leaks=${result.leakageCount} unexpected_hits=${result.unexpectedHitCount} stale_hits=${result.staleHitCount} latency_ms=${result.latencyMs.toFixed(3)} backend=${result.backend} returned=${result.returnedIds.join(",") || "none"}`);
+    }
+    if (suite.status === "failed") process.exitCode = 1;
+    return;
+  }
+  throw new Error("Usage: muster eval <seed|run|retrieval>");
 }
 
 async function capability(args: string[]): Promise<void> {
@@ -2239,7 +2898,8 @@ async function capability(args: string[]): Promise<void> {
     if (!path) throw new Error("Usage: muster capability load <path> [--allow-high-risk]");
     const registry = builtinFlowRegistry();
     const pluginPolicy = await loadPluginPolicy();
-    const loaded = await loadCapabilityPack(resolve(process.cwd(), path), {
+    const packPath = resolveWorkspacePath(path);
+    const loaded = await loadCapabilityPack(packPath, {
       registry,
       allowHighRisk: args.includes("--allow-high-risk"),
       pluginPolicy
@@ -2255,7 +2915,7 @@ async function capability(args: string[]): Promise<void> {
   if (subcommand !== "inspect" || !path) {
     throw new Error("Usage: muster capability <inspect|load> <path>");
   }
-  const report = await inspectCapabilityPack(resolve(process.cwd(), path));
+  const report = await inspectCapabilityPack(resolveWorkspacePath(path));
   console.log(`status=${report.status}`);
   console.log(`risk=${report.risk}`);
   console.log(`path=${report.path}`);
@@ -2286,14 +2946,37 @@ async function pluginsCommand(args: string[]): Promise<void> {
   if (action === "catalog") {
     for (const plugin of listBuiltinPlugins()) {
       const aliases = plugin.aliases?.length ? ` aliases=${plugin.aliases.join(",")}` : "";
-      console.log(`${plugin.id.padEnd(24)} ${plugin.source.padEnd(9)} ${plugin.category.padEnd(18)} risk=${plugin.risk.padEnd(6)} ${plugin.description}${aliases}`);
+      const pack = plugin.packPath ? " pack=yes" : " pack=no";
+      const mcps = plugin.setup?.mcpServers?.length ? ` mcps=${plugin.setup.mcpServers.join(",")}` : "";
+      const channels = plugin.setup?.channels?.length ? ` channels=${plugin.setup.channels.join(",")}` : "";
+      console.log(`${plugin.id.padEnd(24)} ${plugin.source.padEnd(9)} ${plugin.category.padEnd(18)} risk=${plugin.risk.padEnd(6)} action=${plugin.actionability.padEnd(17)}${pack}${mcps}${channels} ${plugin.description}${aliases}`);
     }
+    return;
+  }
+  if (action === "setup" && path) {
+    const plugin = listBuiltinPlugins().find((entry) => entry.id === path || entry.aliases?.includes(path));
+    if (!plugin) throw new Error(`Unknown built-in plugin "${path}". Run muster plugins catalog.`);
+    console.log(`plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk} action=${plugin.actionability}`);
+    if (plugin.risk === "high") console.log("risk_note=High-risk integrations can send/read external messages or data; enabling requires --allow-high-risk.");
+    await printPluginSetupStatus(plugin);
+    if (!plugin.setup) console.log("setup=none");
+    return;
+  }
+  if ((action === "check" || action === "doctor") && path) {
+    const plugin = listBuiltinPlugins().find((entry) => entry.id === path || entry.aliases?.includes(path));
+    if (!plugin) throw new Error(`Unknown built-in plugin "${path}". Run muster plugins catalog.`);
+    await printPluginCheck(plugin);
+    return;
+  }
+  if (action === "context" && path) {
+    await pluginContextCommand(path, args.slice(2));
     return;
   }
   if (action === "enable" && path) {
     const plugin = await enableBuiltinPlugin(path, process.cwd(), { allowHighRisk: args.includes("--allow-high-risk") });
-    console.log(`enabled plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk}`);
+    console.log(`enabled plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk} action=${plugin.actionability}`);
     if (!plugin.packPath) console.log("note=policy enabled; executable loading still requires a local capability pack.");
+    await printPluginSetupStatus(plugin, { configureDefaults: true });
     return;
   }
   if (action === "disable" && path) {
@@ -2331,11 +3014,124 @@ async function pluginsCommand(args: string[]): Promise<void> {
     for (const [slot, owner] of slots) console.log(`slot=${slot} owner=${owner}`);
     return;
   }
-  throw new Error("Usage: muster plugins list|catalog|enable <id>|disable <id>|policy|inspect <path>|load <path> [--allow-high-risk]");
+  throw new Error("Usage: muster plugins list|catalog|setup <id>|context frappe <setup|docs|module|build>|check <id>|enable <id>|disable <id>|policy|inspect <path>|load <path> [--allow-high-risk]");
+}
+
+async function pluginContextCommand(pluginId: string, args: string[]): Promise<void> {
+  const plugin = listBuiltinPlugins().find((entry) => entry.id === pluginId || entry.aliases?.includes(pluginId));
+  if (!plugin) throw new Error(`Unknown built-in plugin "${pluginId}". Run muster plugins catalog.`);
+  if (plugin.id !== "frappe-federated-bridge") {
+    throw new Error(`Plugin context builder is currently available for frappe only; got ${plugin.id}.`);
+  }
+  const mode = args[0] ?? "setup";
+  const packPath = await resolveBuiltinPackPath(plugin);
+  if (!packPath) throw new Error(`Plugin ${plugin.id} has no local capability pack.`);
+  const registry = builtinFlowRegistry();
+  await loadCapabilityPack(packPath, {
+    registry,
+    allowHighRisk: true,
+    pluginPolicy: await loadPluginPolicy(),
+  });
+  const toolArgs = frappeContextToolArgs(args.slice(1));
+  const toolName = {
+    setup: "frappe-federated-bridge__frappe_context_setup_plan",
+    docs: "frappe-federated-bridge__frappe_docs_context",
+    module: "frappe-federated-bridge__frappe_module_context",
+    build: "frappe-federated-bridge__frappe_context_build",
+  }[mode];
+  if (!toolName) {
+    throw new Error("Usage: muster plugins context frappe <setup|docs|module|build> [--site-url URL] [--api-token TOKEN | --admin-user USER --admin-password PASS] [--app app] [--module module]");
+  }
+  const tool = registry[toolName];
+  if (!tool) throw new Error(`Frappe context tool was not registered: ${toolName}`);
+  const result = await tool(toolArgs);
+  console.log(JSON.stringify(redactFrappeContextResult(result), null, 2));
+}
+
+function frappeContextToolArgs(args: string[]): Record<string, unknown> {
+  const modules = readFlags(args, "--module");
+  return {
+    siteUrl: readFlag(args, "--site-url") ?? readFlag(args, "--site"),
+    apiToken: readFlag(args, "--api-token"),
+    adminUser: readFlag(args, "--admin-user") ?? readFlag(args, "--user"),
+    adminPassword: readFlag(args, "--admin-password") ?? readFlag(args, "--password"),
+    apps: readFlags(args, "--app"),
+    modules,
+    module: modules[0],
+    query: readFlag(args, "--query"),
+  };
+}
+
+function redactFrappeContextResult(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactFrappeContextResult);
+  if (typeof value !== "object" || value === null) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/password|token|cookie|secret|sid/i.test(key)) {
+      result[key] = "[redacted]";
+    } else {
+      result[key] = redactFrappeContextResult(item);
+    }
+  }
+  return result;
 }
 
 async function mcpCommand(args: string[]): Promise<void> {
   const [action, name, ...rest] = args;
+  if (action === "oauth") {
+    await mcpOauthCommand([name, ...rest].filter((item): item is string => Boolean(item)));
+    return;
+  }
+  if (action === "catalog") {
+    for (const server of listBuiltinMcpServers()) {
+      const requiredGroups = [...(server.requiresEnv ?? []), ...(server.requiresAnyEnv ?? []).map((group) => group.join("|"))];
+      const env = requiredGroups.length ? ` env=${requiredGroups.join(",")}` : "";
+      const auth = server.auth ? ` auth=${server.auth}` : "";
+      const tools = server.defaultTools?.length ? ` default_tools=${server.defaultTools.join(",")}` : "";
+      console.log(`${server.id.padEnd(16)} ${server.source.padEnd(9)} ${server.category.padEnd(14)} risk=${server.risk.padEnd(6)}${auth}${env}${tools} ${server.description}`);
+      if (server.setupUrls?.length) console.log(`  setup: ${server.setupUrls.join(" ")}`);
+      console.log(`  install: ${server.commandHint}`);
+    }
+    return;
+  }
+  if (action === "check" || action === "doctor") {
+    if (!name) {
+      for (const entry of listBuiltinMcpServers()) await printMcpCheck(entry);
+      return;
+    }
+    const entry = findBuiltinMcpEntry(name);
+    if (!entry) throw new Error(`Unknown built-in MCP "${name}". Run muster mcp catalog.`);
+    await printMcpCheck(entry);
+    return;
+  }
+  if (action === "install") {
+    if (!name) throw new Error("Usage: muster mcp install <id>");
+    const entry = findBuiltinMcpEntry(name);
+    if (!entry) throw new Error(`Unknown built-in MCP "${name}". Run muster mcp catalog.`);
+    const missing = missingMcpEnv(entry);
+    if (missing.length) {
+      console.log(`mcp=${entry.id} status=needs_env missing=${missing.join(",")}`);
+      for (const url of entry.setupUrls ?? []) console.log(`setup_url=${url}`);
+      for (const note of entry.notes ?? []) console.log(`note=${note}`);
+      return;
+    }
+    const ok = await configureBuiltinMcp(entry.id);
+    if (!ok) {
+      console.log(`mcp=${entry.id} status=manual_setup command="${entry.commandHint}"`);
+      for (const url of entry.setupUrls ?? []) console.log(`setup_url=${url}`);
+      for (const note of entry.notes ?? []) console.log(`note=${note}`);
+      return;
+    }
+    console.log(`mcp=${entry.id} status=configured`);
+    if (entry.defaultTools?.length) console.log(`default_tools=${entry.defaultTools.join(",")}`);
+    if (entry.auth === "oauth") {
+      const status = await mcpOAuthStatus(entry.id);
+      console.log(`oauth=${status.authenticated ? "authenticated" : "not_authenticated"}`);
+      console.log(`oauth_setup=muster mcp oauth setup ${entry.id}`);
+    }
+    for (const note of entry.notes ?? []) console.log(`note=${note}`);
+    return;
+  }
   if (action === "list" || action === undefined) {
     const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
     const entries = Object.entries(servers);
@@ -2347,7 +3143,8 @@ async function mcpCommand(args: string[]): Promise<void> {
       const transport = server.transport.kind === "stdio"
         ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
         : `http ${server.transport.url}`;
-      console.log(`${serverName}\t${transport}\tinclude=${server.tools?.include?.join(",") || "-"} exclude=${server.tools?.exclude?.join(",") || "-"}`);
+      const auth = server.auth ? `\tauth=${server.auth}` : "";
+      console.log(`${serverName}\t${transport}\tinclude=${server.tools?.include?.join(",") || "-"} exclude=${server.tools?.exclude?.join(",") || "-"}${auth}`);
     }
     return;
   }
@@ -2371,6 +3168,41 @@ async function mcpCommand(args: string[]): Promise<void> {
     console.log(`mcp_server=${safeConfigKey(name)} transport=stdio command=${rest[0]}`);
     return;
   }
+  if (action === "add-http") {
+    if (!name || !rest[0]) throw new Error("Usage: muster mcp add-http <name> <url> [--oauth --authorization-url URL --token-url URL --client-id ID --client-secret-env ENV --scope S --redirect-port N]");
+    const oauth = args.includes("--oauth");
+    const oauthConfig = oauth ? {
+      setupUrl: readFlag(args, "--setup-url"),
+      authorizationUrl: readFlag(args, "--authorization-url"),
+      tokenUrl: readFlag(args, "--token-url"),
+      clientId: readFlag(args, "--client-id"),
+      clientSecret: readEnvFlag(args, "--client-secret-env"),
+      scope: readFlag(args, "--scope"),
+      clientName: readFlag(args, "--client-name") ?? "Muster",
+      redirectPort: readNumberFlag(args, "--redirect-port"),
+    } : undefined;
+    const config = await loadConfig();
+    const server: McpServerConfig = {
+      transport: { kind: "http", url: rest[0] },
+      ...(oauth ? { auth: "oauth" as const, oauth: oauthConfig } : {}),
+    };
+    await saveConfig({
+      ...config,
+      tools: {
+        ...(config.tools ?? {}),
+        mcp: {
+          ...(config.tools?.mcp ?? {}),
+          servers: {
+            ...(config.tools?.mcp?.servers ?? {}),
+            [safeConfigKey(name)]: server,
+          },
+        },
+      },
+    });
+    console.log(`mcp_server=${safeConfigKey(name)} transport=http url=${rest[0]}${oauth ? " auth=oauth" : ""}`);
+    if (oauth) console.log(`oauth_setup=muster mcp oauth setup ${safeConfigKey(name)}`);
+    return;
+  }
   if (action === "remove" || action === "rm") {
     if (!name) throw new Error("Usage: muster mcp remove <name>");
     const config = await loadConfig();
@@ -2383,20 +3215,444 @@ async function mcpCommand(args: string[]): Promise<void> {
   }
   if (action === "test") {
     if (!name) throw new Error("Usage: muster mcp test <name>");
-    const server = (await loadConfig()).tools?.mcp?.servers?.[name];
-    if (!server) throw new Error(`MCP server not configured: ${name}`);
-    const connected = await connectMcpServers({ [name]: server }, process.cwd());
-    try {
-      const handle = connected.handles[0];
-      console.log(`server=${handle.name} status=${handle.status}${handle.error ? ` error=${handle.error}` : ""}`);
-      for (const tool of handle.tools) console.log(`tool=${tool.namespaced} ${tool.description ?? ""}`.trim());
-      if (handle.status === "failed") process.exitCode = 1;
-    } finally {
-      connected.close();
+    await printMcpTest(name, { setExitCode: true });
+    return;
+  }
+  throw new Error("Usage: muster mcp list|catalog|check [id]|install <id>|oauth status|setup|import ...|add-http <name> <url> [--oauth ...]|add-stdio <name> <command> [args...]|test <name>|remove <name>");
+}
+
+async function printMcpTest(name: string, options: { readonly setExitCode: boolean }): Promise<void> {
+  const server = (await loadConfig()).tools?.mcp?.servers?.[name];
+  if (!server) throw new Error(`MCP server not configured: ${name}`);
+  const connected = await connectMcpServers({ [name]: server }, process.cwd());
+  try {
+    const handle = connected.handles[0];
+    console.log(`server=${handle.name} status=${handle.status}${handle.error ? ` error=${handle.error}` : ""}`);
+    for (const tool of handle.tools) console.log(`tool=${tool.namespaced} ${tool.description ?? ""}`.trim());
+    if (handle.status === "failed" && options.setExitCode) process.exitCode = 1;
+  } finally {
+    connected.close();
+  }
+}
+
+async function printMcpCheck(entry: BuiltinMcpCatalogEntry): Promise<void> {
+  const config = await loadConfig();
+  const configured = Boolean(config.tools?.mcp?.servers?.[entry.id]);
+  const missing = missingMcpEnv(entry);
+  const installable = Boolean(entry.install && !missing.length && mcpConfigFromCatalogEntry(entry));
+  const status = configured ? "configured" : missing.length ? "needs_env" : installable ? "installable" : "manual_setup";
+  console.log(`mcp=${entry.id} status=${status} configured=${configured} installable=${installable} auth=${entry.auth ?? "none"} risk=${entry.risk}`);
+  if (missing.length) console.log(`missing=${missing.join(",")}`);
+  if (!entry.install && !configured) console.log(`manual_setup=${entry.commandHint}`);
+  if (entry.defaultTools?.length) console.log(`default_tools=${entry.defaultTools.join(",")}`);
+  if (entry.auth === "oauth" && configured) {
+    const status = await mcpOAuthStatus(entry.id);
+    console.log(`oauth=${status.authenticated ? "authenticated" : "not_authenticated"} expired=${status.expired}`);
+    if (!status.authenticated) console.log(`oauth_setup=muster mcp oauth setup ${entry.id}`);
+  } else if (entry.auth === "oauth") {
+    console.log(`oauth_setup=muster mcp install ${entry.id} && muster mcp oauth setup ${entry.id}`);
+  }
+  for (const url of entry.setupUrls ?? []) console.log(`setup_url=${url}`);
+  for (const note of entry.notes ?? []) console.log(`note=${note}`);
+  console.log(`next=${configured ? `muster mcp test ${entry.id}` : installable ? `muster mcp install ${entry.id}` : entry.commandHint}`);
+}
+
+async function mcpOauthCommand(args: string[]): Promise<void> {
+  const [action, name, ...rest] = args;
+  if ((action === "status" || action === undefined) && !name) {
+    const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
+    const oauthServers = Object.entries(servers).filter(([, server]) => server.auth === "oauth");
+    if (!oauthServers.length) {
+      console.log("No OAuth MCP servers configured.");
+      return;
+    }
+    for (const [serverName] of oauthServers) {
+      await printMcpOauthStatus(serverName);
     }
     return;
   }
-  throw new Error("Usage: muster mcp list|add-stdio <name> <command> [args...]|test <name>|remove <name>");
+  if (action === "status" && name) {
+    await printMcpOauthStatus(name);
+    return;
+  }
+  if (action === "setup" && name) {
+    await printMcpOauthSetup(name, rest);
+    return;
+  }
+  if (action === "import" && name) {
+    const envName = readFlag(rest, "--access-token-env");
+    if (!envName) throw new Error("Usage: muster mcp oauth import <name> --access-token-env ENV_VAR [--expires-in seconds] [--scope scope]");
+    const accessToken = process.env[envName];
+    if (!accessToken) throw new Error(`Environment variable ${envName} is not set.`);
+    const expiresInRaw = readFlag(rest, "--expires-in");
+    let expiresAt: number | undefined;
+    if (expiresInRaw) {
+      const expiresIn = Number(expiresInRaw);
+      if (!Number.isFinite(expiresIn) || expiresIn <= 0) throw new Error("--expires-in must be a positive number of seconds.");
+      expiresAt = Date.now() + expiresIn * 1000;
+    }
+    const scope = readFlag(rest, "--scope");
+    const tokenPath = await writeMcpOAuthToken(name, {
+      accessToken,
+      expiresAt,
+      scope,
+    });
+    console.log(`oauth=${name} status=imported token_path=${tokenPath}`);
+    return;
+  }
+  throw new Error("Usage: muster mcp oauth status [name] | setup <name> | import <name> --access-token-env ENV_VAR [--expires-in seconds] [--scope scope]");
+}
+
+async function printMcpOauthStatus(name: string): Promise<void> {
+  const status = await mcpOAuthStatus(name);
+  console.log(`oauth=${name} authenticated=${status.authenticated} expired=${status.expired} token_path=${status.tokenPath}`);
+  if (status.expiresAt) console.log(`expires_at=${new Date(status.expiresAt).toISOString()}`);
+  if (status.scope) console.log(`scope=${status.scope}`);
+}
+
+async function printMcpOauthSetup(name: string, args: readonly string[] = []): Promise<void> {
+  const config = await loadConfig();
+  const configured = config.tools?.mcp?.servers?.[name];
+  const catalog = findBuiltinMcpEntry(name);
+  const setupUrl = configured?.oauth?.setupUrl ?? catalog?.setupUrls?.[0] ?? mcpSetupUrl(name);
+  if (!configured && catalog) {
+    console.log(`mcp=${name} status=not_installed install="muster mcp install ${name}"`);
+  } else if (!configured) {
+    console.log(`mcp=${name} status=not_configured`);
+  } else if (configured.auth !== "oauth") {
+    console.log(`mcp=${name} status=not_oauth`);
+  } else {
+    console.log(`mcp=${name} status=oauth_configured`);
+    if (await runMcpOAuthPkceSetup(name, configured, args)) return;
+  }
+  if (setupUrl) console.log(`setup_url=${setupUrl}`);
+  console.log("token_import=muster mcp oauth import <name> --access-token-env ENV_VAR [--expires-in seconds] [--scope scope]");
+  console.log("note=Browser PKCE setup runs when oauth.authorizationUrl, oauth.tokenUrl, and oauth.clientId are configured; otherwise import an access token or use the provider's native MCP login.");
+}
+
+async function runMcpOAuthPkceSetup(name: string, configured: McpServerConfig, args: readonly string[]): Promise<boolean> {
+  const oauth = configured.oauth;
+  if (!oauth) return false;
+  const requestedPort = readNumberFlag([...args], "--redirect-port") ?? oauth.redirectPort ?? 0;
+  const callbackUrl = readFlag([...args], "--callback-url");
+  if (!callbackUrl && !input.isTTY) return false;
+  let server: ReturnType<typeof createServer> | undefined;
+  let redirectUri = `http://127.0.0.1:${requestedPort || 1}/callback`;
+  let callbackPromise: Promise<URL>;
+
+  if (callbackUrl) {
+    const pasted = new URL(callbackUrl);
+    redirectUri = `${pasted.origin}${pasted.pathname}`;
+    callbackPromise = Promise.resolve(pasted);
+  } else {
+    const callback = await startOAuthCallbackServer(requestedPort);
+    server = callback.server;
+    redirectUri = callback.redirectUri;
+    callbackPromise = callback.callback;
+  }
+
+  const resolved = await resolveMcpOAuthClient(configured, redirectUri);
+  if (!resolved) {
+    server?.close();
+    return false;
+  }
+
+  const verifier = base64Url(randomBytes(32));
+  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  const state = base64Url(randomBytes(18));
+  const authorizationUrl = new URL(resolved.authorizationUrl);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("client_id", resolved.clientId);
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("code_challenge", challenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("state", state);
+  if (resolved.scope) authorizationUrl.searchParams.set("scope", resolved.scope);
+
+  console.log(`authorization_url=${authorizationUrl.toString()}`);
+  if (!callbackUrl) console.log(`callback_listening=${redirectUri}`);
+  console.log("note=Open the authorization URL, approve access, then return to this terminal. In SSH/headless sessions, paste the final redirect with --callback-url.");
+
+  let callback: URL;
+  try {
+    const timeoutMs = readNumberFlag([...args], "--timeout-ms") ?? 300_000;
+    callback = await withTimeout(callbackPromise, timeoutMs, `OAuth callback timed out after ${timeoutMs}ms`);
+  } finally {
+    server?.close();
+  }
+
+  const error = callback.searchParams.get("error");
+  if (error) throw new Error(`OAuth authorization failed: ${error}`);
+  const code = callback.searchParams.get("code");
+  if (!code) throw new Error("OAuth callback did not contain a code parameter.");
+  const returnedState = callback.searchParams.get("state");
+  if (returnedState && returnedState !== state && !callbackUrl) throw new Error("OAuth callback state did not match the active setup flow.");
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+    client_id: resolved.clientId,
+    code_verifier: verifier,
+  });
+  if (resolved.clientSecret) body.set("client_secret", resolved.clientSecret);
+  const response = await fetch(resolved.tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body,
+  });
+  const text = await response.text();
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+  } catch {
+    parsed = {};
+  }
+  if (!response.ok) {
+    const detail = typeof parsed.error_description === "string" ? parsed.error_description : typeof parsed.error === "string" ? parsed.error : text || `HTTP ${response.status}`;
+    throw new Error(`OAuth token exchange failed: ${detail}`);
+  }
+  const accessToken = typeof parsed.access_token === "string" ? parsed.access_token : "";
+  if (!accessToken) throw new Error("OAuth token response did not contain access_token.");
+  const expiresIn = typeof parsed.expires_in === "number" && Number.isFinite(parsed.expires_in) ? parsed.expires_in : undefined;
+  const tokenPath = await writeMcpOAuthToken(name, {
+    accessToken,
+    refreshToken: typeof parsed.refresh_token === "string" ? parsed.refresh_token : undefined,
+    tokenType: typeof parsed.token_type === "string" ? parsed.token_type : "Bearer",
+    scope: typeof parsed.scope === "string" ? parsed.scope : resolved.scope,
+    expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : undefined,
+  });
+  console.log(`oauth=${name} status=authenticated token_path=${tokenPath}`);
+  return true;
+}
+
+interface ResolvedMcpOAuthClient {
+  readonly authorizationUrl: string;
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  readonly clientSecret?: string;
+  readonly scope?: string;
+}
+
+interface OAuthServerMetadata {
+  readonly authorizationEndpoint: string;
+  readonly tokenEndpoint: string;
+  readonly registrationEndpoint?: string;
+}
+
+async function resolveMcpOAuthClient(configured: McpServerConfig, redirectUri: string): Promise<ResolvedMcpOAuthClient | undefined> {
+  const oauth = configured.oauth;
+  if (!oauth) return undefined;
+  if (oauth.authorizationUrl && oauth.tokenUrl && oauth.clientId) {
+    return {
+      authorizationUrl: oauth.authorizationUrl,
+      tokenUrl: oauth.tokenUrl,
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+      scope: oauth.scope,
+    };
+  }
+  if (configured.transport.kind !== "http") return undefined;
+  const metadata = await discoverMcpOAuthServer(configured.transport.url);
+  if (!metadata) return undefined;
+  if (oauth.clientId) {
+    return {
+      authorizationUrl: oauth.authorizationUrl ?? metadata.authorizationEndpoint,
+      tokenUrl: oauth.tokenUrl ?? metadata.tokenEndpoint,
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+      scope: oauth.scope,
+    };
+  }
+  if (!metadata.registrationEndpoint) return undefined;
+  const registered = await registerMcpOAuthClient(metadata.registrationEndpoint, {
+    clientName: oauth.clientName ?? "Muster",
+    redirectUri,
+    scope: oauth.scope,
+  });
+  if (!registered) return undefined;
+  return {
+    authorizationUrl: metadata.authorizationEndpoint,
+    tokenUrl: metadata.tokenEndpoint,
+    clientId: registered.clientId,
+    clientSecret: registered.clientSecret,
+    scope: oauth.scope,
+  };
+}
+
+async function discoverMcpOAuthServer(resourceUrl: string): Promise<OAuthServerMetadata | undefined> {
+  const protectedResource = await discoverProtectedResourceMetadata(resourceUrl);
+  const issuer = protectedResource?.authorizationServer;
+  if (!issuer) return undefined;
+  return discoverAuthorizationServerMetadata(issuer);
+}
+
+async function discoverProtectedResourceMetadata(resourceUrl: string): Promise<{ authorizationServer?: string } | undefined> {
+  const candidates = protectedResourceMetadataCandidates(resourceUrl);
+  const fromChallenge = await protectedResourceMetadataFromChallenge(resourceUrl);
+  if (fromChallenge) candidates.unshift(fromChallenge);
+  for (const candidate of [...new Set(candidates)]) {
+    const json = await fetchJsonRecord(candidate);
+    if (!json) continue;
+    const servers = stringArray(json.authorization_servers);
+    const authorizationServer = servers[0] ?? stringValue(json.authorization_server);
+    if (authorizationServer) return { authorizationServer };
+  }
+  return undefined;
+}
+
+async function protectedResourceMetadataFromChallenge(resourceUrl: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(resourceUrl, { method: "GET", headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+    const header = response.headers.get("www-authenticate");
+    return header ? parseBearerChallengeParameter(header, "resource_metadata") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function protectedResourceMetadataCandidates(resourceUrl: string): string[] {
+  const url = new URL(resourceUrl);
+  const path = url.pathname.replace(/^\/+|\/+$/g, "");
+  const candidates = [`${url.origin}/.well-known/oauth-protected-resource`];
+  if (path) candidates.unshift(`${url.origin}/.well-known/oauth-protected-resource/${path}`);
+  return candidates;
+}
+
+async function discoverAuthorizationServerMetadata(issuer: string): Promise<OAuthServerMetadata | undefined> {
+  const issuerUrl = new URL(issuer);
+  const path = issuerUrl.pathname.replace(/^\/+|\/+$/g, "");
+  const candidates = [
+    path ? `${issuerUrl.origin}/.well-known/oauth-authorization-server/${path}` : `${issuerUrl.origin}/.well-known/oauth-authorization-server`,
+    `${issuerUrl.origin}/.well-known/oauth-authorization-server`,
+    path ? `${issuerUrl.origin}/.well-known/openid-configuration/${path}` : `${issuerUrl.origin}/.well-known/openid-configuration`,
+    `${issuerUrl.origin}/.well-known/openid-configuration`,
+  ];
+  for (const candidate of [...new Set(candidates)]) {
+    const json = await fetchJsonRecord(candidate);
+    if (!json) continue;
+    const authorizationEndpoint = stringValue(json.authorization_endpoint);
+    const tokenEndpoint = stringValue(json.token_endpoint);
+    if (authorizationEndpoint && tokenEndpoint) {
+      return {
+        authorizationEndpoint,
+        tokenEndpoint,
+        registrationEndpoint: stringValue(json.registration_endpoint),
+      };
+    }
+  }
+  return undefined;
+}
+
+async function registerMcpOAuthClient(
+  registrationEndpoint: string,
+  request: { readonly clientName: string; readonly redirectUri: string; readonly scope?: string },
+): Promise<{ clientId: string; clientSecret?: string } | undefined> {
+  const body: Record<string, unknown> = {
+    client_name: request.clientName,
+    redirect_uris: [request.redirectUri],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+  if (request.scope) body.scope = request.scope;
+  try {
+    const response = await fetch(registrationEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const text = await response.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+    } catch {
+      parsed = {};
+    }
+    if (!response.ok) {
+      const detail = stringValue(parsed.error_description) ?? stringValue(parsed.error) ?? (text || `HTTP ${response.status}`);
+      throw new Error(`OAuth dynamic client registration failed: ${detail}`);
+    }
+    const clientId = stringValue(parsed.client_id);
+    if (!clientId) throw new Error("OAuth dynamic client registration did not return client_id.");
+    return { clientId, clientSecret: stringValue(parsed.client_secret) };
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("OAuth dynamic client registration")) throw error;
+    return undefined;
+  }
+}
+
+async function fetchJsonRecord(url: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return undefined;
+    const parsed = await response.json() as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseBearerChallengeParameter(header: string, key: string): string | undefined {
+  const pattern = new RegExp(`${key}="([^"]+)"`, "i");
+  return header.match(pattern)?.[1];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
+}
+
+function base64Url(value: Buffer): string {
+  return value.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+async function startOAuthCallbackServer(port: number): Promise<{ server: ReturnType<typeof createServer>; redirectUri: string; callback: Promise<URL> }> {
+  let resolveCallback!: (url: URL) => void;
+  let rejectCallback!: (error: Error) => void;
+  const callback = new Promise<URL>((resolve, reject) => {
+    resolveCallback = resolve;
+    rejectCallback = reject;
+  });
+  const server = createServer((request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+      if (url.pathname !== "/callback") {
+        response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        response.end("Not found");
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<html><body><h2>Muster OAuth received.</h2><p>You can close this tab and return to the terminal.</p></body></html>");
+      resolveCallback(url);
+    } catch (error) {
+      rejectCallback(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", rejectListen);
+      resolveListen();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address !== "object") throw new Error("Could not determine OAuth callback port.");
+  return { server, redirectUri: `http://127.0.0.1:${address.port}/callback`, callback };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolveTimeout, rejectTimeout) => {
+    const timer = setTimeout(() => rejectTimeout(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolveTimeout(value); },
+      (error) => { clearTimeout(timer); rejectTimeout(error); },
+    );
+  });
 }
 
 async function dashboardCommand(args: string[]): Promise<void> {
@@ -2516,6 +3772,36 @@ async function context(args: string[]): Promise<void> {
 
 async function memory(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "status" || subcommand === "doctor") {
+    let inspection = await inspectMemoryStore();
+    printMemoryInspection(inspection);
+    if (subcommand === "status" && args.includes("--probe")) await printMemoryLatencyProbe(args);
+    if (subcommand === "doctor") {
+      const failed = inspection.checks.filter((check) => check.status === "failed");
+      const sourceFailed = failed.filter((check) => check.label === "jsonl_valid" || check.label === "duplicate_ids" || check.label === "zero_scope_objects");
+      if (sourceFailed.length) {
+        console.log(color("repair: fix JSONL source errors first; derived SQLite index can be safely rebuilt after source is valid.", "yellow"));
+        process.exitCode = 1;
+      } else {
+        if (args.includes("--fix")) {
+          const rebuilt = await rebuildMemoryIndex();
+          inspection = rebuilt.inspection;
+          console.log(color(`fix: rebuilt derived SQLite index removed_existing=${rebuilt.removedExisting}`, "green"));
+          printMemoryInspection(inspection);
+        }
+        const remainingFailed = inspection.checks.filter((check) => check.status === "failed");
+        if (remainingFailed.length) {
+          console.log(color("repair: run `muster memory doctor --fix` to rebuild the derived SQLite index.", "yellow"));
+          process.exitCode = 1;
+          return;
+        }
+        if (args.includes("--probe")) await printMemoryLatencyProbe(args);
+        const warnings = inspection.checks.filter((check) => check.status === "warning");
+        console.log(color(warnings.length ? "doctor: passed with warnings" : "doctor: passed", warnings.length ? "yellow" : "green"));
+      }
+    }
+    return;
+  }
   if (subcommand === "add") {
     const summary = readFlag(args, "--summary");
     if (!summary) throw new Error('Usage: muster memory add --summary "..." --scope user:me --provenance manual');
@@ -2536,10 +3822,30 @@ async function memory(args: string[]): Promise<void> {
   }
   if (subcommand === "search") {
     const scopes = readFlags(args, "--scope").map(parseMemoryScope);
+    const query = readFlag(args, "--query");
+    if (args.includes("--explain")) {
+      const receipt = await searchMemoryWithReceipts({
+        query,
+        scopes,
+        includeGlobal: args.includes("--include-global"),
+        limit: readNumberFlag(args, "--limit") ?? 20,
+        match: "any",
+      });
+      console.log(`memory search query=${receipt.query || "(recent)"} backend=${receipt.backend} candidates=${receipt.candidateCount} recalled=${receipt.receipts.length} fallback=${receipt.fallbackUsed}`);
+      for (const item of receipt.receipts) {
+        console.log(`id=${item.memory.id} score=${item.score.toFixed(3)} reason=${item.reason}`);
+        console.log(`summary=${item.memory.summary}`);
+        console.log(`scopes=${item.memory.scopes.map((scope) => `${scope.kind}:${scope.id}`).join(",")}`);
+        console.log(`provenance=${item.memory.provenance.join(",")}`);
+        if (item.matchedTerms.length) console.log(`matched=${item.matchedTerms.join(",")}`);
+      }
+      return;
+    }
     const records = await searchMemory({
-      query: readFlag(args, "--query"),
+      query,
       scopes,
-      includeGlobal: args.includes("--include-global")
+      includeGlobal: args.includes("--include-global"),
+      limit: readNumberFlag(args, "--limit") ?? undefined,
     });
     if (!records.length) {
       console.log("No memory matched the requested scope and query.");
@@ -2553,10 +3859,87 @@ async function memory(args: string[]): Promise<void> {
     if (!id) throw new Error("Usage: muster memory promote <memory-id> --to tenant:acme [--allow-global]");
     const targetScopes = readFlags(args, "--to").map(parseMemoryScope);
     const object = await promoteMemory({ id, targetScopes, allowGlobal: args.includes("--allow-global") });
+    const runId = `manual_promote_${Date.now()}`;
+    await appendGoalLoopTurn(buildGoalLoopTurn({
+      runId,
+      episodeId: runId,
+      createdAt: new Date().toISOString(),
+      activeGoal: `promote memory ${id} to ${object.scopes.map(formatMemoryScope).join(",")}`,
+      taskKind: "workflow",
+      status: "completed",
+      scopes: object.scopes,
+      recallReceipt: {
+        query: "",
+        scopes: object.scopes,
+        includeGlobal: false,
+        backend: "sqlite-fts5",
+        requestedLimit: 0,
+        candidateCount: 0,
+        receipts: [],
+        fallbackUsed: false,
+      },
+      memoryWrite: promotedMemoryWrite(object, id),
+    }));
     printMemoryObject(object);
     return;
   }
-  throw new Error("Usage: muster memory <add|search|promote>");
+  throw new Error("Usage: muster memory <add|search|status|doctor|promote>");
+}
+
+type MemoryInspection = Awaited<ReturnType<typeof inspectMemoryStore>>;
+type MemoryLatencyProbe = Awaited<ReturnType<typeof probeMemorySearchLatency>>;
+
+function printMemoryInspection(inspection: MemoryInspection): void {
+  console.log("memory status");
+  console.log(`jsonl=${inspection.memoryPath}`);
+  console.log(`db=${inspection.dbPath}`);
+  console.log(`jsonl_valid=${inspection.jsonl.valid} objects=${inspection.jsonl.objectCount} size=${inspection.jsonl.size} duplicates=${inspection.jsonl.duplicateIds} zero_scope=${inspection.jsonl.zeroScopeObjects} blocked=${inspection.jsonl.blockedObjects}`);
+  if (inspection.jsonl.error) console.log(color(`jsonl_error=${inspection.jsonl.error}`, "red"));
+  console.log(`index_exists=${inspection.index.exists} readable=${inspection.index.readable} initialized=${inspection.index.initialized} fresh=${inspection.index.fresh} backend=${inspection.index.backend ?? "-"} objects=${inspection.index.objectCount ?? 0} scope_rows=${inspection.index.scopeRowCount ?? 0} size=${inspection.index.size}`);
+  if (inspection.index.error) console.log(color(`index_error=${inspection.index.error}`, "red"));
+  if (inspection.scopes.length) {
+    console.log("scopes");
+    for (const { scope, count } of inspection.scopes) console.log(`  ${scope}\t${count}`);
+  } else {
+    console.log("scopes none");
+  }
+  console.log("checks");
+  for (const check of inspection.checks) {
+    const marker = check.status === "passed" ? "ok" : check.status === "warning" ? "warn" : "fail";
+    const tone = check.status === "passed" ? "green" : check.status === "warning" ? "yellow" : "red";
+    console.log(color(`  ${marker}\t${check.label}\t${check.detail}`, tone));
+  }
+}
+
+async function printMemoryLatencyProbe(args: string[]): Promise<void> {
+  const scopes = readFlags(args, "--scope").map(parseMemoryScope);
+  if (!scopes.length) {
+    console.log(color("probe skipped: pass --scope kind:id to measure scoped retrieval latency", "yellow"));
+    return;
+  }
+  const probe = await probeMemorySearchLatency({
+    query: readFlag(args, "--query") ?? "",
+    scopes,
+    includeGlobal: args.includes("--include-global"),
+    limit: readNumberFlag(args, "--limit") ?? 5,
+    candidateLimit: readNumberFlag(args, "--candidate-limit") ?? 50,
+    runs: readNumberFlag(args, "--runs") ?? 25,
+    match: "any",
+  });
+  printMemoryLatencyProbeResult(probe);
+}
+
+function printMemoryLatencyProbeResult(probe: MemoryLatencyProbe): void {
+  console.log(`probe query=${probe.query || "(recent)"} runs=${probe.runs} backend=${probe.backend} recalled=${probe.recalledCount} candidates=${probe.candidateCount}`);
+  console.log(`probe_latency p50_ms=${probe.p50Ms.toFixed(3)} p95_ms=${probe.p95Ms.toFixed(3)} min_ms=${probe.minMs.toFixed(3)} max_ms=${probe.maxMs.toFixed(3)}`);
+}
+
+async function goalCommand(args: string[]): Promise<void> {
+  const action = args[0] ?? "status";
+  if (action !== "status" && action !== "recent") {
+    throw new Error("Usage: muster goal status [--limit 10]");
+  }
+  await printGoalStatus(readNumberFlag(args, "--limit") ?? 10);
 }
 
 async function tui(): Promise<void> {
@@ -3149,15 +4532,7 @@ async function checkModelsEndpoint(baseUrl: string): Promise<boolean> {
     const response = await fetch(`${cleanBase}/models`, {
       signal: AbortSignal.timeout(2000)
     });
-    if (response.ok) return true;
-    if (cleanBase.endsWith("/v1")) {
-      const ollamaBase = cleanBase.slice(0, -3);
-      const ollamaResponse = await fetch(`${ollamaBase}/api/tags`, {
-        signal: AbortSignal.timeout(2000)
-      });
-      return ollamaResponse.ok;
-    }
-    return false;
+    return response.ok;
   } catch {
     return false;
   }
@@ -3192,6 +4567,14 @@ function readNumberFlag(args: string[], flag: string): number | undefined {
   if (!raw) return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${flag} must be a positive number.`);
+  return value;
+}
+
+function readNonNegativeNumberFlag(args: string[], flag: string): number | undefined {
+  const raw = readFlag(args, flag);
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${flag} must be a non-negative number.`);
   return value;
 }
 
@@ -3329,12 +4712,6 @@ function formatCompactNumber(value: number): string {
   return String(value);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
-
-
 async function runCommand(commandArgs: string[]): Promise<void> {
   const flagNames = ["--runtime", "--provider", "--model", "--thinking", "--session", "--session-dir", "--scope", "--task-kind", "--timeout-ms", "--recall-limit"];
   const prompt = stripFlags(commandArgs, flagNames).filter((value) => value !== "--sensitive").join(" ").trim();
@@ -3380,8 +4757,169 @@ async function runCommand(commandArgs: string[]): Promise<void> {
   console.log("\n" + outcome.episode.responseText + "\n");
 }
 
+interface LatencySample {
+  readonly index: number;
+  readonly status: string;
+  readonly totalMs: number;
+  readonly providerMs: number;
+  readonly musterOverheadMs: number;
+  readonly planningMs: number;
+  readonly recallMs: number;
+  readonly promptBuildMs: number;
+  readonly persistMs: number;
+  readonly providerSharePct: number;
+  readonly responseChars: number;
+}
+
+async function latencyCommand(commandArgs: string[]): Promise<void> {
+  const flagNames = ["--runs", "--runtime", "--provider", "--model", "--scope", "--timeout-ms", "--recall-limit", "--task-kind", "--workspace-dir", "--codex-home"];
+  const prompt = stripFlags(commandArgs, flagNames)
+    .filter((value) => !["--sensitive", "--fast", "--no-agent-rules", "--write-memory"].includes(value))
+    .join(" ")
+    .trim();
+  if (!prompt) throw new Error('Usage: muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]');
+
+  const runs = Math.max(1, Math.min(20, readNumberFlag(commandArgs, "--runs") ?? 1));
+  const scopes = readFlags(commandArgs, "--scope").map(parseMemoryScope);
+  const config = await loadConfig();
+  const samples: LatencySample[] = [];
+  for (let index = 0; index < runs; index += 1) {
+    const outcome = await executeRun(config, {
+      prompt,
+      runtime: readFlag(commandArgs, "--runtime"),
+      provider: readFlag(commandArgs, "--provider"),
+      model: readFlag(commandArgs, "--model"),
+      taskKind: readFlag(commandArgs, "--task-kind") as never,
+      sensitive: commandArgs.includes("--sensitive"),
+      scopes: scopes.length ? scopes : undefined,
+      recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
+      timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"),
+      workspaceDir: readFlag(commandArgs, "--workspace-dir"),
+      codexHome: readFlag(commandArgs, "--codex-home"),
+      skipAgentRules: commandArgs.includes("--no-agent-rules"),
+      skipMemoryWrite: !commandArgs.includes("--write-memory"),
+      nativeSession: commandArgs.includes("--fast") ? false : undefined,
+      nativeSessionKeepAlive: commandArgs.includes("--fast") ? false : undefined,
+      surfaceId: "latency-probe",
+    });
+    const timings = outcome.timings;
+    if (!timings) throw new Error("Runtime did not return timing data.");
+    const sample = latencySample(index + 1, outcome, timings);
+    samples.push(sample);
+    console.log(renderLatencySample(sample));
+  }
+  console.log(renderLatencySummary(samples));
+}
+
+function latencySample(index: number, outcome: RunOutcome, timings: NonNullable<RunOutcome["timings"]>): LatencySample {
+  const musterOverheadMs = Math.max(0, timings.totalMs - timings.providerMs);
+  return {
+    index,
+    status: outcome.episode.outcome?.kind ?? "unknown",
+    totalMs: timings.totalMs,
+    providerMs: timings.providerMs,
+    musterOverheadMs,
+    planningMs: timings.planningMs,
+    recallMs: timings.recallMs,
+    promptBuildMs: timings.promptBuildMs,
+    persistMs: timings.persistMs,
+    providerSharePct: timings.totalMs > 0 ? (timings.providerMs / timings.totalMs) * 100 : 0,
+    responseChars: outcome.episode.responseText.length,
+  };
+}
+
+function renderLatencySample(sample: LatencySample): string {
+  return [
+    `latency_run=${sample.index}`,
+    `status=${sample.status}`,
+    `total_ms=${sample.totalMs}`,
+    `provider_ms=${sample.providerMs}`,
+    `muster_overhead_ms=${sample.musterOverheadMs}`,
+    `provider_share=${sample.providerSharePct.toFixed(1)}%`,
+    `planning_ms=${sample.planningMs}`,
+    `recall_ms=${sample.recallMs}`,
+    `prompt_ms=${sample.promptBuildMs}`,
+    `persist_ms=${sample.persistMs}`,
+    `response_chars=${sample.responseChars}`,
+  ].join(" ");
+}
+
+function renderLatencySummary(samples: readonly LatencySample[]): string {
+  const totals = samples.map((sample) => sample.totalMs).sort((a, b) => a - b);
+  const providers = samples.map((sample) => sample.providerMs).sort((a, b) => a - b);
+  const overheads = samples.map((sample) => sample.musterOverheadMs).sort((a, b) => a - b);
+  const avgProviderShare = samples.reduce((sum, sample) => sum + sample.providerSharePct, 0) / Math.max(1, samples.length);
+  const diagnosis = avgProviderShare >= 80
+    ? "provider_bound"
+    : percentileNumber(overheads, 0.5) > 1000
+      ? "muster_overhead_high"
+      : "balanced_or_fast";
+  const action = diagnosis === "provider_bound"
+    ? "Provider dominates latency; compare --fast, model/provider picker choices, and native Codex auth/session health."
+    : diagnosis === "muster_overhead_high"
+      ? "Muster overhead is significant; inspect recall, prompt, and persistence timings before blaming the provider."
+      : "No dominant overhead in this probe; repeat with --runs 3 and the same prompt under the live runtime.";
+  return [
+    `latency_summary runs=${samples.length}`,
+    `p50_total_ms=${percentileNumber(totals, 0.5).toFixed(1)}`,
+    `p95_total_ms=${percentileNumber(totals, 0.95).toFixed(1)}`,
+    `p50_provider_ms=${percentileNumber(providers, 0.5).toFixed(1)}`,
+    `p50_muster_overhead_ms=${percentileNumber(overheads, 0.5).toFixed(1)}`,
+    `avg_provider_share=${avgProviderShare.toFixed(1)}%`,
+    `diagnosis=${diagnosis}`,
+    `action="${action}"`,
+  ].join(" ");
+}
+
+function percentileNumber(sortedValues: readonly number[], q: number): number {
+  if (!sortedValues.length) return 0;
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(sortedValues.length * q) - 1));
+  return sortedValues[index] ?? 0;
+}
+
 async function tokensCommand(commandArgs: string[]): Promise<void> {
   console.log(renderTokenTable(await listTokenRecords(), readNumberFlag(commandArgs, "--limit") ?? 20));
+}
+
+async function printGoalStatus(limit: number): Promise<void> {
+  const turns = await recentGoalLoopTurns(limit);
+  if (!turns.length) {
+    console.log("No goal-loop records yet.");
+    return;
+  }
+  console.log(color("created\trun\tstatus\trecalled\tcandidates\tmemory\tfollow_up\tgoal", "cyan"));
+  for (const turn of turns) {
+    const follow = formatGoalFollowUp(turn.followUpRetrieval);
+    const memory = formatGoalMemoryWrite(turn.memoryWrite);
+    console.log([
+      turn.createdAt.slice(0, 19),
+      turn.runId,
+      turn.status,
+      String(turn.retrieval.recalledCount),
+      String(turn.retrieval.candidateCount),
+      memory,
+      follow,
+      turn.activeGoal.replace(/\s+/g, " ").slice(0, 80),
+    ].join("\t"));
+    for (const receipt of turn.retrieval.receipts.slice(0, 3)) {
+      const matched = receipt.matchedTerms.length ? ` matched=${receipt.matchedTerms.join(",")}` : "";
+      const provenance = receipt.provenance.length ? ` provenance=${receipt.provenance.slice(0, 3).join(",")}` : "";
+      console.log(color(`  memory=${receipt.memoryId} score=${receipt.score.toFixed(3)} reason=${receipt.reason} scopes=${receipt.scopes.join(",")}${matched}${provenance}`, "dim"));
+    }
+  }
+}
+
+function formatGoalFollowUp(followUp: Awaited<ReturnType<typeof recentGoalLoopTurns>>[number]["followUpRetrieval"]): string {
+  if (!followUp.needed) return "no";
+  const reason = followUp.reason ?? "needed";
+  const query = followUp.query?.replace(/\s+/g, " ").slice(0, 60);
+  return query ? `${reason}:${query}` : reason;
+}
+
+function formatGoalMemoryWrite(memoryWrite: Awaited<ReturnType<typeof recentGoalLoopTurns>>[number]["memoryWrite"]): string {
+  if (memoryWrite.status === "remembered") return `remembered:${memoryWrite.memoryId}`;
+  if (memoryWrite.status === "promoted") return `promoted:${memoryWrite.memoryId} from:${memoryWrite.sourceMemoryId}`;
+  return `${memoryWrite.status}:${memoryWrite.reason}`;
 }
 
 async function tracesCommand(commandArgs: string[]): Promise<void> {
@@ -3514,7 +5052,7 @@ async function flowRegistryWithPacks(commandArgs: string[]): Promise<FlowToolReg
   const pluginPolicy = await loadPluginPolicy();
   const slotClaims: Record<string, string> = {};
   for (const packDir of readFlags(commandArgs, "--pack")) {
-    const loaded = await loadCapabilityPack(resolve(process.cwd(), packDir), {
+    const loaded = await loadCapabilityPack(resolveWorkspacePath(packDir), {
       registry,
       allowHighRisk: commandArgs.includes("--allow-high-risk"),
       pluginPolicy,
@@ -3523,6 +5061,16 @@ async function flowRegistryWithPacks(commandArgs: string[]): Promise<FlowToolReg
     console.log(`pack_loaded=${loaded.manifest.id} tools=${loaded.toolNames.join(",")}`);
   }
   return registry;
+}
+
+function resolveWorkspacePath(input: string): string {
+  if (input.startsWith("/")) return input;
+  const candidates = [
+    resolve(process.cwd(), input),
+    resolve(process.cwd(), "..", input),
+    resolve(process.cwd(), "..", "..", input),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
 async function loadPluginPolicy(): Promise<CapabilityPluginPolicy | undefined> {
@@ -3800,6 +5348,299 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   throw new Error("Usage: muster gateway <init|start [--port 7460]|poll>");
+}
+
+type ChannelId = "telegram" | "slack" | "gchat" | "discord" | "whatsapp" | "teams" | "web";
+
+interface ChannelSetupSpec {
+  readonly id: ChannelId;
+  readonly label: string;
+  readonly route?: string;
+  readonly setupUrls: readonly string[];
+  readonly requiredEnvFlags: readonly string[];
+  readonly optionalEnvFlags?: readonly string[];
+  readonly notes: readonly string[];
+}
+
+const CHANNEL_SETUP_SPECS: readonly ChannelSetupSpec[] = [
+  {
+    id: "telegram",
+    label: "Telegram Bot",
+    route: "/v1/adapters/telegram",
+    setupUrls: ["https://core.telegram.org/bots/tutorial", "https://core.telegram.org/bots/api#setwebhook"],
+    requiredEnvFlags: ["--bot-token-env"],
+    optionalEnvFlags: ["--secret-token-env"],
+    notes: ["Webhook mode needs a public HTTPS URL; use `muster gateway poll` for local long-poll testing where Telegram is reachable."],
+  },
+  {
+    id: "slack",
+    label: "Slack App",
+    route: "/v1/adapters/slack",
+    setupUrls: ["https://api.slack.com/apps", "https://api.slack.com/apis/connections/events-api"],
+    requiredEnvFlags: ["--bot-token-env", "--signing-secret-env"],
+    notes: ["Enable Events API, subscribe to message/app_mention events, and paste the Request URL shown below."],
+  },
+  {
+    id: "gchat",
+    label: "Google Chat App",
+    route: "/v1/adapters/gchat",
+    setupUrls: ["https://console.cloud.google.com/apis/library/chat.googleapis.com", "https://developers.google.com/workspace/chat/quickstart/webhooks"],
+    requiredEnvFlags: [],
+    optionalEnvFlags: ["--verification-token-env"],
+    notes: ["Configure the Chat API app URL to the webhook below. Google Chat app identity is configured in Google Cloud, not by a bot token in Muster."],
+  },
+  {
+    id: "discord",
+    label: "Discord App",
+    route: "/v1/adapters/discord",
+    setupUrls: ["https://discord.com/developers/applications"],
+    requiredEnvFlags: ["--bot-token-env"],
+    optionalEnvFlags: ["--public-key-env"],
+    notes: ["Bot-token message support is configured; interaction public-key verification is available when public key is supplied."],
+  },
+  {
+    id: "whatsapp",
+    label: "WhatsApp Cloud API",
+    route: "/v1/adapters/whatsapp",
+    setupUrls: ["https://developers.facebook.com/docs/whatsapp/cloud-api/get-started", "https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks"],
+    requiredEnvFlags: ["--access-token-env", "--verify-token-env", "--phone-number-id-env"],
+    optionalEnvFlags: ["--api-version"],
+    notes: ["Use a long-lived access token in production; the verify token is the webhook challenge secret you choose."],
+  },
+  {
+    id: "teams",
+    label: "Microsoft Teams",
+    route: "/v1/adapters/teams",
+    setupUrls: ["https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations"],
+    requiredEnvFlags: [],
+    optionalEnvFlags: ["--hmac-secret-env"],
+    notes: ["The adapter accepts Teams-style webhook payloads; production bot OAuth registration still needs a fuller Teams app flow."],
+  },
+  {
+    id: "web",
+    label: "Web App Embed",
+    route: "/v1/messages",
+    setupUrls: ["http://localhost:7460/v1/health"],
+    requiredEnvFlags: [],
+    notes: ["Use the gateway bearer token from `muster gateway init` in your webapp backend, never directly from browser JavaScript."],
+  },
+];
+
+async function channelsCommand(commandArgs: string[]): Promise<void> {
+  const [action, channel] = commandArgs;
+  if (action === "list" || action === undefined) {
+    printChannelCatalog();
+    return;
+  }
+  if (action === "status") {
+    const config = await loadGatewayConfig();
+    if (channel) {
+      const spec = requireChannelSpec(channel);
+      printChannelStatus(spec, config);
+      return;
+    }
+    for (const spec of CHANNEL_SETUP_SPECS) printChannelStatus(spec, config);
+    return;
+  }
+  if (action === "setup" && channel) {
+    const spec = requireChannelSpec(channel);
+    const config = await loadOrInitGatewayConfig();
+    const updated = applyChannelSetup(spec.id, config, commandArgs);
+    if (updated !== config) {
+      const path = await saveGatewayConfig(updated);
+      console.log(`gateway_config=${path}`);
+    }
+    printChannelSetup(spec, updated, commandArgs);
+    return;
+  }
+  throw new Error("Usage: muster channels list | status [channel] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
+}
+
+function printChannelCatalog(): void {
+  console.log("channel\tconfigured_by\tsetup");
+  for (const spec of CHANNEL_SETUP_SPECS) {
+    const auth = spec.requiredEnvFlags.length ? spec.requiredEnvFlags.join(",") : spec.optionalEnvFlags?.length ? spec.optionalEnvFlags.join(",") : "gateway token";
+    console.log(`${spec.id}\t${auth}\tmuster channels setup ${spec.id}`);
+  }
+}
+
+function printChannelStatus(spec: ChannelSetupSpec, config: GatewayConfig): void {
+  const ready = channelReady(spec.id, config);
+  console.log(`channel=${spec.id} ready=${ready} webhook=${spec.route ?? "-"} setup="muster channels setup ${spec.id}"`);
+  if (spec.id === "telegram") console.log(`  bot_token=${configured(Boolean(config.telegram?.botToken))} secret_token=${configured(Boolean(config.telegram?.secretToken))} stream=${config.telegram?.stream ?? "off"}`);
+  if (spec.id === "slack") console.log(`  bot_token=${configured(Boolean(config.slack?.botToken))} signing_secret=${configured(Boolean(config.slack?.signingSecret))} stream=${config.slack?.stream ?? "off"}`);
+  if (spec.id === "gchat") console.log(`  verification_token=${configured(Boolean(config.gchat?.verificationToken))}`);
+  if (spec.id === "discord") console.log(`  bot_token=${configured(Boolean(config.discord?.botToken))} public_key=${configured(Boolean(config.discord?.publicKey))}`);
+  if (spec.id === "whatsapp") console.log(`  access_token=${configured(Boolean(config.whatsapp?.accessToken))} verify_token=${configured(Boolean(config.whatsapp?.verifyToken))} phone_number_id=${configured(Boolean(config.whatsapp?.phoneNumberId))}`);
+  if (spec.id === "teams") console.log(`  hmac_secret=${configured(Boolean(config.teams?.hmacSecret))}`);
+  if (spec.id === "web") console.log(`  bearer_token=${configured(Boolean(config.token))}`);
+}
+
+function printChannelSetup(spec: ChannelSetupSpec, config: GatewayConfig, args: readonly string[]): void {
+  const publicUrl = readFlag([...args], "--public-url")?.replace(/\/$/, "");
+  const localBase = `http://127.0.0.1:${config.port ?? DEFAULT_GATEWAY_PORT}`;
+  const base = publicUrl ?? localBase;
+  console.log(`channel=${spec.id} label="${spec.label}" ready=${channelReady(spec.id, config)}`);
+  if (spec.route) console.log(`webhook_url=${base}${spec.route}`);
+  for (const url of spec.setupUrls) console.log(`setup_url=${url}`);
+  if (spec.requiredEnvFlags.length) console.log(`required_env_flags=${spec.requiredEnvFlags.join(",")}`);
+  if (spec.optionalEnvFlags?.length) console.log(`optional_env_flags=${spec.optionalEnvFlags.join(",")}`);
+  for (const note of spec.notes) console.log(`note=${note}`);
+  console.log("next=muster channels status " + spec.id);
+  if (spec.id !== "web") console.log(`start=muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+}
+
+async function loadOrInitGatewayConfig(): Promise<GatewayConfig> {
+  const result = await initGatewayConfig();
+  return result.config;
+}
+
+function applyChannelSetup(channel: ChannelId, config: GatewayConfig, args: readonly string[]): GatewayConfig {
+  if (channel === "telegram") {
+    const botToken = readEnvFlag(args, "--bot-token-env");
+    const secretToken = readOptionalEnvFlag(args, "--secret-token-env");
+    const stream = readStreamFlag(args);
+    if (!botToken && !secretToken && !stream) return config;
+    return { ...config, telegram: { botToken: botToken ?? config.telegram?.botToken ?? "", secretToken: secretToken ?? config.telegram?.secretToken, stream: stream ?? config.telegram?.stream } };
+  }
+  if (channel === "slack") {
+    const botToken = readEnvFlag(args, "--bot-token-env");
+    const signingSecret = readEnvFlag(args, "--signing-secret-env");
+    const stream = readStreamFlag(args);
+    if (!botToken && !signingSecret && !stream) return config;
+    return { ...config, slack: { botToken: botToken ?? config.slack?.botToken ?? "", signingSecret: signingSecret ?? config.slack?.signingSecret, stream: stream ?? config.slack?.stream } };
+  }
+  if (channel === "gchat") {
+    const verificationToken = readOptionalEnvFlag(args, "--verification-token-env");
+    if (!verificationToken) return config;
+    return { ...config, gchat: { verificationToken } };
+  }
+  if (channel === "discord") {
+    const botToken = readEnvFlag(args, "--bot-token-env");
+    const publicKey = readOptionalEnvFlag(args, "--public-key-env");
+    if (!botToken && !publicKey) return config;
+    return { ...config, discord: { botToken: botToken ?? config.discord?.botToken ?? "", publicKey: publicKey ?? config.discord?.publicKey } };
+  }
+  if (channel === "whatsapp") {
+    const accessToken = readEnvFlag(args, "--access-token-env");
+    const verifyToken = readEnvFlag(args, "--verify-token-env");
+    const phoneNumberId = readEnvFlag(args, "--phone-number-id-env");
+    const apiVersion = readFlag([...args], "--api-version") ?? config.whatsapp?.apiVersion;
+    if (!accessToken && !verifyToken && !phoneNumberId && !apiVersion) return config;
+    return {
+      ...config,
+      whatsapp: {
+        accessToken: accessToken ?? config.whatsapp?.accessToken ?? "",
+        verifyToken: verifyToken ?? config.whatsapp?.verifyToken ?? "",
+        phoneNumberId: phoneNumberId ?? config.whatsapp?.phoneNumberId ?? "",
+        apiVersion,
+      },
+    };
+  }
+  if (channel === "teams") {
+    const hmacSecret = readOptionalEnvFlag(args, "--hmac-secret-env");
+    if (!hmacSecret) return config;
+    return { ...config, teams: { hmacSecret } };
+  }
+  return config;
+}
+
+function requireChannelSpec(channel: string): ChannelSetupSpec {
+  const spec = findChannelSpec(channel);
+  if (!spec) throw new Error(`Unknown channel "${channel}". Run: muster channels list`);
+  return spec;
+}
+
+function findChannelSpec(channel: string): ChannelSetupSpec | undefined {
+  return CHANNEL_SETUP_SPECS.find((candidate) => candidate.id === channel);
+}
+
+function channelReady(channel: ChannelId, config: GatewayConfig): boolean {
+  if (channel === "telegram") return Boolean(config.telegram?.botToken);
+  if (channel === "slack") return Boolean(config.slack?.botToken && config.slack.signingSecret);
+  if (channel === "gchat") return Boolean(config.gchat);
+  if (channel === "discord") return Boolean(config.discord?.botToken);
+  if (channel === "whatsapp") return Boolean(config.whatsapp?.accessToken && config.whatsapp.verifyToken && config.whatsapp.phoneNumberId);
+  if (channel === "teams") return Boolean(config.teams);
+  return Boolean(config.token);
+}
+
+function readStreamFlag(args: readonly string[]): "off" | "draft" | undefined {
+  const value = readFlag([...args], "--stream");
+  if (!value) return undefined;
+  if (value !== "off" && value !== "draft") throw new Error("--stream must be off or draft.");
+  return value;
+}
+
+function readEnvFlag(args: readonly string[], flag: string): string | undefined {
+  const envName = readFlag([...args], flag);
+  if (!envName) return undefined;
+  const value = process.env[envName];
+  if (!value) throw new Error(`Environment variable ${envName} is not set.`);
+  return value;
+}
+
+function readOptionalEnvFlag(args: readonly string[], flag: string): string | undefined {
+  const envName = readFlag([...args], flag);
+  if (!envName) return undefined;
+  const value = process.env[envName];
+  if (!value) throw new Error(`Environment variable ${envName} is not set.`);
+  return value;
+}
+
+function configured(value: boolean): string {
+  return value ? "configured" : "missing";
+}
+
+async function integrationsCommand(args: string[]): Promise<void> {
+  const action = args[0] ?? "list";
+  if (action !== "list" && action !== "guide" && action !== "status") {
+    throw new Error("Usage: muster integrations [list|guide|status]");
+  }
+  const config = await loadConfig().catch(() => undefined);
+  const gateway = await loadGatewayConfig().catch(() => undefined);
+  const enabledPlugins = new Set(
+    Object.entries(config?.plugins?.entries ?? {})
+      .filter(([, entry]) => entry.enabled !== false)
+      .map(([id]) => id),
+  );
+  const configuredMcp = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
+
+  console.log("Muster integrations");
+  console.log("Use these as backends for chat apps, webapps, agents, and local workflows.");
+  console.log("");
+  console.log("kind\tid\tstatus\tnext");
+  for (const spec of CHANNEL_SETUP_SPECS) {
+    const ready = gateway ? channelReady(spec.id, gateway) : false;
+    const next = ready ? `muster gateway start --port ${gateway?.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels setup ${spec.id}`;
+    console.log(`channel\t${spec.id}\t${ready ? "ready" : "needs setup"}\t${next}`);
+  }
+
+  const featuredPlugins = ["web-search", "github", "google-workspace", "notion", "artifact-studio", "daily-ops", "data-analytics", "security-review", "research-lab"];
+  for (const id of featuredPlugins) {
+    const plugin = listBuiltinPlugins().find((entry) => entry.id === id || entry.aliases?.includes(id));
+    if (!plugin) continue;
+    const missing = missingSetupEnv(plugin.setup);
+    const enabled = enabledPlugins.has(plugin.id);
+    const status = enabled ? "enabled" : missing.length ? `needs ${missing.join(",")}` : "available";
+    const riskFlag = plugin.risk === "high" ? " --allow-high-risk" : "";
+    console.log(`plugin\t${plugin.id}\t${status}\tmuster plugins ${enabled ? "setup" : "enable"} ${plugin.id}${riskFlag}`);
+  }
+
+  for (const mcp of listBuiltinMcpServers()) {
+    const missing = missingMcpEnv(mcp);
+    const configured = configuredMcp.has(mcp.id);
+    const oauthHint = mcp.auth === "oauth" && configured ? `; auth: muster mcp oauth setup ${mcp.id}` : "";
+    const status = configured ? "configured" : missing.length ? `needs ${missing.join(",")}` : mcp.auth === "oauth" ? "needs OAuth" : "installable";
+    console.log(`mcp\t${mcp.id}\t${status}\tmuster mcp install ${mcp.id}${oauthHint}`);
+  }
+
+  console.log("");
+  console.log("For non-technical setup, start with a channel, then add capabilities:");
+  console.log("1. muster integrations");
+  console.log("2. muster channels setup gchat --public-url https://your-domain.example");
+  console.log("3. muster plugins enable web-search");
+  console.log("4. muster mcp install parallel-search");
 }
 
 async function pairingCommand(commandArgs: string[]): Promise<void> {
@@ -4083,3 +5924,8 @@ async function benchmarkCommand(): Promise<void> {
   console.log(`\nMuster reduced naive token cost by ${report.aggregate.musterReductionPct}% across these scenarios.`);
   console.log("Deterministic — no model calls. Regenerate the published table with: node benchmark/run.mjs");
 }
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

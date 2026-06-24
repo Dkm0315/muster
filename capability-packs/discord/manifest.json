@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "discord",
+  "name": "Muster Discord",
+  "version": "0.1.0",
+  "kind": "channel",
+  "slot": "channel-discord",
+  "entrypoint": "src/index.ts",
+  "description": "Discord setup, signature readiness, and interaction debugging helpers for the Muster gateway.",
+  "permissions": ["messages"],
+  "sandbox": "network_limited",
+  "secrets": ["DISCORD_BOT_TOKEN", "DISCORD_PUBLIC_KEY"],
+  "evals": ["evals/discord.json"],
+  "implementedTools": [
+    "discord_setup_plan",
+    "discord_gateway_check",
+    "discord_interaction_summary"
+  ],
+  "status": "v0: setup and diagnostics for Discord Interactions and gateway replies; broader OpenClaw-style Discord actions remain future channel tools."
+}

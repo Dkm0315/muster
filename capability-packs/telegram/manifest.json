@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "telegram",
+  "name": "Muster Telegram Channel",
+  "version": "0.1.0",
+  "kind": "channel",
+  "slot": "channel-telegram",
+  "entrypoint": "src/index.ts",
+  "description": "Telegram bot setup, gateway readiness, and update debugging helpers for regions where the Bot API is reachable.",
+  "permissions": ["messages", "secrets"],
+  "sandbox": "none",
+  "secrets": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_SECRET_TOKEN"],
+  "evals": ["evals/telegram-channel.json"],
+  "implementedTools": ["telegram_setup_plan", "telegram_gateway_check", "telegram_update_summary"],
+  "status": "v0: setup and diagnostic helpers; live Telegram delivery may be regionally unavailable."
+}

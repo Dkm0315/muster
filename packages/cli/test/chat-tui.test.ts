@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createMusterAutocompleteProvider, createMusterChatEditor, isBareCompletionTrigger, renderMusterComposer } from "../src/chat-tui.js";
+import { createMusterAutocompleteProvider, createMusterChatEditor, createMusterChatHarness, isBareCompletionTrigger, isClearComposerKey, renderHeaderWindow, renderMusterComposer, renderTranscriptWindow } from "../src/chat-tui.js";
 
 const commands = [
   { name: "help", usage: "/help", description: "show full chat help", aliases: ["?"] },
@@ -38,8 +38,8 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
     commands,
     toolsets: ["core", "memory"],
     recentSessions: () => ["release-audit", "daily-plan"],
-    providers: () => [{ value: "local", description: "local Ollama" }, { value: "codex", description: "Codex CLI" }],
-    models: ({ providerId }) => providerId === "local" ? [{ value: "llama3.1" }, { value: "llama3.2" }] : [{ value: "gpt-5.5" }],
+    providers: () => [{ value: "openai", description: "OpenAI API" }, { value: "codex", description: "Codex CLI" }],
+    models: ({ providerId }) => providerId === "openai" ? [{ value: "gpt-5.5" }, { value: "gpt-4.1" }] : [{ value: "gpt-5.5" }],
     runtimes: () => [{ value: "native" }, { value: "claude-code", description: "Claude Code" }],
     clouds: () => [{ value: "openrouter" }, { value: "anthropic" }],
     speeds: () => [{ value: "session" }, { value: "fast" }],
@@ -63,15 +63,15 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.deepEqual(agents?.items.map((item) => item.value), ["@review", "@research"]);
   assert.deepEqual(provider.applyCompletion(["@re"], 0, 3, agents!.items[0], agents!.prefix).lines, ["@review"]);
 
-  const providers = await provider.getSuggestions(["/provider lo"], 0, 12, { signal });
-  assert.equal(providers?.prefix, "/provider lo");
-  assert.deepEqual(providers?.items.map((item) => item.value), ["local"]);
-  assert.deepEqual(provider.applyCompletion(["/provider lo"], 0, 12, providers!.items[0], providers!.prefix).lines, ["/provider local"]);
+  const providers = await provider.getSuggestions(["/provider op"], 0, 12, { signal });
+  assert.equal(providers?.prefix, "/provider op");
+  assert.deepEqual(providers?.items.map((item) => item.value), ["openai"]);
+  assert.deepEqual(provider.applyCompletion(["/provider op"], 0, 12, providers!.items[0], providers!.prefix).lines, ["/provider openai"]);
 
-  const providerModels = await provider.getSuggestions(["/provider local llama"], 0, 21, { signal });
-  assert.equal(providerModels?.prefix, "/provider local llama");
-  assert.deepEqual(providerModels?.items.map((item) => item.value), ["llama3.1", "llama3.2"]);
-  assert.deepEqual(provider.applyCompletion(["/provider local llama"], 0, 21, providerModels!.items[0], providerModels!.prefix).lines, ["/provider local llama3.1"]);
+  const providerModels = await provider.getSuggestions(["/provider openai gpt"], 0, 20, { signal });
+  assert.equal(providerModels?.prefix, "/provider openai gpt");
+  assert.deepEqual(providerModels?.items.map((item) => item.value), ["gpt-5.5", "gpt-4.1"]);
+  assert.deepEqual(provider.applyCompletion(["/provider openai gpt"], 0, 20, providerModels!.items[0], providerModels!.prefix).lines, ["/provider openai gpt-5.5"]);
 
   const models = await provider.getSuggestions(["/model gpt"], 0, 10, { signal });
   assert.deepEqual(models?.items.map((item) => item.value), ["gpt-5.5"]);
@@ -115,7 +115,7 @@ test("muster TUI completion provider can be backed by one catalog service", asyn
     catalog: {
       complete(request) {
         seen.push(`${request.kind}:${request.fragment}:${request.providerId ?? ""}`);
-        if (request.kind === "provider-model") return [{ value: "llama3.1", description: "catalog model" }];
+        if (request.kind === "provider-model") return [{ value: "gpt-5.5", description: "catalog model" }];
         if (request.kind === "agent") return [{ value: "@review", label: "@review", description: "catalog agent" }];
         return [];
       },
@@ -124,13 +124,13 @@ test("muster TUI completion provider can be backed by one catalog service", asyn
   });
   const signal = new AbortController().signal;
 
-  const model = await provider.getSuggestions(["/provider local llama"], 0, 21, { signal });
-  assert.deepEqual(model?.items.map((item) => item.value), ["llama3.1"]);
-  assert.deepEqual(seen, ["provider-model:llama:local"]);
+  const model = await provider.getSuggestions(["/provider openai gpt"], 0, 20, { signal });
+  assert.deepEqual(model?.items.map((item) => item.value), ["gpt-5.5"]);
+  assert.deepEqual(seen, ["provider-model:gpt:openai"]);
 
   const agent = await provider.getSuggestions(["@re"], 0, 3, { signal });
   assert.deepEqual(agent?.items.map((item) => item.value), ["@review"]);
-  assert.deepEqual(seen, ["provider-model:llama:local", "agent:re:"]);
+  assert.deepEqual(seen, ["provider-model:gpt:openai", "agent:re:"]);
 });
 
 test("muster composer render encloses the actual editor and grows for multiline input", () => {
@@ -164,6 +164,156 @@ test("muster composer keeps autocomplete in the same stable render tree", async 
   assert.equal((stripAnsi(first).match(/\/help/g) ?? []).length, 1);
   assert.equal((stripAnsi(second).match(/\/help/g) ?? []).length, 1);
   assert.match(stripAnsi(second), /\(2\/5\)|\/status/);
+});
+
+test("muster chat harness keeps one persistent slash overlay through arrow navigation", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: ["core"],
+    recentSessions: () => [],
+    agents: async () => [],
+    width: 100,
+  });
+
+  harness.input("/");
+  await settleAutocomplete();
+  const first = stripAnsi(harness.visible(90).join("\n"));
+  for (let index = 0; index < 5; index += 1) harness.input("\x1b[B");
+  const navigated = stripAnsi(harness.visible(90).join("\n"));
+
+  assert.equal((first.match(/suggestions/g) ?? []).length, 1, "slash should open one suggestions frame");
+  assert.equal((navigated.match(/suggestions/g) ?? []).length, 1, "arrow navigation must update the same overlay, not append panes");
+  assert.equal((navigated.match(/\/help/g) ?? []).length, 1, "list rows should not duplicate while navigating");
+  assert.ok(/\/runtime|\/sessions|\/provider/.test(navigated), "selection should move through command rows");
+});
+
+test("muster chat harness escape closes bare completion and restores normal prompt", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    agents: async () => [],
+  });
+
+  harness.input("/");
+  await settleAutocomplete();
+  assert.match(stripAnsi(harness.visible().join("\n")), /suggestions/);
+  harness.input("\x1b");
+  const screen = stripAnsi(harness.visible().join("\n"));
+
+  assert.equal(harness.text(), "");
+  assert.doesNotMatch(screen, /suggestions/);
+  assert.match(screen, /╭─ chat/);
+  assert.match(screen, /╰─+/);
+});
+
+test("muster chat harness replays prompt history when completion is not open", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    agents: async () => [],
+    onSubmit: async (text, sink) => {
+      sink.appendLine(`echo:${text}`);
+      return true;
+    },
+  });
+
+  harness.type("first prompt");
+  await harness.submit();
+  harness.type("second prompt");
+  await harness.submit();
+
+  harness.input("\x1b[A");
+  assert.equal(harness.text(), "second prompt");
+  harness.input("\x1b[A");
+  assert.equal(harness.text(), "first prompt");
+  harness.input("\x1b[B");
+  assert.equal(harness.text(), "second prompt");
+});
+
+test("muster chat harness keeps submitted prompt visible after output and clears composer", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    agents: async () => [],
+    onSubmit: async (_text, sink) => {
+      sink.appendLine("timings total=120ms provider=80ms recall=4ms prompt=3ms persist=2ms planning=1ms");
+      sink.appendLine("memory backend=sqlite-fts5 recalled=1 candidates=1 scopes=user:goblin");
+      sink.appendLine("done");
+      return true;
+    },
+  });
+
+  harness.type("show status");
+  await harness.submit();
+  const screen = stripAnsi(harness.visible(100).join("\n"));
+
+  assert.equal(harness.text(), "");
+  assert.match(screen, /› show status/);
+  assert.match(screen, /timings total=120ms/);
+  assert.match(screen, /memory backend=sqlite-fts5/);
+  assert.match(screen, /done/);
+});
+
+test("muster chat harness shows and navigates @ agent completions", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    agents: async () => ["review", "research", "runner"],
+  });
+
+  harness.input("@");
+  await settleAutocomplete();
+  const first = stripAnsi(harness.visible(90).join("\n"));
+  harness.input("\x1b[B");
+  const second = stripAnsi(harness.visible(90).join("\n"));
+
+  assert.match(first, /@review/);
+  assert.match(first, /@research/);
+  assert.equal((second.match(/suggestions/g) ?? []).length, 1);
+  assert.ok(second.includes("@research") || second.includes("@runner"));
+});
+
+test("muster transcript keeps the latest prompt visible after long output", () => {
+  const rendered = renderTranscriptWindow([
+    "older setup line",
+    "\x1b[38;2;104;245;168m›\x1b[0m Where do we deploy the Frappe app?",
+    "memory backend=sqlite-fts5 recalled=1 candidates=1",
+    "This is a deliberately long assistant answer that wraps across several rows and would otherwise push the prompt out of the visible transcript window.",
+    "final answer line",
+  ], 52, 3).map(stripAnsi);
+
+  assert.ok(rendered.some((line) => line.includes("Where do we deploy")), "latest user prompt should remain visible");
+  assert.ok(rendered.some((line) => line.includes("memory backend=sqlite-fts5")), "retrieval receipt should remain visible");
+  assert.ok(rendered.at(-1)?.includes("final answer line"));
+});
+
+test("muster transcript pins timing and retrieval receipts in cramped TUI output", () => {
+  const rendered = renderTranscriptWindow([
+    "\x1b[38;2;104;245;168m›\x1b[0m Reply with exactly: ok",
+    "timings total=8335ms provider=8259ms recall=11ms prompt=5ms persist=56ms planning=2ms",
+    "memory backend=sqlite-fts5 recalled=0 candidates=0 scopes=tenant:f2,user:goblin",
+    "assistant body line that would otherwise crowd out receipts",
+    "ok",
+  ], 72, 4).map(stripAnsi);
+
+  assert.ok(rendered[0].includes("Reply with exactly"));
+  assert.ok(rendered.some((line) => line.includes("timings total=8335ms")));
+  assert.ok(rendered.some((line) => line.includes("memory backend=sqlite-fts5")));
+  assert.ok(rendered.at(-1)?.includes("ok"));
+});
+
+test("muster header collapses before it starves chat transcript rows", () => {
+  const header = Array.from({ length: 18 }, (_, index) => `header line ${index}`);
+  const rendered = renderHeaderWindow(header, 5);
+
+  assert.equal(rendered.length, 5);
+  assert.ok(rendered[0].includes("header line 0"));
+  assert.ok(rendered.some((line) => stripAnsi(line).includes("header collapsed")));
+  assert.ok(rendered.at(-1)?.includes("header line 17"));
 });
 
 test("muster autocomplete overlay has a fixed 16-row centered viewport", async () => {
@@ -223,6 +373,16 @@ test("muster escape handling only clears bare completion triggers", () => {
   assert.equal(isBareCompletionTrigger("@review fix this"), false);
   assert.equal(isBareCompletionTrigger("normal text"), false);
 });
+
+test("muster composer recognizes Ctrl+U as a line clear key", () => {
+  assert.equal(isClearComposerKey("\x15"), true);
+  assert.equal(isClearComposerKey("u"), false);
+  assert.equal(isClearComposerKey("\x1b"), false);
+});
+
+async function settleAutocomplete(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
 
 function fakeTui(columns: number, rows: number) {
   return {

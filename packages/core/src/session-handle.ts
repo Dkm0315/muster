@@ -17,6 +17,12 @@ export interface SessionHandleRecord {
   readonly cwd: string;
   /** The model the handle was minted under — reuse only if unchanged. */
   readonly model: string;
+  /**
+   * Hash of injected system context (memory, skills, rules) used when the
+   * native handle was minted. A changed hash means the provider session may
+   * carry stale instructions and must not be resumed.
+   */
+  readonly contextHash?: string;
   readonly updatedAt: string;
 }
 
@@ -85,11 +91,18 @@ export async function clearConversationSessionHandles(
 
 /**
  * A stored handle is safe to resume ONLY when the stable config it was minted
- * under is unchanged: the workspace cwd and the model. Per-turn memory/skills are
- * re-injected each invocation (codex re-reads experimental_instructions_file every
- * exec), so they deliberately do NOT invalidate the thread — but a changed
- * profile/model/workspace must, or the resumed thread carries foreign context.
+ * under is unchanged: workspace cwd, model, and injected system context. Without
+ * the context hash, a changed memory/skill/rule snapshot can resume a native
+ * provider session that still carries the old instruction state.
  */
-export function canReuseHandle(record: SessionHandleRecord | undefined, cwd: string, model: string): record is SessionHandleRecord {
-  return Boolean(record) && record!.cwd === cwd && record!.model === model;
+export function canReuseHandle(
+  record: SessionHandleRecord | undefined,
+  cwd: string,
+  model: string,
+  contextHash?: string,
+): record is SessionHandleRecord {
+  return Boolean(record)
+    && record!.cwd === cwd
+    && record!.model === model
+    && (contextHash === undefined || record!.contextHash === contextHash);
 }

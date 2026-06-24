@@ -154,7 +154,7 @@ test("session_status reports live status for the latest or requested session", a
     taskKind: "simple_qa",
     runtimeId: "native",
     providerId: "local",
-    model: "llama3.1",
+    model: "gpt-5.5",
     responseText: "ok",
     evidence: [{ kind: "system_check", label: "status", status: "passed" }],
     outcome: { kind: "completed" },
@@ -170,7 +170,7 @@ test("session_status reports live status for the latest or requested session", a
   assert.equal(latest.ok, true);
   const latestData = (latest as { data: { defaultRuntime: string; provider: { id: string }; session: { id: string; tokensIn: number }; latestRun: { id: string; outcome: string }; timezone?: string } }).data;
   assert.equal(latestData.defaultRuntime, "native");
-  assert.equal(latestData.provider.id, "local");
+  assert.equal(latestData.provider.id, "codex");
   assert.ok([older.id, current.id].includes(latestData.session.id));
   assert.equal(latestData.latestRun.id, "episode-status");
   assert.equal(latestData.latestRun.outcome, "completed");

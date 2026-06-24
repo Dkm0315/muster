@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join as pathJoin } from "node:path";
 
 export interface CodexAppServerRunInput {
@@ -12,6 +14,7 @@ export interface CodexAppServerRunInput {
   readonly timeoutMs?: number;
   readonly command?: string;
   readonly cacheKey?: string;
+  readonly keepAlive?: boolean;
   readonly onDelta?: (text: string) => void;
 }
 
@@ -41,6 +44,7 @@ interface CachedSession {
   readonly cwd: string;
   readonly model?: string;
   readonly createdAt: number;
+  queue: Promise<void>;
 }
 
 const SESSION_CACHE = new Map<string, CachedSession>();
@@ -53,8 +57,12 @@ export function clearCodexAppServerSessions(): void {
 export async function runCodexAppServer(input: CodexAppServerRunInput): Promise<CodexAppServerRunResult> {
   if (!input.prompt.trim()) throw new Error("Codex prompt is required.");
   const started = Date.now();
-  const key = input.cacheKey ?? `${input.cwd}\0${input.model ?? ""}\0${input.instructionsFile ?? ""}`;
-  let cached = SESSION_CACHE.get(key);
+  const keepAlive = input.keepAlive ?? true;
+  const instructionsHash = await hashInstructionsFile(input.instructionsFile);
+  const key = input.cacheKey
+    ? `${input.cacheKey}\0instructions:${instructionsHash}`
+    : `${input.cwd}\0${input.model ?? ""}\0instructions:${instructionsHash}`;
+  let cached = keepAlive ? SESSION_CACHE.get(key) : undefined;
   if (!cached || !cached.client.isAlive()) {
     cached?.client.close();
     SESSION_CACHE.delete(key);
@@ -69,8 +77,8 @@ export async function runCodexAppServer(input: CodexAppServerRunInput): Promise<
     try {
       await client.initialize();
       const threadId = await client.startThread(input.cwd);
-      cached = { client, threadId, cwd: input.cwd, model: input.model, createdAt: Date.now() };
-      SESSION_CACHE.set(key, cached);
+      cached = { client, threadId, cwd: input.cwd, model: input.model, createdAt: Date.now(), queue: Promise.resolve() };
+      if (keepAlive) SESSION_CACHE.set(key, cached);
     } catch (error) {
       client.close();
       return {
@@ -82,32 +90,54 @@ export async function runCodexAppServer(input: CodexAppServerRunInput): Promise<
     }
   }
 
-  try {
+  return await runExclusive(cached, async () => {
     const turn = await cached.client.runTurn({
       threadId: cached.threadId,
       prompt: input.prompt,
       timeoutMs: input.timeoutMs ?? 180_000,
       onDelta: input.onDelta,
     });
-    return {
+    const result = {
       status: turn.errorMessage ? "failed" : "completed",
       finalMessage: turn.finalMessage,
       threadId: cached.threadId,
       durationMs: Date.now() - started,
       errorMessage: turn.errorMessage,
       tokenUsage: turn.tokenUsage,
-    };
-  } catch (error) {
-    cached.client.close();
-    SESSION_CACHE.delete(key);
-    return {
-      status: "failed",
-      finalMessage: "",
-      threadId: cached.threadId,
-      durationMs: Date.now() - started,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    } as const;
+    if (!keepAlive) cached.client.close();
+    return result;
+  }).catch((error: unknown) => {
+      cached.client.close();
+      SESSION_CACHE.delete(key);
+      return {
+        status: "failed",
+        finalMessage: "",
+        threadId: cached.threadId,
+        durationMs: Date.now() - started,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    });
+}
+
+async function runExclusive<T>(session: CachedSession, task: () => Promise<T>): Promise<T> {
+  const previous = session.queue.catch(() => {});
+  let release!: () => void;
+  session.queue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
   }
+}
+
+async function hashInstructionsFile(path: string | undefined): Promise<string> {
+  if (!path) return "";
+  const content = await readFile(path, "utf8").catch(() => "");
+  return createHash("sha256").update(content).digest("hex");
 }
 
 class CodexAppServerClient {
@@ -331,6 +361,8 @@ class CodexAppServerClient {
 function resolveCodexCommand(command?: string): string {
   if (command) return command;
   if (process.env.MUSTER_CODEX_COMMAND) return process.env.MUSTER_CODEX_COMMAND;
+  const appBundle = "/Applications/Codex.app/Contents/Resources/codex";
+  if (existsSync(appBundle)) return appBundle;
   const home = process.env.HOME;
   if (home) {
     const candidates = [

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "web-search",
+  "name": "Muster Web Search",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "search",
+  "entrypoint": "src/index.ts",
+  "description": "Keyless public web search and fetch tools for cited retrieval. Parallel and Firecrawl MCPs remain optional upgrades for richer search/scrape providers.",
+  "permissions": ["network"],
+  "sandbox": "network_limited",
+  "evals": ["evals/search.json"],
+  "implementedTools": ["duckduckgo_search", "public_web_fetch"],
+  "status": "v0: credential-free retrieval pack with bounded result sizes and private-network host blocking inherited from the runtime contract."
+}

@@ -22,7 +22,7 @@ Create or reuse local config:
 pnpm hc init
 ```
 
-This writes `.muster/config.json` if it does not already exist. The default provider is `local`, an OpenAI-compatible endpoint at `http://localhost:11434/v1` using model `llama3.1`.
+This writes `.muster/config.json` if it does not already exist. The default provider is `codex`, which uses your local Codex CLI login and model `gpt-5.5`.
 
 Run health checks:
 
@@ -30,7 +30,7 @@ Run health checks:
 pnpm hc doctor
 ```
 
-`doctor` verifies config shape, one-runtime-per-run routing, provider registration, and each OpenAI-compatible provider's models endpoint. If Ollama, LM Studio, vLLM, or another local server is not running, a red provider models check is acceptable in v0.
+`doctor` verifies config shape, one-runtime-per-run routing, provider registration, and each OpenAI-compatible provider's models endpoint. Local providers such as LM Studio, or vLLM are optional presets; they are not used unless explicitly configured.
 
 ## Providers
 

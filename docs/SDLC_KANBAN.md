@@ -74,7 +74,7 @@ muster migrate hermes --dry-run
 muster migrate pi --dry-run
 ```
 
-For v0, a red provider connectivity check is acceptable when no local Ollama/OpenAI-compatible server is listening; it must be reported clearly by `doctor`.
+For v0, a red provider connectivity check is acceptable when no local OpenAI-compatible server is listening; it must be reported clearly by `doctor`.
 
 
 ## 2026-06-10 beast sprint (feature/phase123-beast)
@@ -89,7 +89,7 @@ For v0, a red provider connectivity check is acceptable when no local Ollama/Ope
 | HC-028 | Governed model fallback: `routing.fallbacks`, recorded as evidence, never silent | Done |
 | HC-029 | `hc verify`: store integrity, duplicate run ids, silent model drift, stale-narrative poisoning | Done |
 | HC-030 | `hc evolve`: recursive suite runner + harness self-checks from OpenClaw/Hermes failure modes; live-converged 6/6 with Claude (haiku) | Done |
-| HC-031 | Provider preset catalog (20 presets: OpenAI, Anthropic API, xAI, Kimi, DeepSeek, Groq, Ollama, OpenRouter, vLLM, ...) + native Anthropic Messages API + claude-code runtime | Done |
+| HC-031 | Provider preset catalog (20 presets: OpenAI, Anthropic API, xAI, Kimi, DeepSeek, Groq, OpenRouter, vLLM, ...) + native Anthropic Messages API + claude-code runtime | Done |
 | HC-032 | Frappe capability pack v0: identity/data/create tools, loader-enforced permissions | Done |
 
 Quality gate at sprint close: 74 core tests + 15 CLI tests green; live smoke (init -> profile -> provider add -> run via claude-code with memory recall -> tokens -> verify -> evolve) all passing.

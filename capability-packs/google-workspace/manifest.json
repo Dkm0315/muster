@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "google-workspace",
+  "name": "Muster Google Workspace",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "productivity",
+  "entrypoint": "src/index.ts",
+  "description": "Google Workspace REST API tools for Gmail, Calendar, Drive, and Sheets. Uses an explicit OAuth bearer token from the active capability context.",
+  "permissions": ["network", "secrets"],
+  "sandbox": "network_limited",
+  "secrets": ["GOOGLE_WORKSPACE_ACCESS_TOKEN", "GOOGLE_ACCESS_TOKEN"],
+  "evals": ["evals/google-workspace.json"],
+  "implementedTools": [
+    "google_workspace_profile",
+    "gmail_search",
+    "gmail_message_get",
+    "calendar_events_list",
+    "drive_search",
+    "sheets_values_get"
+  ],
+  "status": "v0: token-scoped read/list helpers for Google Workspace. Mutating Gmail/Calendar/Drive actions remain behind explicit future workflows."
+}

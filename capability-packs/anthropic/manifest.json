@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "anthropic",
+  "name": "Muster Anthropic Provider",
+  "version": "0.1.0",
+  "kind": "tool",
+  "slot": "provider",
+  "entrypoint": "src/index.ts",
+  "description": "Declarative Anthropic/Claude provider setup, readiness, model policy, and latency triage workflows.",
+  "permissions": [],
+  "sandbox": "read_only",
+  "evals": ["evals/anthropic-provider.json"],
+  "implementedTools": [
+    "anthropic_provider_setup_plan",
+    "anthropic_provider_readiness",
+    "anthropic_model_policy",
+    "anthropic_latency_triage"
+  ],
+  "status": "v0: provider setup and Claude model-routing guidance; Claude Code OAuth remains a separate runtime path."
+}
