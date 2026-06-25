@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,6 +27,10 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster chat "your prompt"/);
   assert.match(stdout, /muster chat --session work/);
   assert.match(stdout, /muster runtime use-provider/);
+  assert.match(stdout, /muster runtime doctor/);
+  assert.match(stdout, /muster doctor codex/);
+  assert.match(stdout, /muster qa scorecard/);
+  assert.match(stdout, /muster qa record/);
   assert.match(stdout, /muster capability inspect/);
   assert.match(stdout, /muster plugins list/);
   assert.match(stdout, /muster plugins .*context frappe/);
@@ -38,6 +42,19 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster latency "prompt"/);
   assert.match(stdout, /muster eval seed/);
   assert.match(stdout, /muster eval retrieval/);
+});
+
+test("gateway init redacts bearer token unless explicitly requested", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-gateway-"));
+  const redacted = await runCli(["gateway", "init"], cwd);
+
+  assert.match(redacted.stdout, /gateway_config=.*\.muster\/gateway\.json/);
+  assert.match(redacted.stdout, /token=<redacted>/);
+  assert.doesNotMatch(redacted.stdout, /token=[0-9a-f]{48}/);
+
+  const shown = await runCli(["gateway", "init", "--show-token"], cwd);
+  assert.match(shown.stdout, /gateway_config=.*already exists/);
+  assert.match(shown.stdout, /token=[0-9a-f]{48}/);
 });
 
 test("CLI onboarding preview exposes setup controls, impacts, and separate channel credentials", async () => {
@@ -1210,6 +1227,26 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(oauthStatusAfterImport.stdout, /oauth=linear authenticated=true expired=false/);
   assert.match(oauthStatusAfterImport.stdout, /scope=read/);
 
+  const mcpStatusAfterImport = await runCli(["mcp", "status", "linear"], cwd);
+  assert.match(mcpStatusAfterImport.stdout, /mcp=linear transport=http https:\/\/mcp\.linear\.app\/mcp auth=oauth/);
+  assert.match(mcpStatusAfterImport.stdout, /oauth=linear authenticated=true expired=false/);
+  assert.match(mcpStatusAfterImport.stdout, /login=ok/);
+  assert.match(mcpStatusAfterImport.stdout, /logout=muster mcp logout linear/);
+  assert.doesNotMatch(mcpStatusAfterImport.stdout, /lin_test_token/);
+
+  const mcpLogout = await runCli(["mcp", "logout", "linear"], cwd);
+  assert.match(mcpLogout.stdout, /oauth=linear status=logged_out removed=true/);
+  assert.doesNotMatch(mcpLogout.stdout, /lin_test_token/);
+
+  const mcpStatusAfterLogout = await runCli(["mcp", "status", "linear"], cwd);
+  assert.match(mcpStatusAfterLogout.stdout, /oauth=linear authenticated=false expired=false/);
+  assert.match(mcpStatusAfterLogout.stdout, /login=muster mcp login linear/);
+  assert.match(mcpStatusAfterLogout.stdout, /logout=muster mcp logout linear/);
+
+  const mcpLoginAlias = await runCli(["mcp", "login", "linear"], cwd);
+  assert.match(mcpLoginAlias.stdout, /mcp=linear status=oauth_configured/);
+  assert.match(mcpLoginAlias.stdout, /setup_url=https:\/\/linear\.app\/docs\/mcp/);
+
   const added = await runCli(["mcp", "add-stdio", "fake-local", "node", "--version"], cwd);
   assert.match(added.stdout, /mcp_server=fake-local/);
 
@@ -1785,6 +1822,312 @@ test("CLI doctor --fix bootstraps a fresh workspace and status renders mission c
   assert.match(stdout, /flows pending gate\s+none/);
   assert.match(stdout, /verify\s+OK/);
 });
+
+test("CLI codex doctor and QA scorecard expose runtime maturity without false positives", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-runtime-doctor-"));
+  const codex = await writeFakeCodex(cwd, "0.1.0");
+
+  const doctor = await runCli(["doctor", "codex", "--codex-command", codex, "--latest-version", "0.2.0"], cwd);
+  assert.match(doctor.stdout, /codex_doctor command=/);
+  assert.match(doctor.stdout, /codex_version=0\.1\.0/);
+  assert.match(doctor.stdout, /warning codex\.version/);
+  assert.match(doctor.stdout, /passed\s+codex\.exec/);
+  assert.match(doctor.stdout, /passed\s+codex\.app_server/);
+  assert.match(doctor.stdout, /auth_status=passed/);
+  assert.match(doctor.stdout, /recommendation=Use warm native Codex\/app-server sessions/);
+
+  const scorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.2.0"], cwd);
+  assert.equal(scorecard.code, 1);
+  assert.match(scorecard.stdout, /qa_scorecard status=failed/);
+  assert.match(scorecard.stdout, /warning\s+provider\.picker_workflow/);
+  assert.match(scorecard.stdout, /failed\s+mcp\.auth_workflow/);
+  assert.match(scorecard.stdout, /unknown\s+qa\.pty_tui/);
+  assert.match(scorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+  assert.match(scorecard.stdout, /required_suites=pty_tui,provider_latency,mcp_auth_failure,memory_retrieval_speed,channel_plugin_setup,frappe2_real_prompts/);
+  assert.match(scorecard.stdout, /providers:/);
+  assert.match(scorecard.stdout, /passed\s+codex\s+codex-cli model=gpt-5\.5/);
+
+  const suites = await runCli(["qa", "suites"], cwd);
+  assert.match(suites.stdout, /suite=pty_tui/);
+  assert.match(suites.stdout, /suite=frappe2_real_prompts/);
+
+  const ptyRunArtifact = join(cwd, "qa-artifacts", "pty-run");
+  const ptyEvidencePath = join(cwd, "pty-evidence.json");
+  const ptyRun = await runCli(["qa", "run", "pty_tui", "--artifact-dir", ptyRunArtifact, "--evidence", ptyEvidencePath], cwd);
+  assert.match(ptyRun.stdout, /qa_suite=pty_tui status=passed/);
+  assert.match(ptyRun.stdout, /case=slash_overlay_stable status=passed/);
+  assert.match(ptyRun.stdout, /case=history_navigation status=passed/);
+  assert.match(ptyRun.stdout, /case=prompt_visible_after_output status=passed/);
+  assert.match(ptyRun.stdout, /case=selected_row_contrast status=passed/);
+  assert.match(ptyRun.stdout, /case=responsive_widths status=passed/);
+  const ptyManifest = JSON.parse(await readFile(join(ptyRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number };
+  assert.equal(ptyManifest.suite, "pty_tui");
+  assert.equal(ptyManifest.status, "passed");
+  assert.ok(ptyManifest.caseCount >= 11);
+  const ptyScreen = await readFile(join(ptyRunArtifact, "screens", "slash_overlay_stable.txt"), "utf8");
+  assert.match(ptyScreen, /suggestions/);
+  assert.match(ptyScreen, /╰─+╯/);
+  const partialScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", ptyEvidencePath], cwd);
+  assert.equal(partialScorecard.code, 1);
+  assert.match(partialScorecard.stdout, /passed\s+qa\.pty_tui\s+PTY\/TUI hostile interaction checks passed/);
+  assert.match(partialScorecard.stdout, /passed\s+provider\.picker_workflow/);
+  assert.match(partialScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+
+  const badRecord = await runCliAllowFailure(["qa", "record", "provider_latency", "--status", "passed", "--summary", "missing artifact should fail"], cwd);
+  assert.equal(badRecord.code, 1);
+  assert.match(badRecord.stderr, /cannot be recorded as passed without --artifact-dir/);
+
+  const mismatchedArtifact = join(cwd, "qa-artifacts", "wrong-suite");
+  await mkdir(mismatchedArtifact, { recursive: true });
+  await writeFile(join(mismatchedArtifact, "manifest.json"), JSON.stringify({
+    schemaVersion: 1,
+    kind: "muster-qa",
+    suite: "memory_retrieval_speed",
+    status: "passed",
+    caseCount: 1,
+  }), "utf8");
+  await writeFile(join(mismatchedArtifact, "cases.jsonl"), `${JSON.stringify({ id: "smoke", status: "passed" })}\n`, "utf8");
+  const badManifestRecord = await runCliAllowFailure(["qa", "record", "provider_latency", "--status", "passed", "--artifact-dir", mismatchedArtifact, "--summary", "wrong suite should fail"], cwd);
+  assert.equal(badManifestRecord.code, 1);
+  assert.match(badManifestRecord.stderr, /artifact manifest belongs to memory_retrieval_speed/);
+
+  const booleanOnlyEvidence = join(cwd, "boolean-only-evidence.json");
+  await writeFile(booleanOnlyEvidence, JSON.stringify({
+    providerPickerWorkflow: true,
+    mcpAuthWorkflow: true,
+    suites: {},
+  }), "utf8");
+  const booleanOnlyScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", booleanOnlyEvidence], cwd);
+  assert.equal(booleanOnlyScorecard.code, 1);
+  assert.match(booleanOnlyScorecard.stdout, /warning\s+provider\.picker_workflow/);
+  assert.match(booleanOnlyScorecard.stdout, /failed\s+mcp\.auth_workflow/);
+
+  const mcpRunArtifact = join(cwd, "qa-artifacts", "mcp-run");
+  const mcpEvidencePath = join(cwd, "mcp-evidence.json");
+  const mcpRun = await runCli(["qa", "run", "mcp_auth_failure", "--artifact-dir", mcpRunArtifact, "--evidence", mcpEvidencePath], cwd);
+  assert.match(mcpRun.stdout, /qa_suite=mcp_auth_failure status=passed/);
+  assert.match(mcpRun.stdout, /case=missing_token status=passed/);
+  assert.match(mcpRun.stdout, /case=expired_token status=passed/);
+  assert.match(mcpRun.stdout, /case=invalid_token status=passed/);
+  assert.match(mcpRun.stdout, /case=valid_token status=passed/);
+  assert.match(mcpRun.stdout, /case=logout_recovery status=passed/);
+  const mcpManifest = JSON.parse(await readFile(join(mcpRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number };
+  assert.equal(mcpManifest.suite, "mcp_auth_failure");
+  assert.equal(mcpManifest.status, "passed");
+  assert.equal(mcpManifest.caseCount, 5);
+  const mcpScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", mcpEvidencePath], cwd);
+  assert.equal(mcpScorecard.code, 0);
+  assert.match(mcpScorecard.stdout, /qa_scorecard status=warning/);
+  assert.match(mcpScorecard.stdout, /passed\s+mcp\.auth_workflow/);
+  assert.match(mcpScorecard.stdout, /passed\s+qa\.mcp_auth_failure\s+MCP OAuth failure and recovery paths verified without external credentials/);
+  assert.match(mcpScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+
+  const memoryRunArtifact = join(cwd, "qa-artifacts", "memory-run");
+  const memoryEvidencePath = join(cwd, "memory-evidence.json");
+  const memoryRun = await runCli(["qa", "run", "memory_retrieval_speed", "--artifact-dir", memoryRunArtifact, "--evidence", memoryEvidencePath, "--max-p95-ms", "1000"], cwd);
+  assert.match(memoryRun.stdout, /qa_suite=memory_retrieval_speed status=passed/);
+  assert.match(memoryRun.stdout, /metric=recall@5 value=1\.000/);
+  assert.match(memoryRun.stdout, /metric=mrr@5 value=1\.000/);
+  assert.match(memoryRun.stdout, /metric=leakage_rate value=0\.000/);
+  assert.match(memoryRun.stdout, /metric=stale_hit_rate value=0\.000/);
+  assert.match(memoryRun.stdout, /metric=probe_p95_ms value=\d+\.\d{3} max=1000/);
+  const memoryManifest = JSON.parse(await readFile(join(memoryRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; metrics: { recallAtK: number; mrr: number; leakageRate: number; staleHitRate: number } };
+  assert.equal(memoryManifest.suite, "memory_retrieval_speed");
+  assert.equal(memoryManifest.status, "passed");
+  assert.equal(memoryManifest.metrics.recallAtK, 1);
+  assert.equal(memoryManifest.metrics.mrr, 1);
+  assert.equal(memoryManifest.metrics.leakageRate, 0);
+  assert.equal(memoryManifest.metrics.staleHitRate, 0);
+  const memoryScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", memoryEvidencePath], cwd);
+  assert.equal(memoryScorecard.code, 1);
+  assert.match(memoryScorecard.stdout, /qa_scorecard status=failed/);
+  assert.match(memoryScorecard.stdout, /failed\s+mcp\.auth_workflow/);
+  assert.match(memoryScorecard.stdout, /passed\s+qa\.memory_retrieval_speed\s+SQLite\/FTS scoped retrieval passed recall, leakage, stale, and p95 latency gates/);
+  assert.match(memoryScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+
+  const providerRunArtifact = join(cwd, "qa-artifacts", "provider-run");
+  const providerEvidencePath = join(cwd, "provider-evidence.json");
+  const providerRun = await runCli(["qa", "run", "provider_latency", "--artifact-dir", providerRunArtifact, "--evidence", providerEvidencePath, "--runs", "2", "--provider-delay-ms", "5", "--max-overhead-p50-ms", "1000"], cwd);
+  assert.match(providerRun.stdout, /qa_suite=provider_latency status=passed/);
+  assert.match(providerRun.stdout, /metric=p50_provider_ms value=\d+\.\d/);
+  assert.match(providerRun.stdout, /metric=p50_muster_overhead_ms value=\d+\.\d/);
+  assert.match(providerRun.stdout, /diagnosis=(provider_bound|muster_overhead_high|balanced_or_fast)/);
+  assert.equal((providerRun.stdout.match(/sample=/g) ?? []).length, 2);
+  const providerManifest = JSON.parse(await readFile(join(providerRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; metrics: { p50ProviderMs: number; p50MusterOverheadMs: number } };
+  assert.equal(providerManifest.suite, "provider_latency");
+  assert.equal(providerManifest.status, "passed");
+  assert.ok(providerManifest.metrics.p50ProviderMs >= 0);
+  assert.ok(providerManifest.metrics.p50MusterOverheadMs >= 0);
+  const providerScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", providerEvidencePath], cwd);
+  assert.equal(providerScorecard.code, 1);
+  assert.match(providerScorecard.stdout, /failed\s+mcp\.auth_workflow/);
+  assert.match(providerScorecard.stdout, /passed\s+qa\.provider_latency\s+Provider latency probe passed with p50 provider=/);
+  assert.match(providerScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+
+  const channelRunArtifact = join(cwd, "qa-artifacts", "channel-plugin-run");
+  const channelEvidencePath = join(cwd, "channel-evidence.json");
+  const channelRun = await runCli(["qa", "run", "channel_plugin_setup", "--artifact-dir", channelRunArtifact, "--evidence", channelEvidencePath], cwd);
+  assert.match(channelRun.stdout, /qa_suite=channel_plugin_setup status=passed/);
+  assert.match(channelRun.stdout, /case=catalog_core_surfaces status=passed/);
+  assert.match(channelRun.stdout, /case=setup_guidance_frappe-federated-bridge status=passed/);
+  assert.match(channelRun.stdout, /case=setup_guidance_slack status=passed/);
+  assert.match(channelRun.stdout, /case=high_risk_refusal status=passed/);
+  assert.match(channelRun.stdout, /case=enable_disable_policy status=passed/);
+  const channelManifest = JSON.parse(await readFile(join(channelRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number };
+  assert.equal(channelManifest.suite, "channel_plugin_setup");
+  assert.equal(channelManifest.status, "passed");
+  assert.ok(channelManifest.caseCount >= 8);
+  const channelCatalog = JSON.parse(await readFile(join(channelRunArtifact, "catalog.json"), "utf8")) as { plugins: { id: string }[]; mcpServers: { id: string }[] };
+  assert.ok(channelCatalog.plugins.some((plugin) => plugin.id === "web-frameworks"));
+  assert.ok(channelCatalog.mcpServers.some((mcp) => mcp.id === "browser"));
+  const channelScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", channelEvidencePath], cwd);
+  assert.equal(channelScorecard.code, 1);
+  assert.match(channelScorecard.stdout, /passed\s+qa\.channel_plugin_setup\s+Channel\/plugin setup catalog, setup guidance, unsafe-plugin refusal, and enable\/disable policy verified/);
+  assert.match(channelScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+
+  const fakeSsh = await writeFakeSsh(cwd);
+  const frappeRunArtifact = join(cwd, "qa-artifacts", "frappe2-run");
+  const frappeEvidencePath = join(cwd, "frappe2-evidence.json");
+  const frappeRun = await runCli(["qa", "run", "frappe2_real_prompts", "--artifact-dir", frappeRunArtifact, "--evidence", frappeEvidencePath, "--ssh-command", fakeSsh, "--host", "Frappe-2", "--remote-cwd", "/home/goblin/personal", "--timeout-ms", "1000"], cwd);
+  assert.match(frappeRun.stdout, /qa_suite=frappe2_real_prompts status=passed/);
+  assert.match(frappeRun.stdout, /case=remote_identity status=passed/);
+  assert.match(frappeRun.stdout, /case=global_help_and_qa_catalog status=passed/);
+  assert.match(frappeRun.stdout, /case=codex_runtime_doctor status=passed/);
+  assert.match(frappeRun.stdout, /case=memory_status_probe status=passed/);
+  assert.match(frappeRun.stdout, /case=real_prompt_latency status=passed/);
+  assert.match(frappeRun.stdout, /case=retrieval_artifact_gate status=passed/);
+  const frappeManifest = JSON.parse(await readFile(join(frappeRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; host: string; caseCount: number };
+  assert.equal(frappeManifest.suite, "frappe2_real_prompts");
+  assert.equal(frappeManifest.status, "passed");
+  assert.equal(frappeManifest.host, "Frappe-2");
+  assert.equal(frappeManifest.caseCount, 6);
+  const frappeTranscript = await readFile(join(frappeRunArtifact, "transcript.txt"), "utf8");
+  assert.match(frappeTranscript, /suite=frappe2_real_prompts host=Frappe-2/);
+  assert.match(frappeTranscript, /case=real_prompt_latency status=passed/);
+  const promptStdout = await readFile(join(frappeRunArtifact, "outputs", "real_prompt_latency.stdout.txt"), "utf8");
+  assert.match(promptStdout, /muster-f2-ok/);
+  assert.doesNotMatch(promptStdout, /sk-[A-Za-z0-9_-]{12,}/);
+  const frappeScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", frappeEvidencePath], cwd);
+  assert.equal(frappeScorecard.code, 1);
+  assert.match(frappeScorecard.stdout, /passed\s+qa\.frappe2_real_prompts\s+Frappe-2 real prompt regression passed on Frappe-2 with 6 artifact-backed cases/);
+
+  const evidencePath = join(cwd, "qa-evidence.json");
+  const artifactDirs = {
+    pty_tui: join(cwd, "qa-artifacts", "full-pty"),
+    provider_latency: join(cwd, "qa-artifacts", "provider"),
+    mcp_auth_failure: join(cwd, "qa-artifacts", "mcp"),
+    memory_retrieval_speed: join(cwd, "qa-artifacts", "memory"),
+    channel_plugin_setup: join(cwd, "qa-artifacts", "channels"),
+    frappe2_real_prompts: join(cwd, "qa-artifacts", "frappe2"),
+  };
+  for (const [suite, dir] of Object.entries(artifactDirs)) {
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "manifest.json"), JSON.stringify({
+      schemaVersion: 1,
+      kind: "muster-qa",
+      suite,
+      status: "passed",
+      caseCount: 1,
+    }), "utf8");
+    await writeFile(join(dir, "cases.jsonl"), `${JSON.stringify({
+      id: suite === "pty_tui" ? "provider_model_speed_workflow" : "smoke",
+      status: "passed",
+      summary: "test fixture",
+      evidence: {},
+    })}\n`, "utf8");
+  }
+  await writeFile(evidencePath, JSON.stringify({
+    mcpAuthWorkflow: true,
+    suites: {
+      pty_tui: { status: "passed", artifactDir: artifactDirs.pty_tui, summary: "PTY screen captures verified" },
+      provider_latency: { status: "passed", artifactDir: artifactDirs.provider_latency, summary: "provider and overhead timing split verified" },
+      mcp_auth_failure: { status: "passed", artifactDir: artifactDirs.mcp_auth_failure, summary: "missing, expired, invalid, and no-browser auth paths verified" },
+      memory_retrieval_speed: { status: "passed", artifactDir: artifactDirs.memory_retrieval_speed, summary: "scoped SQLite/FTS speed gate verified" },
+      channel_plugin_setup: { status: "passed", artifactDir: artifactDirs.channel_plugin_setup, summary: "channel and plugin setup failures verified" },
+      frappe2_real_prompts: { status: "passed", artifactDir: artifactDirs.frappe2_real_prompts, summary: "global Frappe-2 prompt regression verified" },
+    },
+  }), "utf8");
+  const evidencedScorecard = await runCli(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", evidencePath], cwd);
+  assert.match(evidencedScorecard.stdout, /qa_scorecard status=passed/);
+  assert.match(evidencedScorecard.stdout, /passed\s+mcp\.auth_workflow/);
+  assert.match(evidencedScorecard.stdout, /passed\s+qa\.frappe2_real_prompts\s+global Frappe-2 prompt regression verified/);
+  assert.match(evidencedScorecard.stdout, new RegExp(`evidence=${evidencePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+});
+
+async function writeFakeCodex(cwd: string, version: string): Promise<string> {
+  const target = join(cwd, "fake-codex.js");
+  await writeFile(target, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("codex-cli ${version}");
+  process.exit(0);
+}
+if (args[0] === "exec" && args[1] === "--help") {
+  console.log("codex exec help");
+  process.exit(0);
+}
+if (args[0] === "app-server" && args[1] === "--help") {
+  console.log("codex app-server help");
+  process.exit(0);
+}
+if (args[0] === "login" && args[1] === "status") {
+  console.log("Logged in as test@example.com");
+  process.exit(0);
+}
+console.error("unexpected fake codex args: " + args.join(" "));
+process.exit(2);
+`, "utf8");
+  await chmod(target, 0o755);
+  return target;
+}
+
+async function writeFakeSsh(cwd: string): Promise<string> {
+  const target = join(cwd, "fake-ssh.js");
+  await writeFile(target, `#!/usr/bin/env node
+const [, , host, command = ""] = process.argv;
+if (host !== "Frappe-2") {
+  console.error("unexpected host " + host);
+  process.exit(2);
+}
+if (command.includes("whoami") && command.includes("command -v muster")) {
+  console.log("user=goblin");
+  console.log("pwd=/home/goblin/personal");
+  console.log("node=v24.0.0");
+  console.log("muster=/home/goblin/.local/bin/muster");
+  process.exit(0);
+}
+if (command.includes("muster help") && command.includes("muster qa suites")) {
+  console.log("muster qa scorecard [--codex-command path]");
+  console.log("suite=pty_tui");
+  console.log("suite=frappe2_real_prompts");
+  process.exit(0);
+}
+if (command.includes("muster doctor codex")) {
+  console.log("codex_doctor command=codex");
+  console.log("codex_available=true");
+  console.log("auth_status=passed");
+  process.exit(0);
+}
+if (command.includes("muster memory status")) {
+  console.log("backend=sqlite-fts5 objects=254 scope_rows=508");
+  console.log("probe_latency p50_ms=3.2 p95_ms=9.8");
+  process.exit(0);
+}
+if (command.includes("Reply with exactly: muster-f2-ok")) {
+  console.log("muster-f2-ok");
+  console.log("timings total=1400ms provider=1200ms recall=4ms prompt=3ms persist=10ms planning=2ms");
+  process.exit(0);
+}
+if (command.includes("seed-pack") && command.includes("f2-live") && command.includes("muster eval retrieval")) {
+  console.log("retrieval_suite status=passed cases=5 recall@5=1.000 mrr@5=1.000 leakage_rate=0.000 unexpected_hit_rate=0.000 stale_hit_rate=0.000 p95_ms=12.704");
+  process.exit(0);
+}
+console.error("unexpected fake ssh command: " + command);
+process.exit(3);
+`, "utf8");
+  await chmod(target, 0o755);
+  return target;
+}
 
 async function runCli(args: string[], cwd = resolve(import.meta.dirname, "..", "..", ".."), env: Record<string, string> = {}): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("tsx", [cliPath, ...args], {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -69,6 +69,14 @@ test("gateway health endpoint answers without auth", async () => {
     await gw.close();
     llm.close();
   }
+});
+
+test("gateway init stores secrets with private file permissions", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-gw-perms-"));
+  const init = await initGatewayConfig(cwd);
+
+  assert.equal((await stat(join(cwd, ".muster"))).mode & 0o777, 0o700);
+  assert.equal((await stat(init.path)).mode & 0o777, 0o600);
 });
 
 test("POST /v1/messages requires the gateway bearer token", async () => {
