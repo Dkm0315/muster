@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muster Portal — preview from a real workspace</title>
+  <meta name="description" content="Preview of the Muster control portal rendered from a real captured workspace: sessions, flows, surfaces and the token ledger. Every number came from actual CLI runs." />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#F0EEE9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
+  <!-- Set theme before first paint to avoid a flash (mirrors src/theme.ts). -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("muster-theme");
+        var dark = saved ? saved === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Muster Portal — preview" />
+  <meta property="og:description" content="Mission control for a federation of agents — rendered from real captured runs." />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" crossorigin src="/muster/assets/portal-Dkr8WvIt.js"></script>
+  <link rel="modulepreload" crossorigin href="/muster/assets/modulepreload-polyfill-B5Qt9EMX.js">
+  <link rel="modulepreload" crossorigin href="/muster/assets/theme-DEORF_6t.js">
+  <link rel="stylesheet" crossorigin href="/muster/assets/portal-CFfeyCBj.css">
+</head>
+<body class="portal-body">
+  <div class="portal-app">
+    <header class="portal-top">
+      <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+      <nav class="portal-nav" aria-label="Site">
+        <a href="/">Home</a>
+        <a href="/portal.html" class="active" aria-current="page">Portal</a>
+        <a href="/docs.html">Docs</a>
+        <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+      </nav>
+      <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.4v2.6M12 19v2.6M4.6 4.6l1.9 1.9M17.5 17.5l1.9 1.9M2.4 12h2.6M19 12h2.6M4.6 19.4l1.9-1.9M17.5 6.5l1.9-1.9"/></g></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.5 14.3A8.4 8.4 0 0 1 9.7 3.5a.7.7 0 0 0-.93-.86A9.4 9.4 0 1 0 21.4 15.2a.7.7 0 0 0-.9-.9z"/></svg>
+      </button>
+      <button id="muster-view-toggle" class="mv-toggle" aria-expanded="true">muster view ▾</button>
+      <span class="portal-profile mono" id="portal-profile">profile: default</span>
+    </header>
+
+    <div class="real-banner" role="note">
+      <span class="real-dot" aria-hidden="true"></span>
+      <strong>Preview built from a real Muster workspace</strong> — every number on this page came from actual runs.
+      <span class="real-meta mono" id="real-meta"></span>
+    </div>
+
+    <!-- Muster view: gateway topology — gateway core, six webhook adapters, web client -->
+    <section class="muster-view" id="muster-view" aria-label="Gateway topology: muster gateway with six chat adapters and the web client">
+      <svg viewBox="0 0 1000 170" role="img" aria-label="Topology: muster gateway linked to telegram, slack, discord, whatsapp, google chat, microsoft teams adapters and the web client">
+        <g class="mv-links" stroke-width="1.5" fill="none">
+          <path d="M500,85 L235,32" /><path d="M500,85 L210,85" /><path d="M500,85 L235,138" />
+          <path d="M500,85 L765,32" /><path d="M500,85 L790,85" /><path d="M500,85 L765,138" />
+          <path d="M500,85 L500,150" />
+          <path d="M500,85 L500,28" />
+        </g>
+        <g class="mv-pulse">
+          <circle r="3.5"><animateMotion dur="3s" repeatCount="indefinite" path="M235,32 L500,85 L500,28" /></circle>
+          <circle r="3.5"><animateMotion dur="4.2s" repeatCount="indefinite" path="M500,28 L500,85 L790,85" /></circle>
+          <circle r="3.5"><animateMotion dur="5.1s" repeatCount="indefinite" path="M500,150 L500,85 L235,138" /></circle>
+        </g>
+        <g class="mv-node mv-core"><circle cx="500" cy="85" r="17" /><text x="500" y="116" text-anchor="middle">muster gateway</text></g>
+        <g class="mv-node mv-dim"><circle cx="500" cy="28" r="9" /><text x="540" y="20" text-anchor="middle">runtime</text></g>
+        <g class="mv-node mv-surface"><circle cx="235" cy="32" r="11" /><text x="235" y="14" text-anchor="middle">telegram</text></g>
+        <g class="mv-node mv-surface"><circle cx="210" cy="85" r="11" /><text x="158" y="89" text-anchor="middle">slack</text></g>
+        <g class="mv-node mv-surface"><circle cx="235" cy="138" r="11" /><text x="235" y="164" text-anchor="middle">discord</text></g>
+        <g class="mv-node mv-surface"><circle cx="765" cy="32" r="11" /><text x="765" y="14" text-anchor="middle">whatsapp</text></g>
+        <g class="mv-node mv-surface"><circle cx="790" cy="85" r="11" /><text x="846" y="89" text-anchor="middle">gchat</text></g>
+        <g class="mv-node mv-surface"><circle cx="765" cy="138" r="11" /><text x="765" y="164" text-anchor="middle">teams</text></g>
+        <g class="mv-node mv-web"><circle cx="500" cy="150" r="11" /><text x="558" y="154" text-anchor="middle">web client</text></g>
+      </svg>
+    </section>
+
+    <div class="portal-grid">
+      <!-- left rail: data-view buttons are wired by portal.ts -->
+      <nav class="rail" aria-label="Portal navigation">
+        <p class="rail-head">control</p>
+        <button class="rail-item active" data-view="sessions"><span class="rail-glyph">»</span> Sessions <span class="rail-count" id="count-sessions"></span></button>
+        <button class="rail-item" data-view="flows"><span class="rail-glyph">⇄</span> Flows <span class="rail-count" id="count-flows"></span></button>
+        <button class="rail-item" data-view="surfaces"><span class="rail-glyph">◍</span> Surfaces <span class="rail-count" id="count-surfaces"></span></button>
+        <button class="rail-item" data-view="tokens"><span class="rail-glyph">Σ</span> Tokens</button>
+        <p class="rail-head">governance</p>
+        <button class="rail-item" data-view="verify"><span class="rail-glyph">✓</span> Verify <span class="rail-ok" id="verify-flag"></span></button>
+        <div class="rail-foot mono">
+          <p>tokens today</p>
+          <p class="rail-big" id="rail-tokens"></p>
+        </div>
+      </nav>
+
+      <!-- center: run log, populated from portal-data.json -->
+      <main class="runlog" id="runlog" aria-label="Run log" aria-live="polite"></main>
+
+      <!-- right: details / artifact theater, populated from portal-data.json -->
+      <aside class="theater" id="theater" aria-label="Details and artifacts"></aside>
+    </div>
+  </div>
+
+  <noscript>
+    <p style="padding:24px;font-family:monospace">The portal preview renders captured run data with JavaScript. The underlying data lives in <code>website/src/portal-data.json</code>, generated by <code>scripts/generate-portal-data.mjs</code>.</p>
+  </noscript>
+</body>
+</html>

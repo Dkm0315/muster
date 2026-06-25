@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muster Docs — getting started, providers, flows, gateway, CLI</title>
+  <meta name="description" content="Muster documentation: getting started, 20+ provider presets, the flow engine with approval gates, the gateway with six chat adapters and a web client, capability packs, and the full CLI reference." />
+  <meta name="theme-color" content="#F0EEE9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
+  <!-- Set theme before first paint to avoid a flash (mirrors src/theme.ts). -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("muster-theme");
+        var dark = saved ? saved === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Muster Docs" />
+  <meta property="og:description" content="Documentation for the AI agent harness you can audit." />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" crossorigin src="/muster/assets/docs-DUPkvHHy.js"></script>
+  <link rel="modulepreload" crossorigin href="/muster/assets/modulepreload-polyfill-B5Qt9EMX.js">
+  <link rel="modulepreload" crossorigin href="/muster/assets/theme-DEORF_6t.js">
+  <link rel="stylesheet" crossorigin href="/muster/assets/portal-CFfeyCBj.css">
+</head>
+<body class="portal-body docs-body">
+  <div class="portal-app">
+    <header class="portal-top">
+      <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+      <nav class="portal-nav" aria-label="Site">
+        <a href="/">Home</a>
+        <a href="/portal.html">Portal</a>
+        <a href="/docs.html" class="active" aria-current="page">Docs</a>
+        <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+      </nav>
+      <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle dark mode" title="Toggle dark mode" style="margin-left:auto">
+        <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.4v2.6M12 19v2.6M4.6 4.6l1.9 1.9M17.5 17.5l1.9 1.9M2.4 12h2.6M19 12h2.6M4.6 19.4l1.9-1.9M17.5 6.5l1.9-1.9"/></g></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.5 14.3A8.4 8.4 0 0 1 9.7 3.5a.7.7 0 0 0-.93-.86A9.4 9.4 0 1 0 21.4 15.2a.7.7 0 0 0-.9-.9z"/></svg>
+      </button>
+      <span class="portal-profile mono">docs · v0</span>
+    </header>
+
+    <div class="portal-grid docs-grid">
+      <nav class="rail" aria-label="Docs navigation">
+        <p class="rail-head">docs</p>
+        <a class="rail-item" href="#getting-started"><span class="rail-glyph">»</span> Getting started</a>
+        <a class="rail-item" href="#providers"><span class="rail-glyph">◇</span> Providers</a>
+        <a class="rail-item" href="#flows"><span class="rail-glyph">⇄</span> Flows</a>
+        <a class="rail-item" href="#gateway"><span class="rail-glyph">◍</span> Gateway &amp; surfaces</a>
+        <a class="rail-item" href="#capability-packs"><span class="rail-glyph">▣</span> Capability packs</a>
+        <a class="rail-item" href="#cli"><span class="rail-glyph">$</span> CLI reference</a>
+      </nav>
+
+      <main class="runlog docs-main">
+
+        <section id="getting-started" class="docs-section reveal">
+          <h1>Getting started</h1>
+          <p>Muster is a monorepo of small packages around one CLI. Initialize a workspace, point it at a provider, run, and check the ledger.</p>
+
+          <h2>1 · Initialize</h2>
+          <pre class="mono codeblock">$ muster init
+Created or reused Muster config: .muster/config.json
+Default provider: Codex CLI with model gpt-5.5
+Next: muster doctor</pre>
+          <p><code>muster doctor</code> checks the config, routing policy (<em>one active runtime per run</em>), and probes every configured provider's <code>/models</code> endpoint. <code>muster doctor --fix</code> repairs the config and data directory.</p>
+
+          <h2>2 · Add a provider</h2>
+          <pre class="mono codeblock">$ muster provider add openai                 # any preset id — see Providers below
+$ muster provider add anthropic --model claude-sonnet-4-6
+$ muster provider add-openai-compatible myllm http://localhost:8000/v1 served-model
+$ muster runtime use-provider native openai  # bind the native runtime to it</pre>
+
+          <h2>3 · Run</h2>
+          <pre class="mono codeblock">$ muster run "Summarize what changed on uat-erp since Friday." --scope user:me
+recalled 1 scoped memories into context
+run=ea59ad5f… runtime=native model=stub/stub-model task=simple_qa status=completed
+tokens in=54~ out=64~</pre>
+          <p>Every run is recorded as an episode with scoped memory recall and token estimates. Options: <code>--runtime pi</code>, <code>--provider anthropic</code>, <code>--model …</code>, <code>--session memory|create|continue</code>, <code>--task-kind coding</code>, <code>--sensitive</code>.</p>
+
+          <h2>4 · Audit</h2>
+          <pre class="mono codeblock">$ muster tokens        # per-run ledger + totals by model + waste flags
+$ muster episodes      # every recorded run
+$ muster verify        # line-level integrity check of all JSONL stores
+$ muster status        # one-screen mission control</pre>
+          <p>Want to see what these look like with real output? The <a href="/portal.html">portal preview</a> is rendered entirely from a captured workspace.</p>
+        </section>
+
+        <section id="providers" class="docs-section reveal">
+          <h1>Providers</h1>
+          <p>No API or AI provider is ever a bottleneck. Anything speaking the OpenAI-compatible chat protocol works out of the box; CLI runtimes (Claude Code, Codex, Pi) and local servers are first-class too. List presets any time with <code>muster provider presets</code>. Source: <code>packages/core/src/providers-catalog.ts</code>.</p>
+
+          <h2>Cloud providers</h2>
+          <table class="docs-table">
+            <thead><tr><th>id</th><th>provider</th><th>key env</th><th>default model</th></tr></thead>
+            <tbody>
+              <tr><td>openai</td><td>OpenAI</td><td>OPENAI_API_KEY</td><td>gpt-5.4</td></tr>
+              <tr><td>anthropic</td><td>Anthropic Claude (API)</td><td>ANTHROPIC_API_KEY</td><td>claude-sonnet-4-6</td></tr>
+              <tr><td>xai</td><td>xAI Grok</td><td>XAI_API_KEY</td><td>grok-4</td></tr>
+              <tr><td>kimi</td><td>Moonshot Kimi</td><td>MOONSHOT_API_KEY</td><td>kimi-k2-0905-preview</td></tr>
+              <tr><td>deepseek</td><td>DeepSeek</td><td>DEEPSEEK_API_KEY</td><td>deepseek-chat</td></tr>
+              <tr><td>mistral</td><td>Mistral</td><td>MISTRAL_API_KEY</td><td>mistral-large-latest</td></tr>
+              <tr><td>gemini</td><td>Google Gemini (OpenAI-compatible endpoint)</td><td>GEMINI_API_KEY</td><td>gemini-2.5-pro</td></tr>
+              <tr><td>qwen</td><td>Alibaba Qwen (DashScope)</td><td>DASHSCOPE_API_KEY</td><td>qwen-max</td></tr>
+              <tr><td>zhipu</td><td>Zhipu GLM</td><td>ZHIPU_API_KEY</td><td>glm-4.6</td></tr>
+              <tr><td>perplexity</td><td>Perplexity</td><td>PERPLEXITY_API_KEY</td><td>sonar-pro</td></tr>
+              <tr><td>groq</td><td>Groq</td><td>GROQ_API_KEY</td><td>llama-3.3-70b-versatile</td></tr>
+              <tr><td>cerebras</td><td>Cerebras</td><td>CEREBRAS_API_KEY</td><td>llama-3.3-70b</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Aggregators (one key, many models)</h2>
+          <table class="docs-table">
+            <thead><tr><th>id</th><th>provider</th><th>key env</th><th>default model</th></tr></thead>
+            <tbody>
+              <tr><td>openrouter</td><td>OpenRouter</td><td>OPENROUTER_API_KEY</td><td>anthropic/claude-sonnet-4.6</td></tr>
+              <tr><td>together</td><td>Together AI</td><td>TOGETHER_API_KEY</td><td>meta-llama/Llama-3.3-70B-Instruct-Turbo</td></tr>
+              <tr><td>fireworks</td><td>Fireworks AI</td><td>FIREWORKS_API_KEY</td><td>accounts/fireworks/models/llama-v3p3-70b-instruct</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Local / self-hosted (open source, air-gap friendly)</h2>
+          <table class="docs-table">
+            <thead><tr><th>id</th><th>provider</th><th>base URL</th><th>notes</th></tr></thead>
+            <tbody>
+              <tr><td>lmstudio</td><td>LM Studio (local)</td><td>http://localhost:1234/v1</td><td>No API key. Start the LM Studio server first.</td></tr>
+              <tr><td>vllm</td><td>vLLM (self-hosted)</td><td>http://localhost:8000/v1</td><td>Point --base-url at your vLLM server.</td></tr>
+              <tr><td>sglang</td><td>SGLang (self-hosted)</td><td>http://localhost:30000/v1</td><td>Point --base-url at your SGLang server.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>CLI-auth runtimes (subscription auth, no raw API key)</h2>
+          <pre class="mono codeblock">codex-cli      OpenAI Codex CLI — uses your local `codex` login (default gpt-5.5)
+
+Also available without presets:
+  any OpenAI-compatible endpoint:  muster provider add-openai-compatible &lt;id&gt; &lt;base-url&gt; &lt;model&gt; [--api-key-env VAR]
+  Claude Code CLI runtime:         muster run "..." --runtime claude-code   (uses your local `claude` login)
+  Pi-managed providers:            muster run "..." --runtime pi --provider anthropic   (uses Pi auth)</pre>
+        </section>
+
+        <section id="flows" class="docs-section reveal">
+          <h1>Flows</h1>
+          <p>Flows are deterministic pipelines-as-data: validated definitions, durable runs, budgets, and approval gates that show the approver the <em>actual</em> output, not a step name. Source spec: <code>docs/FLOW_ENGINE_SPEC.md</code>.</p>
+
+          <pre class="mono codeblock">id: weekly-ticket-digest
+budgetTokens: 50000          # hard ceiling, run aborts cleanly past it
+steps:
+  - id: fetch
+    kind: tool               # deterministic tool call, no model
+    tool: frappe_dataset_fetch_for_artifact
+    args: { doctype: HD Ticket, filters: { status: Open } }
+  - id: summarize
+    kind: agent              # model step, routed via normal run loop
+    prompt: "Summarize these tickets per team: {{fetch.rows}}"
+    taskKind: artifact
+  - id: approve
+    kind: gate               # halts; resumable
+    show: summarize.text     # approver sees the ACTUAL output, not a step name
+    expiresHours: 48
+  - id: post
+    kind: tool
+    tool: frappe_records_create
+    when: approve.granted</pre>
+
+          <h2>Core properties</h2>
+          <ul>
+            <li><strong>Preflight</strong> — <code>muster flow check &lt;id&gt;</code> validates schema, tool existence, template variables and permissions <em>before</em> anything runs.</li>
+            <li><strong>Durable runs as data</strong> — every step result appends to <code>.muster/data/flows/&lt;run&gt;.jsonl</code>; gate state lives in the run record, not a magic token, so it survives restarts.</li>
+            <li><strong>Replay &amp; diff</strong> — <code>muster flow replay &lt;run&gt;</code> and <code>muster flow diff &lt;run-a&gt; &lt;run-b&gt;</code>: regression detection for automations.</li>
+            <li><strong>Budgeted</strong> — per-flow token ceiling enforced by the ledger; cost reported per step in <code>muster tokens</code>.</li>
+            <li><strong>Loops</strong> — <code>muster flow loop &lt;flow-id&gt; --cron "0 9 * * 1"</code> binds a flow to the scheduler.</li>
+          </ul>
+
+          <h2>Lifecycle</h2>
+          <pre class="mono codeblock">$ muster flow save deploy-digest.json     # validate + store the definition
+$ muster flow check deploy-digest         # preflight=ok
+$ muster flow run deploy-digest           # runs until a gate → awaiting_approval
+$ muster flow approve flowrun_89e4607c    # resumes; remaining steps execute
+$ muster flow show flowrun_89e4607c       # full step-by-step run record</pre>
+          <p>A complete captured lifecycle — gate halt, approval, resume — is on the <a href="/portal.html">portal preview</a> under Flows.</p>
+        </section>
+
+        <section id="gateway" class="docs-section reveal">
+          <h1>Gateway &amp; surfaces</h1>
+          <p>One gateway process, one message envelope, any frontend. Six webhook adapters ship in <code>packages/gateway/src/adapters</code> — <strong>telegram, slack, discord, whatsapp, gchat, teams</strong> — plus a browser client in <code>packages/surface</code>. Discord interactions are verified with native ed25519 signatures.</p>
+
+          <pre class="mono codeblock">$ muster gateway init                # writes .muster/gateway.json (token inside)
+$ muster gateway start --port 7460
+$ muster pairing list                # pending senders
+$ muster pairing approve &lt;code&gt;      # first message from an unknown sender requires pairing</pre>
+
+          <h2>Web client</h2>
+          <p>The whole client is one authenticated POST (from <code>packages/surface/demo/index.html</code>):</p>
+          <pre class="mono codeblock">const surface = (url, token) =&gt; ({
+  async send(text) {
+    const r = await fetch(url + "/v1/messages", { method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + token },
+      body: JSON.stringify({ surfaceId: "web:demo", conversationId: "demo",
+                             senderId: "demo-user", text }) });
+    return r.json();
+  }
+});</pre>
+          <p>If the sender is unpaired, the gateway answers <code>status=pairing_required</code> with a code; the operator approves it with <code>muster pairing approve &lt;code&gt;</code>. Chat adapters speak the same envelope, so a Telegram DM and a Teams message hit the same run loop with the same governance.</p>
+        </section>
+
+        <section id="capability-packs" class="docs-section reveal">
+          <h1>Capability packs</h1>
+          <p>Capability packs are sandboxed tool bundles with a manifest, declared permissions, secrets and evals. Inspect before you load:</p>
+          <pre class="mono codeblock">$ muster capability inspect capability-packs/frappe
+$ muster capability load capability-packs/frappe [--allow-high-risk]</pre>
+
+          <h2>frappe — Frappe/ERPNext Federated Bridge</h2>
+          <p>From <code>capability-packs/frappe/manifest.json</code> (v0.1.0): permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; <em>Frappe remains the only authorization authority</em>. Sandbox: <code>network_limited</code>; declared secrets: <code>FRAPPE_SITE_URL</code>, <code>FRAPPE_API_TOKEN</code>; ships with identity-resolution and permission-scoping eval suites.</p>
+          <table class="docs-table">
+            <thead><tr><th>implemented tools</th><th>planned tools</th></tr></thead>
+            <tbody>
+              <tr><td>frappe_identity_resolve</td><td>frappe_customization_context</td></tr>
+              <tr><td>frappe_semantic_data_resolve_lite</td><td>frappe_semantic_data_resolve · frappe_records_update</td></tr>
+              <tr><td>frappe_records_create</td><td>frappe_permission_check · frappe_dataset_fetch_for_artifact</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="cli" class="docs-section reveal">
+          <h1>CLI reference</h1>
+          <p>Verbatim from <code>muster help</code> (<code>packages/cli/src/index.ts</code>):</p>
+          <pre class="mono codeblock">Muster v0
+
+Usage:
+  muster init
+  muster doctor [--fix]
+  muster status
+  muster chat "your prompt"
+  muster claude inspect
+  muster claude ask "prompt" [--model sonnet] [--effort low] [--timeout-ms 30000]
+  muster episodes
+  muster feedback &lt;episode-id&gt; --useful|--not-useful [--correct] [--reason "..."]
+  muster candidates
+  muster eval seed &lt;episode-id&gt; [--expect "..."] [--forbid "..."]
+  muster eval run [path-or-dir]
+  muster capability inspect &lt;path&gt;
+  muster capability load &lt;path&gt; [--allow-high-risk]
+  muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
+  muster memory add --summary "..." --scope user:me --provenance manual
+  muster memory search --scope user:me [--query "..."] [--include-global]
+  muster memory promote &lt;memory-id&gt; --to tenant:acme [--allow-global]
+  muster tui
+  muster tui ask "your prompt"
+  muster provider list
+  muster provider add-openai-compatible &lt;id&gt; &lt;base-url&gt; &lt;model&gt; [--api-key-env OPENAI_API_KEY]
+  muster provider add-codex-cli &lt;id&gt; &lt;model&gt;
+  muster provider presets
+  muster provider add &lt;preset&gt; [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, openrouter, ...)
+  muster runtime use-provider &lt;runtime-id&gt; &lt;provider-id&gt; [model]
+  muster pi inspect [--home /path/to/home]
+  muster pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
+  muster pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  muster pi commands [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
+  muster pi tui ["optional startup prompt"] [--agent-dir ~/.pi/agent] [--session create|continue|memory] [--session-dir path]
+  muster pi ask "prompt" [--provider openai] [--model gpt-4o-mini] [--transport sdk|cli] [--session memory|create|continue] [--session-dir path] [--timeout-ms 30000]
+  muster state export [--output packages/ui/public/muster-state.json]
+  muster state show
+  muster migrate openclaw --dry-run
+  muster migrate hermes --dry-run
+  muster migrate pi --dry-run
+  muster run "prompt" [--runtime pi] [--provider anthropic] [--model claude-sonnet-4-5] [--session memory|create|continue] [--scope user:me] [--task-kind coding] [--sensitive]
+  muster tokens [--limit 20]
+  muster profile create|list|use|current [name]
+  muster schedule add "*/5 * * * *" "prompt" | list | remove &lt;id&gt; | run-due
+  muster evolve &lt;suite.json&gt; [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
+  muster evolve selfcheck
+  muster flow save &lt;file.json&gt; | list | check &lt;id&gt; | run &lt;id&gt;
+  muster flow runs | show &lt;run-id&gt; | approve &lt;run-id&gt; | reject &lt;run-id&gt;
+  muster gateway init
+  muster gateway start [--port 7460]
+  muster pairing list | approve &lt;code&gt;
+  muster flow replay &lt;run-id&gt; [--live-agents]
+  muster flow diff &lt;run-id-a&gt; &lt;run-id-b&gt;
+  muster flow loop &lt;flow-id&gt; --cron "0 9 * * 1"
+  muster verify
+
+Design rule:
+  One active runtime per run. Providers/models can route dynamically by task.</pre>
+        </section>
+
+        <footer class="docs-foot mono dim">
+          <p>muster_ — MIT · <a href="/">home</a> · <a href="/portal.html">portal preview</a> · <a href="https://github.com/Dkm0315/muster" rel="noopener">github</a></p>
+        </footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
