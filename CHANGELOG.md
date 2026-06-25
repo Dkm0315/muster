@@ -55,6 +55,10 @@ terminal or connect behind product/chat surfaces.
 - Runtime/provider UX is now picker-oriented: users can switch provider, model,
   runtime, MCPs, plugins, and skills from inside chat instead of memorizing
   exact IDs.
+- Chat `fast` mode now means a warm native session with lighter Muster context
+  rather than a cold one-shot Codex exec path, so repeat Codex turns can reuse
+  app-server state while skipping recall, ambient skill scoring, and memory
+  writes.
 - Codex and Claude Code are modeled as first-class runtime capability packs,
   matching the way Hermes treats autonomous agent CLIs while preserving Muster's
   own session, memory, and token accounting.
@@ -67,6 +71,9 @@ terminal or connect behind product/chat surfaces.
 - Serialized warm Codex app-server turns per session and added injected-context
   hashes to native session handles, preventing concurrent turn event mixing and
   stale memory/skill/rule reuse across resumed provider sessions.
+- Native session reuse now hashes stable instructions separately from volatile
+  per-turn recall/skill context, preventing ordinary memory changes from
+  cold-starting a fresh Codex app-server session.
 - Native Codex and Claude Code attempts now stamp actual `create`/`continue`
   session mode and session id into the token ledger, so replay-waste warnings
   catch bloated continued Codex sessions instead of only Pi/API paths.

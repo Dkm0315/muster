@@ -493,7 +493,7 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "cloud", usage: "/cloud [preset]", description: "browse or add cloud provider presets" },
   { name: "model", usage: "/model <name>", description: "switch active model for the current provider" },
   { name: "runtime", usage: "/runtime [id]", description: "list or switch active runtime" },
-  { name: "speed", usage: "/speed [session|fast]", description: "choose persistent Codex app-server or one-shot exec" },
+  { name: "speed", usage: "/speed [session|fast]", description: "choose full memory mode or low-latency warm native mode" },
   { name: "sessions", usage: "/sessions [limit]", description: "list recent named chats", aliases: ["ls"] },
   { name: "resume", usage: "/resume <name|id>", description: "switch to a prior named chat or session id", aliases: ["use"] },
   { name: "name", usage: "/name <name>", description: "switch current reference name" },
@@ -526,8 +526,8 @@ const CHAT_CLOUD_OPTIONS = PROVIDER_PRESETS
     description: `${preset.label} · ${preset.defaultModel} · ${preset.apiKeyEnv ?? "no key"}`,
   }));
 const CHAT_SPEED_OPTIONS: readonly PickerOption[] = [
-  { value: "session", label: "session", description: "persistent Codex app-server; fastest repeat turns with cached context" },
-  { value: "fast", label: "fast", description: "one-shot Codex exec; useful fallback when app-server is unavailable" },
+  { value: "session", label: "session", description: "full memory and skill context; best for long work" },
+  { value: "fast", label: "fast", description: "warm native session with recall/ambient skills off; best for quick turns" },
 ];
 const CHAT_SKILL_OPTIONS = listBuiltinSkills().map((skill) => ({
   value: skill.id,
@@ -634,7 +634,7 @@ Usage:
   muster chat                               # interactive terminal chat
   muster chat "your prompt"                 # session-backed turn in the main named session
   muster chat --session work "prompt"       # session-backed turn in a named session
-  muster chat --fast "prompt"               # explicit one-shot Codex exec fallback
+  muster chat --fast "prompt"               # warm native session with light context
   muster chat --continue [name]             # resume by name, or most recent named chat
   muster chat --session work --history      # show a named session
   muster chat --tools [toolset]             # list built-in tools
@@ -1325,7 +1325,10 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
       surfaceId: "cli-chat",
       agentId,
       skipAgentRules: true,
-      nativeSession: (state.speedMode ?? "fast") !== "fast",
+      skipRecall: (state.speedMode ?? "fast") === "fast",
+      skipSkillSelection: (state.speedMode ?? "fast") === "fast",
+      skipMemoryWrite: (state.speedMode ?? "fast") === "fast",
+      nativeSession: true,
       nativeSessionKeepAlive: options.keepAlive ?? true,
       timeoutMs: options.timeoutMs,
     });
@@ -1517,7 +1520,7 @@ async function printChatStatus(state: ChatState): Promise<void> {
       `${color("runtime".padEnd(12), "accent")} ${runtime}`,
       `${color("provider".padEnd(12), "accent")} ${provider?.id ?? providerId ?? "-"}`,
       `${color("model".padEnd(12), "accent")} ${model ?? "-"}`,
-      `${color("speed".padEnd(12), "accent")} ${state.speedMode ?? "fast"}${(state.speedMode ?? "fast") === "fast" ? " (one-shot Codex exec)" : " (persistent Codex app-server)"}`,
+      `${color("speed".padEnd(12), "accent")} ${state.speedMode ?? "fast"}${(state.speedMode ?? "fast") === "fast" ? " (warm native, light context)" : " (full memory + skills)"}`,
       `${color("scopes".padEnd(12), "accent")} ${formatChatScopes(activeChatScopes(state))}${state.scopes.length ? " (explicit)" : " (default)"}`,
       `${color("recall".padEnd(12), "accent")} limit ${state.recallLimit ?? 5}`,
       `${color("messages".padEnd(12), "accent")} ${messages}`,
@@ -1731,7 +1734,7 @@ function switchChatSpeed(args: string, state: ChatState): void {
   }
   state.speedMode = mode;
   void refreshChatTuiHeader(state);
-  console.log(color(`speed=${mode}${mode === "fast" ? " one-shot Codex exec enabled" : " persistent Codex app-server enabled"}`, "green"));
+  console.log(color(`speed=${mode}${mode === "fast" ? " warm native + light context enabled" : " full memory + skills enabled"}`, "green"));
   printChatPanel("Ready", [
     `${color("Provider", "accent")} ${state.provider ?? "current"} · ${color("Model", "accent")} ${state.model ?? "current"} · ${color("Speed", "accent")} ${mode}`,
     "Type a normal message to run the agent, or use /plugins, /skills, /mcp to add capabilities.",
@@ -4797,9 +4800,11 @@ async function latencyCommand(commandArgs: string[]): Promise<void> {
       workspaceDir: readFlag(commandArgs, "--workspace-dir"),
       codexHome: readFlag(commandArgs, "--codex-home"),
       skipAgentRules: commandArgs.includes("--no-agent-rules"),
-      skipMemoryWrite: !commandArgs.includes("--write-memory"),
-      nativeSession: commandArgs.includes("--fast") ? false : undefined,
-      nativeSessionKeepAlive: commandArgs.includes("--fast") ? false : undefined,
+      skipRecall: commandArgs.includes("--fast"),
+      skipSkillSelection: commandArgs.includes("--fast"),
+      skipMemoryWrite: commandArgs.includes("--fast") ? true : !commandArgs.includes("--write-memory"),
+      nativeSession: true,
+      nativeSessionKeepAlive: true,
       surfaceId: "latency-probe",
     });
     const timings = outcome.timings;

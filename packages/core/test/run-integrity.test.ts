@@ -222,8 +222,9 @@ test("executeRun injects recalled scoped memory into the prompt", async () => {
     assert.match(observedPrompt, /Recalled context/);
     assert.match(observedPrompt, /uat-erp\.pwhr\.in/);
     assert.equal(observedMessages.at(-1)?.role, "user");
-    assert.equal(observedMessages.at(-1)?.content, "what is the deployment target?");
-    assert.equal(observedMessages.some((message) => message.role === "system" && message.content.includes("Recalled context")), true);
+    assert.match(observedMessages.at(-1)?.content ?? "", /what is the deployment target\?/);
+    assert.match(observedMessages.at(-1)?.content ?? "", /Recalled context/);
+    assert.equal(observedMessages.some((message) => message.role === "system" && message.content.includes("Recalled context")), false);
     assert.equal(observedMessages.some((message) => message.role === "user" && message.content.includes("Operating discipline")), false);
   } finally {
     server.close();
@@ -356,6 +357,76 @@ rl.on("line", (line) => {
     assert.equal(records[1].sessionMode, "continue");
     assert.equal(records[1].sessionId, "thread-waste");
     assert.ok((records[1].wasteRatio ?? 0) > 3);
+  } finally {
+    clearCodexAppServerSessions();
+    if (previousCommand === undefined) delete process.env.MUSTER_CODEX_COMMAND;
+    else process.env.MUSTER_CODEX_COMMAND = previousCommand;
+    if (previousTransport === undefined) delete process.env.MUSTER_CODEX_TRANSPORT;
+    else process.env.MUSTER_CODEX_TRANSPORT = previousTransport;
+  }
+});
+
+test("executeRun keeps warm native Codex session when only recalled memory changes", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-run-codex-stable-context-"));
+  await addMemory({
+    summary: "alpha project detail belongs to the first turn",
+    provenance: ["test:alpha"],
+    scopes: [{ kind: "user", id: "tester" }],
+    confidence: 0.9,
+  }, cwd);
+  await addMemory({
+    summary: "beta project detail belongs to the second turn",
+    provenance: ["test:beta"],
+    scopes: [{ kind: "user", id: "tester" }],
+    confidence: 0.9,
+  }, cwd);
+  const fake = join(cwd, "codex-fake.mjs");
+  await writeFile(fake, `#!/usr/bin/env node
+import readline from "node:readline";
+const rl = readline.createInterface({ input: process.stdin });
+const threadId = "thread-stable-context";
+let turn = 0;
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") send({ id: msg.id, result: { userAgent: "fake" } });
+  else if (msg.method === "initialized") {}
+  else if (msg.method === "thread/start") send({ id: msg.id, result: { thread: { id: threadId } } });
+  else if (msg.method === "turn/start") {
+    turn += 1;
+    const id = "turn-" + turn;
+    send({ id: msg.id, result: { turn: { id, status: "inProgress" } } });
+    send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m-" + turn, text: "ok " + turn }, threadId, turnId: id } });
+    send({ method: "thread/tokenUsage/updated", params: { threadId, turnId: id, tokenUsage: { last: { inputTokens: 20, cachedInputTokens: 0, outputTokens: 2 } } } });
+    send({ method: "turn/completed", params: { threadId, turn: { id, status: "completed" } } });
+  }
+});
+`, "utf8");
+  await chmod(fake, 0o755);
+  const previousCommand = process.env.MUSTER_CODEX_COMMAND;
+  const previousTransport = process.env.MUSTER_CODEX_TRANSPORT;
+  process.env.MUSTER_CODEX_COMMAND = fake;
+  process.env.MUSTER_CODEX_TRANSPORT = "app-server";
+  try {
+    const base = {
+      cwd,
+      workspaceDir: cwd,
+      runtime: "codex" as const,
+      conversationKey: "cli-chat:stable-context",
+      nativeSession: true,
+      skipAgentRules: true,
+      skipMemoryWrite: true,
+      scopes: [{ kind: "user" as const, id: "tester" }],
+    };
+    const first = await executeRun(defaultConfig(), { ...base, prompt: "alpha" });
+    const second = await executeRun(defaultConfig(), { ...base, prompt: "beta" });
+
+    assert.equal(first.episode.responseText, "ok 1");
+    assert.equal(second.episode.responseText, "ok 2");
+    assert.ok(first.tokens.recalledChars > 0);
+    assert.ok(second.tokens.recalledChars > 0);
+    const handle = await loadSessionHandle("cli-chat:stable-context", "codex", cwd);
+    assert.equal(handle?.handle, "thread-stable-context");
   } finally {
     clearCodexAppServerSessions();
     if (previousCommand === undefined) delete process.env.MUSTER_CODEX_COMMAND;

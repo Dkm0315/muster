@@ -503,7 +503,8 @@ test("CLI chat prompt prints memory receipt scopes and keeps provider user promp
     assert.match(result.stdout, /score=/);
     assert.match(result.stdout, /Deploy to uat-erp\.example\.com/);
     assert.equal(observedMessages.at(-1)?.role, "user");
-    assert.equal(observedMessages.at(-1)?.content, "Where do we deploy?");
+    assert.match(observedMessages.at(-1)?.content ?? "", /Where do we deploy\?/);
+    assert.match(observedMessages.at(-1)?.content ?? "", /Recalled context/);
     assert.equal(observedMessages.some((message) => message.role === "user" && message.content.includes("Operating discipline")), false);
     assert.equal(observedMessages.some((message) => message.content.includes("Workspace rule leak")), false);
 

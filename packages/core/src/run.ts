@@ -85,6 +85,10 @@ export interface RunOptions {
   /** Token budget for the provider-direct multi-turn transcript. Default 16k. */
   readonly contextBudgetTokens?: number;
   readonly timeoutMs?: number;
+  /** Skip memory lookup for latency-sensitive turns. Explicit memory commands should leave this false. */
+  readonly skipRecall?: boolean;
+  /** Skip ambient skill scoring/injection for latency-sensitive turns. Explicit skill commands still run outside executeRun. */
+  readonly skipSkillSelection?: boolean;
   readonly skipMemoryWrite?: boolean;
   readonly skipAgentRules?: boolean;
   /** Hook bus for prompt.build gating; defaults to the process-wide bus. */
@@ -225,8 +229,23 @@ interface PromptParts {
   readonly user: string;
   /** Operating rules / recalled context (claude-code sends this as the system prompt). */
   readonly system: string;
+  /** Stable instructions used for native session identity; volatile recall/skills must not bust warm sessions. */
+  readonly stableSystem: string;
   /** Per-run Claude Code plugin dirs, currently used for temporary skill snapshots. */
   readonly claudePluginDirs?: readonly string[];
+}
+
+function emptyRecallReceipt(query: string, scopes: readonly MemoryScope[], limit: number): SearchMemoryReceiptResult {
+  return {
+    query,
+    scopes: [...scopes],
+    includeGlobal: false,
+    backend: "sqlite-fts5",
+    requestedLimit: Math.max(1, Math.floor(limit)),
+    candidateCount: 0,
+    receipts: [],
+    fallbackUsed: false,
+  };
 }
 
 /**
@@ -249,7 +268,7 @@ const runClaudeCodeBackend: CliBackendRunner = async (route, prompts, options) =
   const stored = options.conversationKey && !options.sessionId
     ? await loadSessionHandle(options.conversationKey, "claude", stateCwd)
     : undefined;
-  const contextHash = hashSystemContext(prompts.system);
+  const contextHash = hashSystemContext(prompts.stableSystem);
   const reuse = canReuseHandle(stored, claudeCwd, route.model, contextHash);
   const sessionId = options.conversationKey
     ? (reuse ? stored.handle : (options.sessionId ?? randomUUID()))
@@ -313,7 +332,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
   const stored = useNativeSession && options.conversationKey && !options.sessionId
     ? await loadSessionHandle(options.conversationKey, "codex", stateCwd)
     : undefined;
-  const contextHash = hashSystemContext(prompts.system);
+  const contextHash = hashSystemContext(prompts.stableSystem);
   const reuse = canReuseHandle(stored, workspaceDir, route.model, contextHash);
   try {
     const codexEnv = options.codexHome ? { CODEX_HOME: options.codexHome } : undefined;
@@ -597,7 +616,9 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     };
   }
   const recallStartedAt = Date.now();
-  const recallReceipt = await recallMemoryWithReceipt(options.prompt, scopes, options.recallLimit ?? 5, cwd);
+  const recallReceipt = options.skipRecall
+    ? emptyRecallReceipt(options.prompt, scopes, options.recallLimit ?? 5)
+    : await recallMemoryWithReceipt(options.prompt, scopes, options.recallLimit ?? 5, cwd);
   const recallMs = Date.now() - recallStartedAt;
   const recalled = recallReceipt.receipts.map((receipt) => receipt.memory);
   const promptBuildStartedAt = Date.now();
@@ -605,12 +626,14 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
   const skillAllowlist = resolveAgentSkillAllowlist(config, options.agentId);
   const skillDiscovery = config.skills?.load;
-  const claudeSkillSnapshot = plan.runtimeId === "claude-code"
+  const claudeSkillSnapshot = !options.skipSkillSelection && plan.runtimeId === "claude-code"
     ? await exportClaudeSkillSnapshot(cwd, { skillAllowlist, discovery: skillDiscovery })
     : undefined;
   const skills = claudeSkillSnapshot
     ? { block: "", included: [...claudeSkillSnapshot.skillNames], dropped: [], includedReceipts: [...claudeSkillSnapshot.skillReceipts] }
-    : await selectSkills(options.prompt, 500, cwd, { skillAllowlist, discovery: skillDiscovery });
+    : options.skipSkillSelection
+      ? { block: "", included: [], dropped: [], includedReceipts: [] }
+      : await selectSkills(options.prompt, 500, cwd, { skillAllowlist, discovery: skillDiscovery });
   if (!claudeSkillSnapshot && skills.included.length) await recordSkillUse(skills.included, cwd);
   // Profile identity is self-knowledge for the agent, written so it shapes
   // behaviour silently (rule 6) rather than being quoted back.
@@ -626,7 +649,9 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const rulesText = rules?.source === "default" && plan.taskKind === "simple_qa" && !hasRunContext
     ? FAST_SIMPLE_QA_RULES
     : rules?.text;
-  const preamble = [identityBlock, rulesText, skills.block, recalledBlock].filter(Boolean).join("\n\n");
+  const stablePreamble = [identityBlock, rulesText].filter(Boolean).join("\n\n");
+  const volatilePreamble = [skills.block, recalledBlock].filter(Boolean).join("\n\n");
+  const preamble = [stablePreamble, volatilePreamble].filter(Boolean).join("\n\n");
   const assembledPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
   let fullPrompt = assembledPrompt;
   const hooks = options.hooks ?? defaultHookBus;
@@ -644,8 +669,9 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const hookRewrote = fullPrompt !== assembledPrompt;
   const prompts: PromptParts = {
     combined: fullPrompt,
-    user: hookRewrote ? fullPrompt : options.prompt,
-    system: hookRewrote ? "" : preamble,
+    user: hookRewrote ? fullPrompt : (volatilePreamble ? `${volatilePreamble}\n\n---\n\n${options.prompt}` : options.prompt),
+    system: hookRewrote ? "" : stablePreamble,
+    stableSystem: hookRewrote ? "" : stablePreamble,
     claudePluginDirs: claudeSkillSnapshot ? [claudeSkillSnapshot.pluginDir] : undefined,
   };
   const promptBuildMs = Date.now() - promptBuildStartedAt;
