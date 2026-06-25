@@ -154,9 +154,9 @@ function defaultFrappe2Commands(remoteCwd: string, remoteArtifactRoot: string, t
     },
     {
       id: "real_prompt_latency",
-      command: `${cd} && MUSTER_TIMINGS=1 muster run "Reply with exactly: muster-f2-ok" --scope tenant:f2 --scope user:goblin --timeout-ms ${Math.max(30_000, timeoutMs)}`,
+      command: `${cd} && MUSTER_TIMINGS=1 muster run "Reply with exactly: muster-f2-ok" --scope tenant:f2 --scope user:goblin --transport warm --timeout-ms ${Math.max(30_000, timeoutMs)}`,
       timeoutMs: Math.max(45_000, timeoutMs + 5_000),
-      requiredStdout: [/muster-f2-ok/i, /timings total=|run=/],
+      requiredStdout: [/muster-f2-ok/i, /timings total=/, /transport=/, /first_token_ms=/],
     },
     {
       id: "retrieval_artifact_gate",

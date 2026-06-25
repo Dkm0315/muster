@@ -123,8 +123,10 @@ rl.on("line", (line) => {
     const second = await runCodexAppServer({ prompt: "two", cwd: dir, command: fake, cacheKey: "test", onDelta: (delta) => deltas.push(delta) });
     assert.equal(first.status, "completed");
     assert.equal(first.finalMessage, "ok1");
+    assert.equal(typeof first.firstDeltaMs, "number");
     assert.equal(second.finalMessage, "ok2");
     assert.equal(second.threadId, "thread-1");
+    assert.equal(typeof second.firstDeltaMs, "number");
     assert.deepEqual(deltas, ["ok1", "ok2"]);
     assert.equal(second.tokenUsage?.cachedInputTokens, 10);
   } finally {
