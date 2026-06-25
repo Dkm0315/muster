@@ -76,6 +76,8 @@ export interface RunOptions {
   readonly nativeSession?: boolean;
   /** Keep native app-server transports alive after the turn. Interactive chat uses this; one-shot commands should not. */
   readonly nativeSessionKeepAlive?: boolean;
+  /** Native transport preference. "warm" reuses app-server/session transports where supported; "exec" forces one process per turn. */
+  readonly nativeTransport?: "auto" | "warm" | "exec";
   /**
    * Conversation identity (e.g. the surface conversation id). When set, the
    * native provider session for THIS conversation is resumed across turns via
@@ -128,8 +130,11 @@ export interface RunTimingBreakdown {
   readonly promptBuildMs: number;
   readonly hookMs?: number;
   readonly providerMs: number;
+  readonly firstTokenMs?: number;
+  readonly providerTransport?: string;
   readonly providerAttemptCount?: number;
   readonly fallbackMs?: number;
+  readonly backendFallbackMs?: number;
   readonly memoryWriteMs?: number;
   readonly persistMs: number;
 }
@@ -221,11 +226,20 @@ interface AttemptResult {
   readonly codexThreadId?: string;
   readonly sessionMode?: string;
   readonly sessionId?: string;
+  readonly firstTokenMs?: number;
+  readonly providerTransport?: string;
+  readonly backendFallbackMs?: number;
   readonly tokenUsage?: {
     readonly inputTokens?: number;
     readonly cachedInputTokens?: number;
     readonly outputTokens?: number;
   };
+}
+
+function normalizeNativeTransport(value: string | undefined): "auto" | "warm" | "exec" {
+  if (value === "exec") return "exec";
+  if (value === "warm" || value === "app-server") return "warm";
+  return "auto";
 }
 
 interface PromptParts {
@@ -342,9 +356,10 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
   const reuse = canReuseHandle(stored, workspaceDir, route.model, contextHash);
   try {
     const codexEnv = options.codexHome ? { CODEX_HOME: options.codexHome } : undefined;
+    const nativeTransport = normalizeNativeTransport(options.nativeTransport ?? process.env.MUSTER_NATIVE_TRANSPORT ?? process.env.MUSTER_CODEX_TRANSPORT);
     const useAppServer = useNativeSession
-      && process.env.MUSTER_CODEX_TRANSPORT !== "exec"
-      && (process.stdin.isTTY || process.env.MUSTER_CODEX_TRANSPORT === "app-server");
+      && nativeTransport !== "exec"
+      && (process.stdin.isTTY || nativeTransport === "warm");
     const codexResult = useAppServer
       ? await runCodexAppServer({
           prompt: prompts.user,
@@ -373,6 +388,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
           env: codexEnv,
           timeoutMs: options.timeoutMs,
         });
+    const backendFallbackStartedAt = Date.now();
     const finalCodexResult = useAppServer && codexResult.status === "failed"
       ? await runCodex({
           prompt: prompts.user,
@@ -388,6 +404,7 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
           timeoutMs: options.timeoutMs,
         })
       : codexResult;
+    const backendFallbackMs = useAppServer && codexResult.status === "failed" ? Date.now() - backendFallbackStartedAt : 0;
     // Persist the thread for next turn on success; drop a broken thread on
     // failure so it is never resumed into a dead end.
     if (useNativeSession && options.conversationKey) {
@@ -417,6 +434,11 @@ const runCodexBackend: CliBackendRunner = async (route, prompts, options) => {
       codexThreadId: finalCodexResult.threadId,
       sessionMode: useNativeSession && finalCodexResult.threadId ? (reuse ? "continue" : "create") : undefined,
       sessionId: finalCodexResult.threadId,
+      firstTokenMs: "firstDeltaMs" in finalCodexResult ? finalCodexResult.firstDeltaMs : undefined,
+      providerTransport: useAppServer
+        ? (codexResult.status === "failed" ? "warm-fallback-exec" : "warm")
+        : "exec",
+      backendFallbackMs,
       tokenUsage: "tokenUsage" in finalCodexResult ? finalCodexResult.tokenUsage : undefined,
     };
   } finally {
@@ -463,6 +485,7 @@ async function attemptRoute(
       piResult,
       sessionMode: piResult.sessionMode,
       sessionId: piResult.sessionId,
+      providerTransport: "pi",
     };
   }
   const provider = config.providers[route.provider];
@@ -506,7 +529,7 @@ async function attemptRoute(
       store.appendMessage(sessionId, "user", prompts.user);
       store.appendMessage(sessionId, "assistant", text);
     }
-    return { responseText: text, status: text ? "completed" : "failed", errorMessage: text ? undefined : "Empty response", route };
+    return { responseText: text, status: text ? "completed" : "failed", errorMessage: text ? undefined : "Empty response", route, providerTransport: "http" };
   } catch (error) {
     return { responseText: "", status: "failed", errorMessage: error instanceof Error ? error.message : String(error), route };
   } finally {
@@ -620,8 +643,10 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         promptBuildMs: 0,
         hookMs: 0,
         providerMs: 0,
+        providerTransport: "local",
         providerAttemptCount: 0,
         fallbackMs: 0,
+        backendFallbackMs: 0,
         memoryWriteMs: 0,
         persistMs,
       },
@@ -786,7 +811,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     kind: "system_check",
     label: "run_timing",
     status: "observed",
-    detail: `total=${Date.now() - runStartedAt}ms planning=${planningMs}ms recall=${recallMs}ms rules=${agentRulesMs}ms skills=${skillSelectionMs}ms prompt=${promptBuildMs}ms hooks=${hookMs}ms provider=${providerMs}ms fallback=${fallbackMs}ms attempts=${providerAttemptCount}`,
+    detail: `total=${Date.now() - runStartedAt}ms planning=${planningMs}ms recall=${recallMs}ms rules=${agentRulesMs}ms skills=${skillSelectionMs}ms prompt=${promptBuildMs}ms hooks=${hookMs}ms provider=${providerMs}ms first_token_ms=${attempt.firstTokenMs ?? "-"} transport=${attempt.providerTransport ?? "unknown"} fallback=${fallbackMs}ms backend_fallback=${attempt.backendFallbackMs ?? 0}ms attempts=${providerAttemptCount}`,
   });
   for (const receipt of recallReceipt.receipts) {
     evidence.push({
@@ -884,8 +909,11 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     promptBuildMs,
     hookMs,
     providerMs,
+    firstTokenMs: attempt.firstTokenMs,
+    providerTransport: attempt.providerTransport,
     providerAttemptCount,
     fallbackMs,
+    backendFallbackMs: attempt.backendFallbackMs ?? 0,
     memoryWriteMs,
     persistMs,
   };

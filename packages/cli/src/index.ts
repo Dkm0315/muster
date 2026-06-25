@@ -1440,8 +1440,7 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
 function printAssistantResponse(outcome: RunOutcome): void {
   const status = outcome.episode.outcome?.kind ?? "unknown";
   if (process.env.MUSTER_TIMINGS === "1" && outcome.timings) {
-    const t = outcome.timings;
-    console.log(color(`timings total=${t.totalMs}ms provider=${t.providerMs}ms recall=${t.recallMs}ms prompt=${t.promptBuildMs}ms persist=${t.persistMs}ms planning=${t.planningMs}ms`, "dim"));
+    console.log(color(formatTimingLine(outcome.timings), "dim"));
   }
   if (status !== "completed") {
     const header = `run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} status=${status}`;
@@ -1465,6 +1464,25 @@ function printAssistantResponse(outcome: RunOutcome): void {
   for (const line of wrapPreserveLines(outcome.episode.responseText || "(empty response)", Math.min(process.stdout.columns || 100, 120) - 2)) {
     console.log(line);
   }
+}
+
+function formatTimingLine(t: NonNullable<RunOutcome["timings"]>): string {
+  return [
+    `timings total=${t.totalMs}ms`,
+    `provider=${t.providerMs}ms`,
+    `transport=${t.providerTransport ?? "unknown"}`,
+    `first_token_ms=${t.firstTokenMs ?? "-"}`,
+    `recall=${t.recallMs}ms`,
+    `prompt=${t.promptBuildMs}ms`,
+    `persist=${t.persistMs}ms`,
+    `planning=${t.planningMs}ms`,
+    `rules=${t.agentRulesMs ?? 0}ms`,
+    `skills=${t.skillSelectionMs ?? 0}ms`,
+    `hooks=${t.hookMs ?? 0}ms`,
+    `memory_write=${t.memoryWriteMs ?? 0}ms`,
+    `backend_fallback=${t.backendFallbackMs ?? 0}ms`,
+    `attempts=${t.providerAttemptCount ?? 0}`,
+  ].join(" ");
 }
 
 function uniqueMemoryScopes(scopes: readonly MemoryScope[]): MemoryScope[] {
@@ -5010,6 +5028,13 @@ function readPiTransport(value: string | undefined): "sdk" | "cli" | undefined {
   throw new Error("Invalid Pi transport. Use sdk or cli.");
 }
 
+function readNativeTransportFlag(args: string[]): "auto" | "warm" | "exec" | undefined {
+  const value = readFlag(args, "--transport");
+  if (!value) return undefined;
+  if (value === "auto" || value === "warm" || value === "exec") return value;
+  throw new Error("Invalid transport. Use auto, warm, or exec.");
+}
+
 function readPiSessionMode(value: string | undefined): "memory" | "create" | "continue" | undefined {
   if (!value) return undefined;
   if (value === "memory" || value === "create" || value === "continue") return value;
@@ -5114,9 +5139,9 @@ function formatCompactNumber(value: number): string {
 }
 
 async function runCommand(commandArgs: string[]): Promise<void> {
-  const flagNames = ["--runtime", "--provider", "--model", "--thinking", "--session", "--session-dir", "--scope", "--task-kind", "--timeout-ms", "--recall-limit"];
+  const flagNames = ["--runtime", "--provider", "--model", "--thinking", "--session", "--session-dir", "--scope", "--task-kind", "--timeout-ms", "--recall-limit", "--transport"];
   const prompt = stripFlags(commandArgs, flagNames).filter((value) => value !== "--sensitive").join(" ").trim();
-  if (!prompt) throw new Error('Usage: muster run "prompt" [--runtime pi] [--provider X] [--model Y] [--session memory|create|continue] [--scope user:me]');
+  if (!prompt) throw new Error('Usage: muster run "prompt" [--runtime pi] [--provider X] [--model Y] [--transport auto|warm|exec] [--session memory|create|continue] [--scope user:me]');
   const config = await loadConfig();
   const scopeFlags = commandArgs.flatMap((value, index) => (value === "--scope" && commandArgs[index + 1] ? [commandArgs[index + 1]] : []));
   const outcome = await executeRun(config, {
@@ -5131,6 +5156,8 @@ async function runCommand(commandArgs: string[]): Promise<void> {
     sensitive: commandArgs.includes("--sensitive"),
     scopes: scopeFlags.length ? scopeFlags.map(parseMemoryScope) : undefined,
     recallLimit: readNumberFlag(commandArgs, "--recall-limit"),
+    nativeTransport: readNativeTransportFlag(commandArgs),
+    nativeSessionKeepAlive: false,
     timeoutMs: readNumberFlag(commandArgs, "--timeout-ms")
   });
   if (outcome.recalled.length) {
@@ -5140,6 +5167,9 @@ async function runCommand(commandArgs: string[]): Promise<void> {
     console.log(`governed fallback used: ${outcome.fallbackUsed} (recorded as evidence)`);
   }
   console.log(`run=${outcome.plan.runId} runtime=${outcome.plan.runtimeId} model=${outcome.episode.providerId}/${outcome.episode.model} task=${outcome.plan.taskKind} status=${outcome.episode.outcome?.kind}`);
+  if (process.env.MUSTER_TIMINGS === "1" && outcome.timings) {
+    console.log(formatTimingLine(outcome.timings));
+  }
   console.log(`tokens in=${outcome.tokens.inputTokens}${outcome.tokens.estimated ? "~" : ""} out=${outcome.tokens.outputTokens}${outcome.tokens.estimated ? "~" : ""}${outcome.tokens.costUsd !== undefined ? ` cost=$${outcome.tokens.costUsd.toFixed(4)}` : ""}`);
   // Persist to the session store so `muster sessions` works from the CLI, not only the gateway.
   try {
@@ -5163,22 +5193,30 @@ interface LatencySample {
   readonly status: string;
   readonly totalMs: number;
   readonly providerMs: number;
+  readonly firstTokenMs?: number;
+  readonly transport: string;
   readonly musterOverheadMs: number;
   readonly planningMs: number;
   readonly recallMs: number;
+  readonly agentRulesMs: number;
+  readonly skillSelectionMs: number;
   readonly promptBuildMs: number;
+  readonly hookMs: number;
+  readonly memoryWriteMs: number;
   readonly persistMs: number;
+  readonly backendFallbackMs: number;
+  readonly attempts: number;
   readonly providerSharePct: number;
   readonly responseChars: number;
 }
 
 async function latencyCommand(commandArgs: string[]): Promise<void> {
-  const flagNames = ["--runs", "--runtime", "--provider", "--model", "--scope", "--timeout-ms", "--recall-limit", "--task-kind", "--workspace-dir", "--codex-home"];
+  const flagNames = ["--runs", "--runtime", "--provider", "--model", "--scope", "--timeout-ms", "--recall-limit", "--task-kind", "--workspace-dir", "--codex-home", "--transport"];
   const prompt = stripFlags(commandArgs, flagNames)
     .filter((value) => !["--sensitive", "--fast", "--no-agent-rules", "--write-memory"].includes(value))
     .join(" ")
     .trim();
-  if (!prompt) throw new Error('Usage: muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]');
+  if (!prompt) throw new Error('Usage: muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--transport auto|warm|exec] [--scope user:me] [--timeout-ms 30000]');
 
   const runs = Math.max(1, Math.min(20, readNumberFlag(commandArgs, "--runs") ?? 1));
   const scopes = readFlags(commandArgs, "--scope").map(parseMemoryScope);
@@ -5197,12 +5235,13 @@ async function latencyCommand(commandArgs: string[]): Promise<void> {
       timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"),
       workspaceDir: readFlag(commandArgs, "--workspace-dir"),
       codexHome: readFlag(commandArgs, "--codex-home"),
+      nativeTransport: readNativeTransportFlag(commandArgs),
       skipAgentRules: commandArgs.includes("--no-agent-rules"),
       skipRecall: commandArgs.includes("--fast"),
       skipSkillSelection: commandArgs.includes("--fast"),
       skipMemoryWrite: commandArgs.includes("--fast") ? true : !commandArgs.includes("--write-memory"),
       nativeSession: true,
-      nativeSessionKeepAlive: true,
+      nativeSessionKeepAlive: index < runs - 1,
       surfaceId: "latency-probe",
     });
     const timings = outcome.timings;
@@ -5221,11 +5260,19 @@ function latencySample(index: number, outcome: RunOutcome, timings: NonNullable<
     status: outcome.episode.outcome?.kind ?? "unknown",
     totalMs: timings.totalMs,
     providerMs: timings.providerMs,
+    firstTokenMs: timings.firstTokenMs,
+    transport: timings.providerTransport ?? "unknown",
     musterOverheadMs,
     planningMs: timings.planningMs,
     recallMs: timings.recallMs,
+    agentRulesMs: timings.agentRulesMs ?? 0,
+    skillSelectionMs: timings.skillSelectionMs ?? 0,
     promptBuildMs: timings.promptBuildMs,
+    hookMs: timings.hookMs ?? 0,
+    memoryWriteMs: timings.memoryWriteMs ?? 0,
     persistMs: timings.persistMs,
+    backendFallbackMs: timings.backendFallbackMs ?? 0,
+    attempts: timings.providerAttemptCount ?? 0,
     providerSharePct: timings.totalMs > 0 ? (timings.providerMs / timings.totalMs) * 100 : 0,
     responseChars: outcome.episode.responseText.length,
   };
@@ -5237,12 +5284,20 @@ function renderLatencySample(sample: LatencySample): string {
     `status=${sample.status}`,
     `total_ms=${sample.totalMs}`,
     `provider_ms=${sample.providerMs}`,
+    `transport=${sample.transport}`,
+    `first_token_ms=${sample.firstTokenMs ?? "-"}`,
     `muster_overhead_ms=${sample.musterOverheadMs}`,
     `provider_share=${sample.providerSharePct.toFixed(1)}%`,
     `planning_ms=${sample.planningMs}`,
     `recall_ms=${sample.recallMs}`,
+    `rules_ms=${sample.agentRulesMs}`,
+    `skills_ms=${sample.skillSelectionMs}`,
     `prompt_ms=${sample.promptBuildMs}`,
+    `hooks_ms=${sample.hookMs}`,
+    `memory_write_ms=${sample.memoryWriteMs}`,
     `persist_ms=${sample.persistMs}`,
+    `backend_fallback_ms=${sample.backendFallbackMs}`,
+    `attempts=${sample.attempts}`,
     `response_chars=${sample.responseChars}`,
   ].join(" ");
 }
@@ -5251,7 +5306,9 @@ function renderLatencySummary(samples: readonly LatencySample[]): string {
   const totals = samples.map((sample) => sample.totalMs).sort((a, b) => a - b);
   const providers = samples.map((sample) => sample.providerMs).sort((a, b) => a - b);
   const overheads = samples.map((sample) => sample.musterOverheadMs).sort((a, b) => a - b);
+  const firstTokens = samples.flatMap((sample) => sample.firstTokenMs === undefined ? [] : [sample.firstTokenMs]).sort((a, b) => a - b);
   const avgProviderShare = samples.reduce((sum, sample) => sum + sample.providerSharePct, 0) / Math.max(1, samples.length);
+  const transports = [...new Set(samples.map((sample) => sample.transport))].join(",");
   const diagnosis = avgProviderShare >= 80
     ? "provider_bound"
     : percentileNumber(overheads, 0.5) > 1000
@@ -5267,8 +5324,10 @@ function renderLatencySummary(samples: readonly LatencySample[]): string {
     `p50_total_ms=${percentileNumber(totals, 0.5).toFixed(1)}`,
     `p95_total_ms=${percentileNumber(totals, 0.95).toFixed(1)}`,
     `p50_provider_ms=${percentileNumber(providers, 0.5).toFixed(1)}`,
+    `p50_first_token_ms=${firstTokens.length ? percentileNumber(firstTokens, 0.5).toFixed(1) : "-"}`,
     `p50_muster_overhead_ms=${percentileNumber(overheads, 0.5).toFixed(1)}`,
     `avg_provider_share=${avgProviderShare.toFixed(1)}%`,
+    `transports=${transports}`,
     `diagnosis=${diagnosis}`,
     `action="${action}"`,
   ].join(" ");

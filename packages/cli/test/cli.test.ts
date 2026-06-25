@@ -577,13 +577,15 @@ test("CLI latency separates provider time from Muster overhead with a repeatable
     ], cwd);
 
     assert.equal((result.stdout.match(/latency_run=/g) ?? []).length, 2);
-    assert.match(result.stdout, /latency_run=1 status=completed total_ms=\d+ provider_ms=\d+ muster_overhead_ms=\d+/);
-    assert.match(result.stdout, /provider_share=\d+\.\d% planning_ms=\d+ recall_ms=\d+ prompt_ms=\d+ persist_ms=\d+/);
+    assert.match(result.stdout, /latency_run=1 status=completed total_ms=\d+ provider_ms=\d+ transport=http first_token_ms=- muster_overhead_ms=\d+/);
+    assert.match(result.stdout, /provider_share=\d+\.\d% planning_ms=\d+ recall_ms=\d+ rules_ms=\d+ skills_ms=\d+ prompt_ms=\d+ hooks_ms=\d+ memory_write_ms=\d+ persist_ms=\d+ backend_fallback_ms=\d+ attempts=\d+/);
     assert.match(result.stdout, /latency_summary runs=2/);
     assert.match(result.stdout, /p50_total_ms=\d+\.\d/);
     assert.match(result.stdout, /p95_total_ms=\d+\.\d/);
     assert.match(result.stdout, /p50_provider_ms=\d+\.\d/);
+    assert.match(result.stdout, /p50_first_token_ms=-/);
     assert.match(result.stdout, /p50_muster_overhead_ms=\d+\.\d/);
+    assert.match(result.stdout, /transports=http/);
     assert.match(result.stdout, /diagnosis=(provider_bound|muster_overhead_high|balanced_or_fast)/);
   } finally {
     server.close();
@@ -2006,6 +2008,8 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(frappeTranscript, /case=real_prompt_latency status=passed/);
   const promptStdout = await readFile(join(frappeRunArtifact, "outputs", "real_prompt_latency.stdout.txt"), "utf8");
   assert.match(promptStdout, /muster-f2-ok/);
+  assert.match(promptStdout, /transport=warm/);
+  assert.match(promptStdout, /first_token_ms=180/);
   assert.doesNotMatch(promptStdout, /sk-[A-Za-z0-9_-]{12,}/);
   const frappeScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", frappeEvidencePath], cwd);
   assert.equal(frappeScorecard.code, 1);
@@ -2114,8 +2118,12 @@ if (command.includes("muster memory status")) {
   process.exit(0);
 }
 if (command.includes("Reply with exactly: muster-f2-ok")) {
+  if (!command.includes("--transport warm")) {
+    console.error("missing warm transport flag");
+    process.exit(4);
+  }
   console.log("muster-f2-ok");
-  console.log("timings total=1400ms provider=1200ms recall=4ms prompt=3ms persist=10ms planning=2ms");
+  console.log("timings total=1400ms provider=1200ms transport=warm first_token_ms=180 recall=4ms prompt=3ms persist=10ms planning=2ms rules=0ms skills=0ms hooks=0ms memory_write=0ms backend_fallback=0ms attempts=1");
   process.exit(0);
 }
 if (command.includes("seed-pack") && command.includes("f2-live") && command.includes("muster eval retrieval")) {

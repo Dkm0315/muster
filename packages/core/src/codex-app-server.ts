@@ -23,6 +23,7 @@ export interface CodexAppServerRunResult {
   readonly finalMessage: string;
   readonly threadId?: string;
   readonly durationMs: number;
+  readonly firstDeltaMs?: number;
   readonly errorMessage?: string;
   readonly tokenUsage?: {
     readonly inputTokens?: number;
@@ -102,6 +103,7 @@ export async function runCodexAppServer(input: CodexAppServerRunInput): Promise<
       finalMessage: turn.finalMessage,
       threadId: cached.threadId,
       durationMs: Date.now() - started,
+      firstDeltaMs: turn.firstDeltaMs,
       errorMessage: turn.errorMessage,
       tokenUsage: turn.tokenUsage,
     } as const;
@@ -216,6 +218,7 @@ class CodexAppServerClient {
     readonly onDelta?: (text: string) => void;
   }): Promise<{
     readonly finalMessage: string;
+    readonly firstDeltaMs?: number;
     readonly errorMessage?: string;
     readonly tokenUsage?: CodexAppServerRunResult["tokenUsage"];
   }> {
@@ -226,6 +229,7 @@ class CodexAppServerClient {
     }, 15_000);
     const turnId = stringValue(asRecord(turnStart.turn).id);
     let finalMessage = "";
+    let firstDeltaMs: number | undefined;
     let tokenUsage: CodexAppServerRunResult["tokenUsage"] | undefined;
 
     while (Date.now() - started < input.timeoutMs) {
@@ -239,7 +243,10 @@ class CodexAppServerClient {
       }
       if (method === "item/agentMessage/delta") {
         const delta = stringValue(params.delta) ?? "";
-        if (delta) input.onDelta?.(delta);
+        if (delta) {
+          firstDeltaMs ??= Date.now() - started;
+          input.onDelta?.(delta);
+        }
         continue;
       }
       if (method === "item/completed") {
@@ -263,10 +270,10 @@ class CodexAppServerClient {
         const error = asRecord(turn.error);
         const status = stringValue(turn.status);
         if (status && status !== "completed" && status !== "interrupted") {
-          return { finalMessage, errorMessage: stringValue(error.message) ?? `codex turn ended with status ${status}`, tokenUsage };
+          return { finalMessage, firstDeltaMs, errorMessage: stringValue(error.message) ?? `codex turn ended with status ${status}`, tokenUsage };
         }
         if (turnId && stringValue(turn.id) && stringValue(turn.id) !== turnId) continue;
-        return { finalMessage, tokenUsage };
+        return { finalMessage, firstDeltaMs, tokenUsage };
       }
     }
     throw new Error(this.formatError(`codex app-server turn timed out after ${input.timeoutMs}ms`));
