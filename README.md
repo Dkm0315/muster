@@ -1,11 +1,19 @@
 # Muster — the AI agent harness you can audit
 
-**Open-source agent runtime with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and integrity verification. Works with Claude, OpenAI, Gemini, Grok, Kimi, DeepSeek, and 20+ providers. TypeScript, MIT, self-hosted.**
+**Open-source agent runtime with a real terminal chat UI, token-waste ledger, leak-proof scoped memory, eval-gated learning, MCP/plugin induction, and integrity verification. Works with Codex, Claude Code, Claude, OpenAI-compatible providers, vLLM, and 100+ discoverable integration surfaces. TypeScript, MIT, self-hosted.**
 
 > Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
 ```bash
-pnpm dlx @musterhq/cli init && muster demo
+pnpm dlx @musterhq/cli
+```
+
+Run `muster` to start the interactive chat surface. First run opens onboarding; after setup, it opens a named chat with slash commands, `@agent` routing, provider/model pickers, memory controls, plugin/MCP setup, and a token ledger.
+
+For a deterministic no-model tour:
+
+```bash
+pnpm dlx @musterhq/cli demo
 ```
 
 ## See it work — `muster demo`
@@ -57,35 +65,69 @@ AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
 
 | | |
 |---|---|
+| 💬 **Interactive terminal chat** | `muster` opens a TUI with slash commands, `@agent` routing, history, named sessions, provider/model pickers, and warm Codex fast mode. |
 | 🪙 **Token ledger** | Every run recorded; replay-waste flagged with the exact ratio. `muster tokens` |
-| 🔒 **Scoped memory** | Tenant / workspace / user / role / session lanes. Cross-user leakage is a failing test, not a hope. |
+| 🔒 **Indexed scoped memory** | Tenant / workspace / user / role / session lanes backed by SQLite/FTS. Cross-user leakage is a failing test, not a hope. |
 | 🎓 **Eval-gated skills** | Skills promote only after an eval suite converges — no self-certified learning. |
 | 🛡️ **Integrity verify** | Corruption, duplicate runs, silent model drift, stale-narrative poisoning. `muster verify` |
 | ♻️ **Never-wedge compactor** | A session can always take a turn — no compaction deadlock. |
 | 🔁 **Recursive self-test** | `muster evolve` runs real tasks, adjudicates against evidence, converges. |
 | 🌊 **Flow engine** | Tool/agent/gate steps, preflight, durable runs, replay/diff, `flow loop --cron`. |
-| 📡 **One gateway, every chat app** | Telegram · Slack · Discord · WhatsApp · Google Chat · Teams + a zero-dep web client. |
-| 🔌 **MCP client** | Per-server isolation, circuit breakers, capped results. |
-| 🧰 **20+ providers** | Claude (Fable 5), OpenAI, Gemini, Grok, Kimi, DeepSeek, Groq, vLLM… zero lock-in. |
+| 📡 **One gateway, many chat apps** | Slack · Discord · Telegram · WhatsApp · Google Chat · Teams + a zero-dep web client, with setup packs and readiness checks. |
+| 🔌 **MCP client + OAuth setup** | Per-server isolation, circuit breakers, capped results, PKCE/OAuth helpers, curated install policies. |
+| 🧩 **31 in-repo capability packs** | Frappe/ERPNext, browser, web search, GitHub, Google Workspace, Notion, Jupyter, vLLM, Codex, Claude Code, channels, and more. |
+| 🧰 **116-entry integration catalog** | Source-backed Hermes/OpenClaw-inspired catalog with honest `setup_plan` vs executable-pack actionability. |
 | 💓 **Pulse scheduler** | Heartbeat that feels alive at ~5% of the token cost — zero-LLM preflight + daily budget. |
 | 👥 **Pull-based subagents** | Durable run store, exactly-once results, no zombie processes. |
+
+## Implementation status — v0.1.6
+
+This is where Muster stands today from an implementation point of view:
+
+| Area | Current state |
+|---|---|
+| CLI/TUI | Implemented. `muster` opens the chat UI after onboarding, with slash-command completion, `@agent` completion, history navigation, named sessions, provider/model/runtime pickers, speed mode, status, token, plugin, skill, MCP, and memory commands. |
+| Provider/runtime path | Implemented for Codex CLI, Claude Code CLI, Pi, and OpenAI-compatible HTTP providers. Codex app-server warm-session reuse is supported; `fast` mode keeps the warm native session but skips recall, ambient skill scoring, and memory writes for quick turns. |
+| Memory | Implemented. Scoped memory is indexed through SQLite/FTS with tenant/workspace/user/session lanes, receipt reporting, graph-linked expansion for Frappe-style contexts, latency probes, rebuild/doctor commands, and leakage tests. |
+| Token/cost | Implemented. Per-run ledger, cost estimates where pricing is known, replay-waste detection, session mode/id tracking, skill attribution, and token tables. |
+| Plugins/skills | Implemented base system. 31 executable capability packs are in-repo; 116 catalog entries are discoverable with actionability levels so setup-plan entries do not pretend to be fully wired tools. |
+| MCP | Implemented client, stdio/http registration, include/exclude policy, result caps, circuit breakers, OAuth/PKCE setup/import, and curated install catalog. |
+| Frappe/ERPNext | Implemented as a capability pack with docs/live-context setup, module/doc resources, Frappe tools, generic graph-retrieval eval fixtures, and web-framework checks. |
+| Onboarding | Implemented in CLI and prototype web preview. First run can guide purpose, style, provider, integrations, channels, memory policy, and profiles. |
+| Gateway/channels | Implemented framework and channel setup packs. Production hardening still depends on each real provider credential/webhook setup. |
+| Dashboard/web UI | Basic status/export/start surfaces exist. Full desktop app is not done. |
+| Release state | `v0.1.6` is published as the latest GitHub release with changelog notes. |
+
+Near-term gaps are clear: deeper real-provider end-to-end tests for every channel/MCP pack, stronger provider/model resolver parity with Hermes, more polished desktop/dashboard surfaces, and more live latency baselines across Codex/Claude/provider-direct paths.
 
 ## Everyday commands
 <img width="3288" height="1740" alt="image" src="https://github.com/user-attachments/assets/8186bd41-3e18-4511-8566-d756c195d57f" />
 
 
 ```bash
-muster provider add anthropic                 # or kimi / add-openai-compatible <any-url>
+muster                                      # interactive chat; first run opens onboarding
+muster onboard                              # rerun guided setup
+muster provider presets                     # browse cloud/CLI/self-hosted provider presets
+muster provider add anthropic               # or openai / xai / kimi / deepseek / groq / openrouter / vllm
+muster runtime use-provider native codex    # switch runtime/provider mapping
 muster run "where do we deploy?"              # governed run: memory recall + ledger + evidence
+muster chat --session work "summarize this repo"
+muster latency "Say hi in one sentence" --runs 3 --runtime codex --model gpt-5.5
 muster tokens                                 # per-run cost table, replay-waste flags
 muster verify                                 # store integrity
 muster sessions search "leave balance"        # FTS search across past sessions
+muster plugins catalog                        # 116 discoverable integration entries
+muster plugins setup provider-perplexity       # setup URLs, env vars, next actions
+muster capability load capability-packs/frappe --allow-high-risk
+muster mcp catalog                            # curated MCP setup catalog
+muster mcp install github                     # install a curated MCP entry when configured
+muster plugins context frappe setup --site https://example.com --user Administrator
 muster evolve evolve-suites/core-capabilities.json   # recursive self-test
 muster pulse add "0 9 * * 1-5" --kind task --prompt "summarize open work"
 muster benchmark                              # the Token Waste Index, live
 ```
 
-Everything renders plain-text tables in your terminal. No web dashboard required.
+Everything critical renders in the terminal. The dashboard is optional.
 
 ## Observability — OpenTelemetry
 
@@ -110,18 +152,27 @@ Zero dependencies — no OTel SDK, just Node builtins — and zero overhead when
 ## Architecture
 
 ```
-prompt ──> router ──> [agent rules + recalled scoped memory] ──> runtime
-                                                                  ├─ Pi SDK (embedded)
-  scoped memory lanes                                             ├─ Claude Code CLI
-  tenant/workspace/user/role/session                              ├─ Codex CLI
-        │                                                         └─ any HTTP provider
+terminal / gateway / channel
+        │
         ▼
-  episode store ──> token ledger ──> feedback adjudication ──> eval fixtures
-        │                 │                                         │
-        └──── muster verify (integrity) ◄──── muster evolve (self-test loop)
+  router + profile + provider resolver
+        │
+        ├── stable instructions ───────────────┐
+        ├── volatile recall / skill context ──►│ runtime
+        │                                      ├─ Codex CLI / app-server
+        │                                      ├─ Claude Code CLI
+        │                                      ├─ Pi SDK / CLI
+        │                                      └─ OpenAI-compatible HTTP providers
+        ▼
+  scoped memory lanes ── SQLite/FTS ── receipts / graph expansion
+        │
+        ▼
+  episode store ── token ledger ── goal-loop ledger ── eval fixtures
+        │                 │             │
+        └──── muster verify ◄───────────┴──── muster evolve / retrieval evals
 ```
 
-Built on the [pi.dev](https://pi.dev) coding-agent SDK as bedrock — embedded sessions, tools, and TUI — with the governance layer Muster adds on top.
+Muster uses native agent CLIs where they are strongest, and keeps governance outside the provider: scoped memory, token accounting, evidence, eval gates, MCP policy, and integrity verification remain Muster-owned.
 
 ## How it compares
 
@@ -132,10 +183,12 @@ Built on the [pi.dev](https://pi.dev) coding-agent SDK as bedrock — embedded s
 | Eval-gated learning | ✅ | ❌ | ❌ (promotes on use) | ❌ |
 | Governed fallback (evidence, never silent) | ✅ | ❌ ([#65646](https://github.com/openclaw/openclaw/issues/65646)) | ❌ | ❌ |
 | Session integrity verification | ✅ | ❌ ([#75235](https://github.com/openclaw/openclaw/issues/75235)) | ❌ ([#5563](https://github.com/NousResearch/hermes-agent/issues/5563)) | ❌ |
-| Channels & web embeds (one governed envelope) | ✅ Slack, Discord, Telegram, WhatsApp, GChat, Teams, any web app | ✅ 20+ bespoke | ✅ | ❌ |
+| Channels & web embeds (one governed envelope) | ✅ Slack, Discord, Telegram, WhatsApp, GChat, Teams, web apps | ✅ 20+ bespoke | ✅ | ❌ |
+| Interactive terminal with provider/model pickers | ✅ | partial | ✅ | ❌ |
+| MCP/OAuth setup workflows | ✅ | partial | ✅ | ❌ |
 | Maturity / ecosystem | v0 | huge | large | large |
 
-Honest table: they have breadth and ecosystems we don't (yet). We have the governance core they demonstrably lack — each ❌ above links to their own issue tracker.
+Honest table: OpenClaw and Hermes still have broader battle-tested ecosystems. Muster's current edge is governance, auditability, scoped memory, token accounting, and a growing integration induction layer.
 
 ## Use cases
 
@@ -156,21 +209,21 @@ Mapped against the mid-2026 production bar for agent harnesses:
 
 | Production-bar capability | Muster |
 |---|---|
-| MCP client | ✅ per-server isolation, circuit breakers, capped results |
+| MCP client | ✅ per-server isolation, OAuth/PKCE helpers, circuit breakers, capped results |
 | Eval-gated learning | ✅ skills promote only through a converged suite |
 | Per-run cost / token tracking | ✅ token ledger with replay-waste detection |
 | Layered, deterministic permissions | ✅ scoped-memory lanes + hook bus, leak = failing test |
-| Memory: working / episodic / scoped | ✅ scoped lanes + SQLite session store (FTS5) |
+| Memory: working / episodic / scoped | ✅ scoped lanes + SQLite/FTS indexes + retrieval evals |
 | Strategic (not reactive) compaction | ✅ immutable transcript renderer + never-wedge compactor |
 | One protocol for CLI / desktop / web | ✅ JSON-RPC gateway with `ledger.tick` live cost |
 | OpenTelemetry tracing | ✅ GenAI-semconv spans, JSONL + OTLP/HTTP export, opt-in `MUSTER_TRACE=1` |
-| Desktop apps | 🔜 Tauri over the RPC protocol |
+| Desktop apps | planned |
 
 **Claude Fable 5 ready:** the Anthropic preset defaults to `claude-fable-5` (1M context, adaptive thinking via `effort`). The token ledger and scoped tool exposure align with Fable 5's deferred-tool-loading and task-budget direction. First-class `stop_reason: "refusal"` handling is on the roadmap.
 
 **Independence:** Muster is operator-governed and MIT — no foundation, no single-vendor entanglement. You run it, you audit it.
 
-Next: OTEL tracing, Tauri desktop apps, channel approval round-trips, npm publish, and a Token Waste Index benchmark. See [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md) and [docs/FEATURE_PARITY_PLAN.md](docs/FEATURE_PARITY_PLAN.md).
+Next: real-provider channel hardening, richer desktop/dashboard surfaces, more end-to-end MCP OAuth packs, and continued latency parity work against Hermes/Codex/Claude live paths. See [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md), [docs/OPENCLAW_PARITY_CHECKLIST.md](docs/OPENCLAW_PARITY_CHECKLIST.md), and [docs/RETRIEVAL_GOAL_LOOP_DESIGN.md](docs/RETRIEVAL_GOAL_LOOP_DESIGN.md).
 
 ## License
 
