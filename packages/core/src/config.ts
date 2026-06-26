@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { profileConfigPath, profileConfigWritePath } from "./profiles.js";
 import { findProviderPreset, presetToProviderConfig } from "./providers-catalog.js";
@@ -47,7 +47,8 @@ export function configPath(cwd = process.cwd()): string {
 
 export async function ensureDefaultConfig(cwd = process.cwd()): Promise<string> {
   const target = configPath(cwd);
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  await chmod(dirname(target), 0o700).catch(() => undefined);
   try {
     await readFile(target, "utf8");
     return target;
@@ -71,14 +72,17 @@ export async function saveConfig(config: MusterConfig, cwd = process.cwd()): Pro
   // non-default profile's config does not leak into the shared default. Reads
   // (configPath/loadConfig) still inherit the default until a scoped config exists.
   const target = profileConfigWritePath(cwd);
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  await chmod(dirname(target), 0o700).catch(() => undefined);
   await writeJsonAtomic(target, config);
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
   const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(temp, 0o600).catch(() => undefined);
   await rename(temp, target);
+  await chmod(target, 0o600).catch(() => undefined);
 }
 
 function normalizeConfig(config: MusterConfig): MusterConfig {

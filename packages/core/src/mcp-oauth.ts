@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { profileHomeDir } from "./profiles.js";
 
@@ -80,6 +80,13 @@ export async function mcpOAuthStatus(server: string, cwd = process.cwd()): Promi
     expiresAt: token?.expiresAt,
     scope: token?.scope,
   };
+}
+
+export async function removeMcpOAuthToken(server: string, cwd = process.cwd()): Promise<{ readonly removed: boolean; readonly tokenPath: string }> {
+  const tokenPath = mcpOAuthTokenPath(server, cwd);
+  const existed = Boolean(await readMcpOAuthToken(server, cwd));
+  await rm(tokenPath, { force: true });
+  return { removed: existed, tokenPath };
 }
 
 export async function mcpOAuthAuthorizationHeader(server: string, cwd = process.cwd()): Promise<string | undefined> {

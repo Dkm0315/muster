@@ -101,7 +101,7 @@ const SELECTION_BG_RGB = "41;211;255";
 export function createMusterAutocompleteProvider(options: MusterAutocompleteOptions): AutocompleteProvider {
   const catalog = options.catalog ?? createCallbackCompletionCatalog(options);
   return {
-    triggerCharacters: ["@"],
+    triggerCharacters: ["@", "/", " "],
     async getSuggestions(lines, cursorLine, cursorCol, { signal }) {
       if (signal.aborted) return null;
       const line = lines[cursorLine] ?? "";

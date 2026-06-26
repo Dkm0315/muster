@@ -571,9 +571,14 @@ async function route(request: IncomingMessage, response: ServerResponse, options
 
   const adapterMatch = url.pathname.match(/^\/v1\/adapters\/([a-z0-9-]+)$/);
   if (request.method === "POST" && adapterMatch) {
-    const handler = adapterRoutes[adapterMatch[1]];
+    const adapterId = adapterMatch[1];
+    const handler = adapterRoutes[adapterId];
     if (!handler) {
-      sendJson(response, 404, { error: `Unknown adapter: ${adapterMatch[1]}` });
+      sendJson(response, 404, { error: `Unknown adapter: ${adapterId}` });
+      return;
+    }
+    if (!adapterHasPlatformAuth(adapterId, options.gateway) && !bearerTokenMatches(request, options.gateway.token)) {
+      sendJson(response, 401, { error: `Unauthorized ${adapterId} adapter webhook. Configure platform signature verification or send Authorization: Bearer <gateway token>.` });
       return;
     }
     const body = await readBody(request);
@@ -632,6 +637,25 @@ async function route(request: IncomingMessage, response: ServerResponse, options
   }
 
   sendJson(response, 404, { error: `No route: ${request.method} ${url.pathname}` });
+}
+
+function adapterHasPlatformAuth(adapterId: string, gateway: GatewayConfig): boolean {
+  switch (adapterId) {
+    case "telegram":
+      return Boolean(gateway.telegram?.secretToken);
+    case "slack":
+      return Boolean(gateway.slack?.signingSecret);
+    case "discord":
+      return Boolean(gateway.discord?.publicKey);
+    case "gchat":
+      return Boolean(gateway.gchat?.verificationToken);
+    case "teams":
+      return Boolean(gateway.teams?.hmacSecret);
+    case "whatsapp":
+      return false;
+    default:
+      return false;
+  }
 }
 
 export function startGatewayServer(options: GatewayServerOptions, port = 0): Promise<RunningGateway> {

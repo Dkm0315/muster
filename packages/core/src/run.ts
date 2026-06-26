@@ -123,8 +123,14 @@ export interface RunTimingBreakdown {
   readonly totalMs: number;
   readonly planningMs: number;
   readonly recallMs: number;
+  readonly agentRulesMs?: number;
+  readonly skillSelectionMs?: number;
   readonly promptBuildMs: number;
+  readonly hookMs?: number;
   readonly providerMs: number;
+  readonly providerAttemptCount?: number;
+  readonly fallbackMs?: number;
+  readonly memoryWriteMs?: number;
   readonly persistMs: number;
 }
 
@@ -609,8 +615,14 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
         totalMs: Date.now() - runStartedAt,
         planningMs,
         recallMs: 0,
+        agentRulesMs: 0,
+        skillSelectionMs: 0,
         promptBuildMs: 0,
+        hookMs: 0,
         providerMs: 0,
+        providerAttemptCount: 0,
+        fallbackMs: 0,
+        memoryWriteMs: 0,
         persistMs,
       },
     };
@@ -623,7 +635,10 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const recalled = recallReceipt.receipts.map((receipt) => receipt.memory);
   const promptBuildStartedAt = Date.now();
   const recalledBlock = buildRecalledBlock(recalled);
+  const agentRulesStartedAt = Date.now();
   const rules = options.skipAgentRules ? undefined : await loadAgentRules(cwd);
+  const agentRulesMs = Date.now() - agentRulesStartedAt;
+  const skillSelectionStartedAt = Date.now();
   const skillAllowlist = resolveAgentSkillAllowlist(config, options.agentId);
   const skillDiscovery = config.skills?.load;
   const claudeSkillSnapshot = !options.skipSkillSelection && plan.runtimeId === "claude-code"
@@ -635,6 +650,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
       ? { block: "", included: [], dropped: [], includedReceipts: [] }
       : await selectSkills(options.prompt, 500, cwd, { skillAllowlist, discovery: skillDiscovery });
   if (!claudeSkillSnapshot && skills.included.length) await recordSkillUse(skills.included, cwd);
+  const skillSelectionMs = Date.now() - skillSelectionStartedAt;
   // Profile identity is self-knowledge for the agent, written so it shapes
   // behaviour silently (rule 6) rather than being quoted back.
   const identityBlock = config.identity
@@ -655,6 +671,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const assembledPrompt = preamble ? `${preamble}\n\n---\n\n${options.prompt}` : options.prompt;
   let fullPrompt = assembledPrompt;
   const hooks = options.hooks ?? defaultHookBus;
+  const hookStartedAt = Date.now();
   if (hooks.count("prompt.build")) {
     const hookOutcome = await hooks.emit("prompt.build", fullPrompt);
     if (hookOutcome.action === "block") {
@@ -662,6 +679,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     }
     fullPrompt = hookOutcome.payload;
   }
+  const hookMs = Date.now() - hookStartedAt;
   // Route the preamble to the model's *system* prompt where the runtime supports it
   // (claude-code), so the operating rules shape behaviour instead of being narrated
   // back into the answer. If a prompt.build hook rewrote the assembled prompt we can
@@ -710,19 +728,25 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   const skillEnv = await applySkillEnvForRun(skills.included, config, cwd, process.env, skillDiscovery);
   let attempt: AttemptResult;
   let fallbackUsed: string | undefined;
+  let fallbackMs = 0;
+  let providerAttemptCount = 0;
   const providerStartedAt = Date.now();
   try {
+    providerAttemptCount += 1;
     attempt = await tracedAttempt(plan.route);
 
     if (attempt.status === "failed" && config.routing.fallbacks?.length) {
       for (const fallbackRoute of config.routing.fallbacks) {
+        const fallbackStartedAt = Date.now();
         evidence.push({
           kind: "system_check",
           label: "model_fallback",
           status: "observed",
           detail: `Primary route ${plan.route.provider}/${plan.route.model} failed (${attempt.errorMessage ?? "unknown"}). Governed fallback to ${fallbackRoute.provider}/${fallbackRoute.model}.`,
         });
+        providerAttemptCount += 1;
         const fallbackAttempt = await tracedAttempt(fallbackRoute);
+        fallbackMs += Date.now() - fallbackStartedAt;
         if (fallbackAttempt.status === "completed") {
           attempt = fallbackAttempt;
           fallbackUsed = `${fallbackRoute.provider}/${fallbackRoute.model}`;
@@ -757,6 +781,12 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     label: "memory_recall",
     status: "observed",
     detail: `backend=${recallReceipt.backend} recalled=${recallReceipt.receipts.length} candidates=${recallReceipt.candidateCount} fallback=${recallReceipt.fallbackUsed}`,
+  });
+  evidence.push({
+    kind: "system_check",
+    label: "run_timing",
+    status: "observed",
+    detail: `total=${Date.now() - runStartedAt}ms planning=${planningMs}ms recall=${recallMs}ms rules=${agentRulesMs}ms skills=${skillSelectionMs}ms prompt=${promptBuildMs}ms hooks=${hookMs}ms provider=${providerMs}ms fallback=${fallbackMs}ms attempts=${providerAttemptCount}`,
   });
   for (const receipt of recallReceipt.receipts) {
     evidence.push({
@@ -819,6 +849,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
   let memoryWrite: GoalLoopMemoryWrite = attempt.status === "completed"
     ? { status: "skipped", reason: options.skipMemoryWrite ? "skipMemoryWrite=true" : "empty response" }
     : { status: "rejected", reason: "run did not complete; no memory auto-promotion" };
+  const memoryWriteStartedAt = Date.now();
   if (attempt.status === "completed" && attempt.responseText && !options.skipMemoryWrite) {
     const remembered = await addMemory({
       kind: "episode_summary",
@@ -829,6 +860,7 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     }, cwd);
     memoryWrite = rememberedMemoryWrite(remembered);
   }
+  const memoryWriteMs = Date.now() - memoryWriteStartedAt;
 
   await appendGoalLoopTurn(buildGoalLoopTurn({
     runId: plan.runId,
@@ -847,8 +879,14 @@ export async function executeRun(config: MusterConfig, options: RunOptions): Pro
     totalMs: Date.now() - runStartedAt,
     planningMs,
     recallMs,
+    agentRulesMs,
+    skillSelectionMs,
     promptBuildMs,
+    hookMs,
     providerMs,
+    providerAttemptCount,
+    fallbackMs,
+    memoryWriteMs,
     persistMs,
   };
 

@@ -365,7 +365,7 @@ test("discord webhook answers PING with PONG and commands with a sync interactio
   try {
     const ping = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/discord`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify(discordPing),
     });
     assert.equal(ping.status, 200);
@@ -374,7 +374,7 @@ test("discord webhook answers PING with PONG and commands with a sync interactio
     await requestPairing("discord:290926798626357999", "53908232506183680", gw.cwd).then((pending) => approvePairing(pending.code, gw.cwd));
     const command = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/discord`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify(discordCommand),
     });
     assert.equal(command.status, 200);
@@ -460,7 +460,7 @@ test("whatsapp webhook posts governed reply to graph.facebook.com via injected f
     await requestPairing("whatsapp:106540352242922", "919812345678", gw.cwd).then((pending) => approvePairing(pending.code, gw.cwd));
     const response = await fetch(`http://127.0.0.1:${gw.port}/v1/adapters/whatsapp`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify(whatsAppNotification),
     });
     assert.equal(response.status, 200);

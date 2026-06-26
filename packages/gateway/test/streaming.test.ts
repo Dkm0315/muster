@@ -305,7 +305,7 @@ test('telegram webhook with telegram.stream="draft" streams the reply as a live-
   try {
     const response = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify({
         update_id: 1,
         message: { message_id: 10, from: { id: 5599220011 }, chat: { id: -100200300 }, text: "deploy status?" },

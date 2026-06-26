@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,7 +7,7 @@ import { addCodexCliProvider, addOpenAICompatibleProvider, ensureDefaultConfig, 
 
 test("default config uses Codex CLI and does not seed a local model route", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-config-"));
-  await ensureDefaultConfig(cwd);
+  const path = await ensureDefaultConfig(cwd);
 
   const config = await loadConfig(cwd);
   assert.equal(config.providers.codex?.kind, "codex-cli");
@@ -18,6 +18,8 @@ test("default config uses Codex CLI and does not seed a local model route", asyn
   assert.equal(config.routing.preferLocalForSensitive, false);
   assert.equal(config.providers.local, undefined);
   assert.doesNotMatch(JSON.stringify(config), /"local"/);
+  assert.equal((await stat(join(cwd, ".muster"))).mode & 0o777, 0o700);
+  assert.equal((await stat(path)).mode & 0o777, 0o600);
 });
 
 test("legacy local model configs are normalized back to Codex on load", async () => {

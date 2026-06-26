@@ -201,7 +201,7 @@ test("telegram webhook: pairing challenge then governed reply, outbound via inje
   const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, fetcher }, 0);
   const post = async () => fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: "Bearer test-token" },
     body: JSON.stringify(telegramUpdate),
   });
   try {
@@ -237,7 +237,7 @@ test("slack webhook answers url_verification with the challenge", async () => {
   try {
     const response = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify(slackUrlVerification),
     });
     assert.equal(response.status, 200);
@@ -268,7 +268,7 @@ test("slack webhook posts governed reply via chat.postMessage with bot token", a
   try {
     const response = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: "Bearer test-token" },
       body: JSON.stringify(slackEventCallback),
     });
     assert.equal(response.status, 200);
@@ -343,7 +343,7 @@ test("slack webhook verifies the signing secret before processing when configure
   }
 });
 
-test("slack webhook without a signing secret warns once that it is unauthenticated", async () => {
+test("slack webhook without a signing secret requires gateway bearer and warns once", async () => {
   resetAdapterAuthWarnings();
   const cwd = await mkdtemp(join(tmpdir(), "muster-gw-slack-warn-"));
   const { mkdir } = await import("node:fs/promises");
@@ -355,11 +355,17 @@ test("slack webhook without a signing secret warns once that it is unauthenticat
   const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, log: (line) => lines.push(line) }, 0);
   const postSlack = () => fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: "Bearer test-token" },
     body: JSON.stringify(slackUrlVerification),
   });
   try {
-    assert.equal((await postSlack()).status, 200, "unauthenticated slack still processes (back-compat)");
+    const unsigned = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(slackUrlVerification),
+    });
+    assert.equal(unsigned.status, 401, "unsigned slack webhook without signing secret is rejected");
+    assert.equal((await postSlack()).status, 200, "gateway bearer permits private unsigned slack webhook");
     assert.equal((await postSlack()).status, 200);
     const warnings = lines.filter((line) => line.includes("UNAUTHENTICATED") && line.includes("slack"));
     assert.equal(warnings.length, 1, "warns exactly once per process");
@@ -398,7 +404,7 @@ test("telegram webhook requires the secret-token header when configured", async 
   }
 });
 
-test("telegram webhook without a secret token warns once that it is unauthenticated", async () => {
+test("telegram webhook without a secret token requires gateway bearer and warns once", async () => {
   resetAdapterAuthWarnings();
   const cwd = await mkdtemp(join(tmpdir(), "muster-gw-tg-warn-"));
   const { mkdir } = await import("node:fs/promises");
@@ -411,11 +417,17 @@ test("telegram webhook without a secret token warns once that it is unauthentica
   const running = await startGatewayServer({ config: stubConfig(llm.url), gateway, cwd, fetcher, log: (line) => lines.push(line) }, 0);
   const postTg = () => fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: "Bearer test-token" },
     body: JSON.stringify(telegramUpdate),
   });
   try {
-    assert.equal((await postTg()).status, 200, "unauthenticated telegram still processes (back-compat)");
+    const unsigned = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/telegram`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(telegramUpdate),
+    });
+    assert.equal(unsigned.status, 401, "unsigned telegram webhook without secret token is rejected");
+    assert.equal((await postTg()).status, 200, "gateway bearer permits private unsigned telegram webhook");
     assert.equal((await postTg()).status, 200);
     const warnings = lines.filter((line) => line.includes("UNAUTHENTICATED") && line.includes("telegram"));
     assert.equal(warnings.length, 1, "warns exactly once per process");

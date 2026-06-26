@@ -2,6 +2,8 @@
 import { printBanner, renderBanner } from "./banner.js";
 import { createMusterAutocompleteProvider, runMusterChatTui, type MusterChatSink, type MusterCompletionCatalog, type PickerOption } from "./chat-tui.js";
 import { hasCompletedMusterOnboarding, runMusterOnboardingTui } from "./onboarding-tui.js";
+import { runFrappe2RealPromptsQa } from "./qa-frappe2.js";
+import { runPtyTuiQa } from "./qa-pty-tui.js";
 import {
   openSessionStore,
   clearConversationSessionHandles,
@@ -69,6 +71,7 @@ import {
   type BuiltinMcpInstallSpec,
   type BuiltinPluginCatalogEntry,
   mcpOAuthStatus,
+  removeMcpOAuthToken,
   writeMcpOAuthToken,
   listPiModels,
   listBuiltinPlugins,
@@ -104,6 +107,20 @@ import {
   setRuntimeProvider,
   addPresetProvider,
   renderProviderPresets,
+  inspectCodexRuntime,
+  inspectProviderConfig,
+  buildRuntimeMaturityScorecard,
+  renderRuntimeMaturityScorecard,
+  loadRuntimeQaEvidence,
+  qaEvidencePath,
+  recordRuntimeQaSuiteEvidence,
+  runMcpAuthFailureQa,
+  runMemoryRetrievalSpeedQa,
+  runProviderLatencyQa,
+  runChannelPluginSetupQa,
+  REQUIRED_QA_SUITES,
+  type RequiredQaSuiteId,
+  type RuntimeDoctorStatus,
   PROVIDER_PRESETS,
   executeRun,
   listTokenRecords,
@@ -143,7 +160,7 @@ import {
 } from "@musterhq/gateway";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -246,6 +263,9 @@ async function main(): Promise<void> {
     case "runtime":
       await runtime(args);
       return;
+    case "qa":
+      await qaCommand(args);
+      return;
     case "pi":
       await pi(args);
       return;
@@ -323,6 +343,7 @@ Usage:
   muster init
   muster onboard [--preview] [--color=always|never] [--step purpose|style|provider|integrations|channels|memory|finish]
   muster doctor [--fix]
+  muster doctor codex [--codex-command path] [--latest-version x.y.z]
   muster status
   muster chat
   muster chat "your prompt"
@@ -343,12 +364,16 @@ Usage:
   muster capability inspect <path>
   muster capability load <path> [--allow-high-risk]
   muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
-  muster mcp list | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
+  muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster channels list | status [channel] | setup <channel> [--public-url URL] [secret env flags]
   muster integrations [list|guide]         # layman setup guide for chat apps, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
+  muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path]
+  muster qa suites
+  muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path]
+  muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary "..."
   muster memory add --summary "..." --scope user:me --provenance manual
   muster memory search --scope user:me [--query "..."] [--include-global]
   muster memory status [--probe --scope user:me --query "..."]
@@ -363,6 +388,7 @@ Usage:
   muster provider presets
   muster provider add <preset> [--model X] [--api-key-env VAR] [--base-url URL]   (openai, anthropic, xai, kimi, deepseek, groq, openrouter, vllm, ...)
   muster runtime use-provider <runtime-id> <provider-id> [model]
+  muster runtime doctor [--codex-command path]
   muster pi inspect [--home /path/to/home]
   muster pi models [--provider anthropic] [--available] [--agent-dir ~/.pi/agent]
   muster pi tools [--agent-dir ~/.pi/agent] [--tools read,grep,find,ls]
@@ -412,6 +438,10 @@ async function init(): Promise<void> {
 }
 
 async function doctor(commandArgs: string[] = []): Promise<void> {
+  if (commandArgs[0] === "codex" || commandArgs.includes("--codex")) {
+    await printCodexDoctor(commandArgs);
+    return;
+  }
   if (commandArgs.includes("--fix")) {
     const configTarget = await ensureDefaultConfig();
     console.log(`fix config            ${configTarget}`);
@@ -447,6 +477,26 @@ async function doctor(commandArgs: string[] = []): Promise<void> {
   for (const [name, ok, detail] of checks) {
     console.log(`${ok ? "ok " : "err"} ${name.padEnd(28)} ${detail}`);
   }
+}
+
+async function printCodexDoctor(commandArgs: string[]): Promise<void> {
+  const report = await inspectCodexRuntime({
+    command: readFlag(commandArgs, "--codex-command"),
+    latestVersion: readFlag(commandArgs, "--latest-version"),
+  });
+  console.log(`codex_doctor command=${report.command}`);
+  console.log(`codex_available=${report.available}`);
+  if (report.version) console.log(`codex_version=${report.version}`);
+  if (report.latestVersion) console.log(`codex_latest=${report.latestVersion}`);
+  console.log(`supports_exec=${report.supportsExec ?? false}`);
+  console.log(`supports_app_server=${report.supportsAppServer ?? false}`);
+  console.log(`auth_status=${report.authStatus}`);
+  for (const check of report.checks) {
+    console.log(`${check.status.padEnd(7)} ${check.id.padEnd(20)} ${check.summary}${check.detail ? ` (${check.detail})` : ""}`);
+    if (check.fix && check.status !== "passed") console.log(`fix     ${check.id.padEnd(20)} ${check.fix}`);
+  }
+  console.log(`recommendation=${report.recommendation}`);
+  if (report.checks.some((check) => check.status === "failed")) process.exitCode = 1;
 }
 
 interface ChatState {
@@ -1525,6 +1575,7 @@ async function printChatStatus(state: ChatState): Promise<void> {
       `${color("recall".padEnd(12), "accent")} limit ${state.recallLimit ?? 5}`,
       `${color("messages".padEnd(12), "accent")} ${messages}`,
       `${color("tokens".padEnd(12), "accent")} in ${session.tokensIn} / out ${session.tokensOut}`,
+      `${color("fallbacks".padEnd(12), "accent")} ${formatFallbackRoutes(config)}`,
       color(`id ${session.id}`, "dim"),
     ]);
   } finally {
@@ -1542,6 +1593,7 @@ async function printChatProviders(): Promise<void> {
       const endpoint = provider.kind === "openai-compatible" ? provider.baseUrl ?? "-" : provider.kind;
       return `${color(active, "accent")} ${color(provider.id.padEnd(14), "accent")} ${provider.kind.padEnd(18)} ${provider.defaultModel.padEnd(24)} ${endpoint}`;
     }),
+    `${color("fallbacks".padEnd(16), "accent")} ${formatFallbackRoutes(config)}`,
     "",
     color("Managed runtimes", "accent"),
     `${color("claude-code".padEnd(16), "accent")} Claude Code login, no API key. Use /runtime claude-code`,
@@ -1554,6 +1606,12 @@ async function printChatProviders(): Promise<void> {
     ),
   ]);
   console.log(color("Use /provider <id> [model], /cloud <preset>, /model <name>, or /runtime claude-code.", "dim"));
+}
+
+function formatFallbackRoutes(config: Awaited<ReturnType<typeof loadConfig>>): string {
+  const fallbacks = config.routing.fallbacks ?? [];
+  if (!fallbacks.length) return "none configured";
+  return fallbacks.map((route) => `${route.provider}/${route.model}`).join(" -> ");
 }
 
 async function switchChatProvider(args: string, state: ChatState): Promise<void> {
@@ -2116,19 +2174,25 @@ async function chatProviderOptions(state?: ChatState): Promise<PickerOption[]> {
   const activeProvider = state?.provider ?? activeRuntime?.provider;
   const configured = Object.values(config.providers).map((provider) => ({
     value: provider.id,
-    label: provider.id,
-    description: `${provider.id === activeProvider ? "active · " : ""}${provider.kind} · ${provider.defaultModel}${provider.apiKeyEnv ? ` · key ${process.env[provider.apiKeyEnv] ? "set" : "missing"}` : ""}`,
+    label: pickerLabel(provider.id, provider.id === activeProvider),
+    description: [
+      provider.id === activeProvider ? "selected" : undefined,
+      provider.kind,
+      `default ${provider.defaultModel}`,
+      provider.apiKeyEnv ? `key ${process.env[provider.apiKeyEnv] ? "set" : "missing"}` : "no key needed",
+      providerHealthHint(provider),
+    ].filter(Boolean).join(" · "),
   }));
   const presets = PROVIDER_PRESETS
     .filter((preset) => !config.providers[preset.id])
     .map((preset) => ({
       value: preset.id,
       label: preset.id,
-      description: `${preset.label} · ${preset.category} · default ${preset.defaultModel}`,
+      description: `${preset.label} · ${preset.category} · default ${preset.defaultModel}${preset.apiKeyEnv ? ` · setup ${preset.apiKeyEnv}` : ""}`,
     }));
   return sortPickerOptions([
     ...configured,
-    { value: "claude-code", label: "claude-code", description: `${activeProvider === "claude-code" ? "active · " : ""}Claude Code runtime · uses local claude login` },
+    { value: "claude-code", label: pickerLabel("claude-code", activeProvider === "claude-code"), description: `${activeProvider === "claude-code" ? "selected · " : ""}Claude Code runtime · uses local claude login` },
     ...presets,
   ], activeProvider);
 }
@@ -2150,8 +2214,13 @@ async function chatModelOptions(providerId?: string, state?: ChatState): Promise
   ].filter((value): value is string => Boolean(value));
   return sortPickerOptions([...new Set(base)].map((model) => ({
     value: model,
-    label: model,
-    description: `${model === activeModel ? "active · " : ""}${id ? `model for ${id}` : "known model"}`,
+    label: pickerLabel(model, model === activeModel),
+    description: [
+      model === activeModel ? "selected" : undefined,
+      id ? `model for ${id}` : "known model",
+      modelPolicyHint(model),
+      provider?.apiKeyEnv && !process.env[provider.apiKeyEnv] ? `provider key missing: ${provider.apiKeyEnv}` : undefined,
+    ].filter(Boolean).join(" · "),
   })), activeModel);
 }
 
@@ -2161,12 +2230,12 @@ async function chatRuntimeOptions(state?: ChatState): Promise<PickerOption[]> {
   return sortPickerOptions([
     ...Object.values(config.runtimes).map((runtime) => ({
       value: runtime.id,
-      label: runtime.id,
-      description: `${runtime.id === activeRuntime ? "active · " : ""}configured · provider ${runtime.provider}`,
+      label: pickerLabel(runtime.id, runtime.id === activeRuntime),
+      description: `${runtime.id === activeRuntime ? "selected · " : ""}configured · provider ${runtime.provider}`,
     })),
-    { value: "claude-code", label: "claude-code", description: `${activeRuntime === "claude-code" ? "active · " : ""}Claude Code · local login, no API key` },
-    { value: "codex", label: "codex", description: `${activeRuntime === "codex" ? "active · " : ""}Codex CLI · local login` },
-    { value: "pi", label: "pi", description: `${activeRuntime === "pi" ? "active · " : ""}Pi managed provider runtime` },
+    { value: "claude-code", label: pickerLabel("claude-code", activeRuntime === "claude-code"), description: `${activeRuntime === "claude-code" ? "selected · " : ""}Claude Code · local login, no API key` },
+    { value: "codex", label: pickerLabel("codex", activeRuntime === "codex"), description: `${activeRuntime === "codex" ? "selected · " : ""}Codex CLI · local login` },
+    { value: "pi", label: pickerLabel("pi", activeRuntime === "pi"), description: `${activeRuntime === "pi" ? "selected · " : ""}Pi managed provider runtime` },
   ], activeRuntime);
 }
 
@@ -2177,7 +2246,8 @@ function chatCloudOptions(): PickerOption[] {
 function chatSpeedOptions(active = "fast"): PickerOption[] {
   return sortPickerOptions(CHAT_SPEED_OPTIONS.map((option) => ({
     ...option,
-    description: `${option.value === active ? "active · " : ""}${option.description ?? ""}`,
+    label: pickerLabel(option.value, option.value === active),
+    description: `${option.value === active ? "selected · " : ""}${option.description ?? ""}`,
   })), active);
 }
 
@@ -2208,6 +2278,25 @@ async function chatMcpOptions(): Promise<PickerOption[]> {
 
 function sortPickerOptions(options: readonly PickerOption[], active?: string): PickerOption[] {
   return [...options].sort((a, b) => Number(b.value === active) - Number(a.value === active) || a.value.localeCompare(b.value));
+}
+
+function pickerLabel(value: string, selected: boolean): string {
+  return selected ? `* ${value}` : `  ${value}`;
+}
+
+function providerHealthHint(provider: Awaited<ReturnType<typeof loadConfig>>["providers"][string]): string | undefined {
+  if (provider.kind === "codex-cli") return "fast path uses local Codex app-server when available";
+  if (provider.kind === "anthropic") return "good for deep reasoning; use faster models for simple prompts";
+  if (provider.kind === "openai-compatible" && provider.baseUrl?.includes("localhost")) return "local endpoint quality and latency depend on your server";
+  return undefined;
+}
+
+function modelPolicyHint(model: string): string | undefined {
+  const lower = model.toLowerCase();
+  if (/opus|reasoning|large|70b|120b/.test(lower)) return "slower/deeper";
+  if (/mini|haiku|flash|fast|small|8b/.test(lower)) return "faster/lower cost";
+  if (/gpt-4(?!\.1)|0314|0613|1106|0125/.test(lower)) return "check availability; may be legacy";
+  return undefined;
 }
 
 async function enableChatBuiltinMcp(id: string): Promise<boolean> {
@@ -3085,6 +3174,21 @@ async function mcpCommand(args: string[]): Promise<void> {
     await mcpOauthCommand([name, ...rest].filter((item): item is string => Boolean(item)));
     return;
   }
+  if (action === "status") {
+    await printMcpStatus(name);
+    return;
+  }
+  if (action === "login") {
+    if (!name) throw new Error("Usage: muster mcp login <name> [--callback-url URL] [--no-browser]");
+    await printMcpOauthSetup(name, rest);
+    return;
+  }
+  if (action === "logout") {
+    if (!name) throw new Error("Usage: muster mcp logout <name>");
+    const result = await removeMcpOAuthToken(name);
+    console.log(`oauth=${name} status=logged_out removed=${result.removed} token_path=${result.tokenPath}`);
+    return;
+  }
   if (action === "catalog") {
     for (const server of listBuiltinMcpServers()) {
       const requiredGroups = [...(server.requiresEnv ?? []), ...(server.requiresAnyEnv ?? []).map((group) => group.join("|"))];
@@ -3221,7 +3325,37 @@ async function mcpCommand(args: string[]): Promise<void> {
     await printMcpTest(name, { setExitCode: true });
     return;
   }
-  throw new Error("Usage: muster mcp list|catalog|check [id]|install <id>|oauth status|setup|import ...|add-http <name> <url> [--oauth ...]|add-stdio <name> <command> [args...]|test <name>|remove <name>");
+  throw new Error("Usage: muster mcp list|status [name]|login <name>|logout <name>|catalog|check [id]|install <id>|oauth status|setup|import ...|add-http <name> <url> [--oauth ...]|add-stdio <name> <command> [args...]|test <name>|remove <name>");
+}
+
+async function printMcpStatus(name?: string): Promise<void> {
+  const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
+  if (name) {
+    const server = servers[name];
+    if (!server) throw new Error(`MCP server not configured: ${name}`);
+    await printConfiguredMcpStatus(name, server);
+    return;
+  }
+  const entries = Object.entries(servers);
+  if (!entries.length) {
+    console.log("No MCP servers configured.");
+    console.log("next=muster mcp catalog");
+    return;
+  }
+  for (const [serverName, server] of entries) await printConfiguredMcpStatus(serverName, server);
+}
+
+async function printConfiguredMcpStatus(name: string, server: McpServerConfig): Promise<void> {
+  const transport = server.transport.kind === "stdio"
+    ? `stdio ${server.transport.command} ${(server.transport.args ?? []).join(" ")}`.trim()
+    : `http ${server.transport.url}`;
+  console.log(`mcp=${name} transport=${transport} auth=${server.auth ?? "none"} include=${server.tools?.include?.join(",") || "-"} exclude=${server.tools?.exclude?.join(",") || "-"}`);
+  if (server.auth === "oauth") {
+    await printMcpOauthStatus(name);
+    const status = await mcpOAuthStatus(name);
+    console.log(`login=${status.authenticated ? "ok" : `muster mcp login ${name}`}`);
+    console.log(`logout=muster mcp logout ${name}`);
+  }
 }
 
 async function printMcpTest(name: string, options: { readonly setExitCode: boolean }): Promise<void> {
@@ -4418,8 +4552,12 @@ async function provider(args: string[]): Promise<void> {
 
 async function runtime(args: string[]): Promise<void> {
   const subcommand = args[0];
+  if (subcommand === "doctor") {
+    await printCodexDoctor(args);
+    return;
+  }
   if (subcommand !== "use-provider") {
-    throw new Error("Usage: muster runtime use-provider <runtime-id> <provider-id> [model]");
+    throw new Error("Usage: muster runtime use-provider <runtime-id> <provider-id> [model] | muster runtime doctor [--codex-command path]");
   }
   const [runtimeId, providerId, model] = args.slice(1);
   if (!runtimeId || !providerId) {
@@ -4429,6 +4567,266 @@ async function runtime(args: string[]): Promise<void> {
   console.log(`runtime=${runtimeId}`);
   console.log(`provider=${providerId}`);
   if (model) console.log(`model=${model}`);
+}
+
+async function qaCommand(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === "suites" || subcommand === "list") {
+    printQaSuites();
+    return;
+  }
+  if (subcommand === "record") {
+    await recordQaEvidence(args.slice(1));
+    return;
+  }
+  if (subcommand === "run") {
+    await runQaSuite(args.slice(1));
+    return;
+  }
+  if (subcommand !== "scorecard") {
+    throw new Error("Usage: muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] | muster qa suites | muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path] | muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary \"...\"");
+  }
+  await ensureDefaultConfig();
+  const config = await loadConfig();
+  const codex = await inspectCodexRuntime({
+    command: readFlag(args, "--codex-command"),
+    latestVersion: readFlag(args, "--latest-version"),
+  });
+  const providerReports = inspectProviderConfig(config);
+  const evidencePath = readFlag(args, "--evidence") ?? qaEvidencePath(process.cwd());
+  const storedEvidence = await loadRuntimeQaEvidence(process.cwd(), evidencePath);
+  const scorecard = buildRuntimeMaturityScorecard({
+    config,
+    codex,
+    providerReports,
+    evidence: storedEvidence,
+  });
+  console.log(renderRuntimeMaturityScorecard(scorecard));
+  console.log(`evidence=${evidencePath}`);
+  console.log(`required_suites=${REQUIRED_QA_SUITES.join(",")}`);
+  if (providerReports.length) {
+    console.log("providers:");
+    for (const provider of providerReports) {
+      console.log(`${provider.status.padEnd(7)} ${provider.id.padEnd(16)} ${provider.kind} model=${provider.defaultModel} ${provider.detail}`);
+      if (provider.fix && provider.status !== "passed") console.log(`fix     ${provider.id.padEnd(16)} ${provider.fix}`);
+    }
+  }
+  if (scorecard.status === "failed") process.exitCode = 1;
+}
+
+function printQaSuites(): void {
+  console.log(`required_suites=${REQUIRED_QA_SUITES.join(",")}`);
+  for (const suite of REQUIRED_QA_SUITES) {
+    console.log(`suite=${suite} record="muster qa record ${suite} --status passed --artifact-dir <dir> --summary <summary>"`);
+  }
+}
+
+async function recordQaEvidence(args: string[]): Promise<void> {
+  const suite = args[0];
+  if (!suite || !(REQUIRED_QA_SUITES as readonly string[]).includes(suite)) {
+    throw new Error(`Usage: muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary "..."\nvalid_suites=${REQUIRED_QA_SUITES.join(",")}`);
+  }
+  const status = readFlag(args, "--status") ?? "unknown";
+  if (!["passed", "warning", "failed", "unknown"].includes(status)) {
+    throw new Error("QA status must be one of: passed, warning, failed, unknown");
+  }
+  const artifactDir = readFlag(args, "--artifact-dir");
+  const summary = readFlag(args, "--summary");
+  const evidencePath = readFlag(args, "--evidence");
+  const result = await recordRuntimeQaSuiteEvidence({
+    suite: suite as RequiredQaSuiteId,
+    status: status as RuntimeDoctorStatus,
+    artifactDir: artifactDir ? resolve(process.cwd(), artifactDir) : undefined,
+    summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_recorded suite=${suite} status=${result.suite.status}`);
+  console.log(`evidence=${result.evidencePath}`);
+  if (result.suite.artifactDir) console.log(`artifact=${result.suite.artifactDir}`);
+  if (result.suite.summary) console.log(`summary=${result.suite.summary}`);
+}
+
+async function runQaSuite(args: string[]): Promise<void> {
+  const suite = args[0];
+  if (suite !== "pty_tui" && suite !== "mcp_auth_failure" && suite !== "memory_retrieval_speed" && suite !== "provider_latency" && suite !== "channel_plugin_setup" && suite !== "frappe2_real_prompts") {
+    throw new Error("Usage: muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path]");
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  if (suite === "frappe2_real_prompts") {
+    await runFrappe2RealPromptsQaSuite(args, stamp);
+    return;
+  }
+  if (suite === "pty_tui") {
+    await runPtyTuiQaSuite(args, stamp);
+    return;
+  }
+  if (suite === "channel_plugin_setup") {
+    await runChannelPluginSetupQaSuite(args, stamp);
+    return;
+  }
+  if (suite === "provider_latency") {
+    await runProviderLatencyQaSuite(args, stamp);
+    return;
+  }
+  if (suite === "memory_retrieval_speed") {
+    await runMemoryQaSuite(args, stamp);
+    return;
+  }
+  await runMcpAuthQaSuite(args, stamp);
+}
+
+async function runFrappe2RealPromptsQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `frappe2-real-prompts-${stamp}`));
+  const result = await runFrappe2RealPromptsQa({
+    artifactDir,
+    host: readFlag(args, "--host") ?? "Frappe-2",
+    sshCommand: readFlag(args, "--ssh-command") ?? "ssh",
+    remoteCwd: readFlag(args, "--remote-cwd") ?? "/home/goblin/personal",
+    remoteArtifactRoot: readFlag(args, "--remote-artifact-root") ?? "/home/goblin/muster-artifacts",
+    timeoutMs: readNumberFlag(args, "--timeout-ms") ?? 120_000,
+  });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "frappe2_real_prompts",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
+  console.log(`artifact_transcript=${result.transcriptPath}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} exit=${testCase.exitCode} duration_ms=${testCase.durationMs} summary=${testCase.summary}`);
+  }
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runPtyTuiQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `pty-tui-${stamp}`));
+  const result = await runPtyTuiQa({ artifactDir });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "pty_tui",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
+  console.log(`artifact_screens=${result.screensDir}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runChannelPluginSetupQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `channel-plugin-setup-${stamp}`));
+  const result = await runChannelPluginSetupQa({ artifactDir });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "channel_plugin_setup",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
+  console.log(`artifact_catalog=${result.catalogPath}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runMcpAuthQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `mcp-auth-failure-${stamp}`));
+  const result = await runMcpAuthFailureQa({ artifactDir });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "mcp_auth_failure",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
+  console.log(`artifact_server_log=${result.serverLogPath}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runProviderLatencyQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `provider-latency-${stamp}`));
+  const result = await runProviderLatencyQa({
+    artifactDir,
+    runs: readNumberFlag(args, "--runs") ?? 3,
+    providerDelayMs: readNumberFlag(args, "--provider-delay-ms") ?? 25,
+    maxMusterOverheadP50Ms: readNumberFlag(args, "--max-overhead-p50-ms") ?? 1_000,
+  });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "provider_latency",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_samples=${result.samplesPath}`);
+  console.log(`artifact_server_log=${result.serverLogPath}`);
+  console.log(`metric=p50_total_ms value=${result.metrics.p50TotalMs.toFixed(1)}`);
+  console.log(`metric=p95_total_ms value=${result.metrics.p95TotalMs.toFixed(1)}`);
+  console.log(`metric=p50_provider_ms value=${result.metrics.p50ProviderMs.toFixed(1)}`);
+  console.log(`metric=p50_muster_overhead_ms value=${result.metrics.p50MusterOverheadMs.toFixed(1)}`);
+  console.log(`metric=avg_provider_share_pct value=${result.metrics.avgProviderSharePct.toFixed(1)}`);
+  console.log(`diagnosis=${result.metrics.diagnosis}`);
+  for (const sample of result.samples) {
+    console.log(`sample=${sample.index} status=${sample.status} total_ms=${sample.totalMs} provider_ms=${sample.providerMs} overhead_ms=${sample.musterOverheadMs}`);
+  }
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runMemoryQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `memory-retrieval-speed-${stamp}`));
+  const maxP95Ms = readNumberFlag(args, "--max-p95-ms") ?? 75;
+  const result = await runMemoryRetrievalSpeedQa({ artifactDir, maxP95Ms });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "memory_retrieval_speed",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`retrieval_manifest=${result.retrievalManifestPath}`);
+  console.log(`probe=${result.probePath}`);
+  console.log(`metric=recall@5 value=${result.retrieval.suite.recallAtK.toFixed(3)}`);
+  console.log(`metric=mrr@5 value=${result.retrieval.suite.mrr.toFixed(3)}`);
+  console.log(`metric=leakage_rate value=${result.retrieval.suite.leakageRate.toFixed(3)}`);
+  console.log(`metric=stale_hit_rate value=${result.retrieval.suite.staleHitRate.toFixed(3)}`);
+  console.log(`metric=probe_p95_ms value=${result.probe.p95Ms.toFixed(3)} max=${maxP95Ms}`);
+  console.log(`backend=${result.probe.backend}`);
+  if (result.status === "failed") process.exitCode = 1;
 }
 
 async function state(args: string[]): Promise<void> {
@@ -5327,7 +5725,11 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
   if (action === "init") {
     const result = await initGatewayConfig();
     console.log(`gateway_config=${result.path} (${result.created ? "created" : "already exists"})`);
-    console.log(`token=${result.config.token}`);
+    if (commandArgs.includes("--show-token")) {
+      console.log(`token=${result.config.token}`);
+    } else {
+      console.log("token=<redacted> (stored in gateway_config; rerun with --show-token only in a trusted terminal)");
+    }
     console.log("Surfaces authenticate with: Authorization: Bearer <token>");
     console.log(`next: muster gateway start --port ${result.config.port ?? DEFAULT_GATEWAY_PORT}`);
     return;
