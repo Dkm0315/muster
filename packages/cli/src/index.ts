@@ -177,9 +177,10 @@ import {
   whatsAppWebhookToSurfaceMessages
 } from "@musterhq/gateway";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { randomBytes, createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
@@ -386,7 +387,7 @@ Usage:
   muster capability load <path> [--allow-high-risk]
   muster artifacts plan --format docx|xlsx|pptx|pdf [--destination local|google-drive|microsoft-365] [--polished]
   muster artifacts create --format docx|xlsx|pptx|pdf --title "..." [--summary "..."] [--out path]
-  muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
+  muster plugins list | catalog | setup <id> | reuse <provider> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
@@ -3452,6 +3453,10 @@ async function pluginsCommand(args: string[]): Promise<void> {
     await pluginContextCommand(path, args.slice(2));
     return;
   }
+  if (action === "reuse" || action === "discover") {
+    await pluginReuseCommand(path ?? "codex");
+    return;
+  }
   if (action === "enable" && path) {
     const plugin = await enableBuiltinPlugin(path, process.cwd(), { allowHighRisk: args.includes("--allow-high-risk") });
     console.log(`enabled plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk} action=${plugin.actionability}`);
@@ -3494,7 +3499,272 @@ async function pluginsCommand(args: string[]): Promise<void> {
     for (const [slot, owner] of slots) console.log(`slot=${slot} owner=${owner}`);
     return;
   }
-  throw new Error("Usage: muster plugins list|catalog|setup <id>|context frappe <setup|docs|module|build>|check <id>|enable <id>|disable <id>|policy|inspect <path>|load <path> [--allow-high-risk]");
+  throw new Error("Usage: muster plugins list|catalog|setup <id>|reuse <provider>|context frappe <setup|docs|module|build>|check <id>|enable <id>|disable <id>|policy|inspect <path>|load <path> [--allow-high-risk]");
+}
+
+interface ProviderReuseSource {
+  readonly provider: string;
+  readonly root: string;
+  readonly layout: "codex-cache" | "provider-cache";
+}
+
+interface ProviderReusePlugin {
+  readonly id: string;
+  readonly provider: string;
+  readonly sourceRoot: string;
+  readonly version: string;
+  readonly apps: readonly ProviderReuseApp[];
+  readonly mcps: readonly ProviderReuseMcp[];
+}
+
+interface ProviderReuseApp {
+  readonly id: string;
+  readonly required: boolean;
+  readonly optional: boolean;
+}
+
+interface ProviderReuseMcp {
+  readonly id: string;
+  readonly transport: "http" | "stdio";
+  readonly url?: string;
+  readonly command?: string;
+  readonly args?: readonly string[];
+}
+
+async function pluginReuseCommand(host: string): Promise<void> {
+  const source = providerReuseSource(host);
+  if (!source) {
+    console.log(`provider=${host} status=unsupported`);
+    console.log("supported=codex,claude,openclaw,hermes,custom");
+    console.log(`custom_env=MUSTER_${providerEnvKey(host)}_PLUGIN_CACHE`);
+    console.log("note=Reuse is provider-manifest driven. Point the provider cache env var at a local plugin directory that contains .app.json or .mcp.json manifests.");
+    return;
+  }
+  const candidates = await scanProviderPluginReuseCandidates(source);
+  const appCount = candidates.reduce((count, plugin) => count + plugin.apps.length, 0);
+  const mcpCount = candidates.reduce((count, plugin) => count + plugin.mcps.length, 0);
+  console.log(`provider=${source.provider} status=${candidates.length ? "discovered" : "not_found"} plugins=${candidates.length} apps=${appCount} mcps=${mcpCount}`);
+  console.log("policy=discover_only secrets=not_read tokens=not_copied");
+  if (!candidates.length) {
+    console.log(`checked=${source.root}`);
+    console.log(`next=Install or authenticate provider plugins, or set MUSTER_${providerEnvKey(source.provider)}_PLUGIN_CACHE to the provider plugin cache path.`);
+    return;
+  }
+  for (const plugin of candidates) {
+    const apps = plugin.apps.length ? plugin.apps.map((app) => `${app.id}${app.required ? "(required)" : app.optional ? "(optional)" : ""}`).join(",") : "-";
+    const mcps = plugin.mcps.length ? plugin.mcps.map((mcp) => mcp.id).join(",") : "-";
+    console.log(`plugin=${plugin.id} provider=${plugin.provider} version=${plugin.version} apps=${apps} mcps=${mcps}`);
+    for (const app of plugin.apps) {
+      const setupPlugin = providerAppSetupPlugin(app.id, plugin.id);
+      const setupCommand = setupPlugin ? `muster plugins setup ${setupPlugin}` : "muster plugins catalog";
+      const mode = app.required ? "required" : app.optional ? "optional" : "available";
+      console.log(`  app=${app.id} mode=${mode} auth=reuse_host next="${setupCommand}"`);
+    }
+    for (const mcp of plugin.mcps) {
+      const next = providerMcpNextCommand(mcp, plugin);
+      const detail = mcp.transport === "http" ? `url=${mcp.url ?? "-"}` : `command=${mcp.command ?? "-"} ${(mcp.args ?? []).join(" ")}`.trim();
+      console.log(`  mcp=${mcp.id} transport=${mcp.transport} ${detail} next="${next}"`);
+    }
+  }
+  console.log("next=muster mcp catalog");
+  console.log("next=muster plugins setup authenticated-app-reuse");
+  console.log("explicit_mcp_http=muster mcp add-http <name> <url> [--oauth ...]");
+  console.log("explicit_mcp_stdio=muster mcp add-stdio <name> <command> [args...]");
+  console.log("explicit_plugin=muster plugins inspect <path> && muster plugins load <path> [--allow-high-risk]");
+  console.log("explicit_skill=muster skills catalog && muster skills enable <id>");
+}
+
+function providerReuseSource(provider: string): ProviderReuseSource | undefined {
+  const normalized = provider.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+  const explicit = process.env[`MUSTER_${providerEnvKey(normalized)}_PLUGIN_CACHE`] ?? process.env.MUSTER_PROVIDER_PLUGIN_CACHE;
+  if (explicit) return { provider: normalized, root: explicit, layout: "provider-cache" };
+  if (normalized === "codex") {
+    const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
+    return { provider: "codex", root: join(codexHome, "plugins", "cache"), layout: "codex-cache" };
+  }
+  if (normalized === "claude" || normalized === "claude-code") {
+    const claudeHome = process.env.CLAUDE_HOME || join(homedir(), ".claude");
+    return { provider: normalized, root: join(claudeHome, "plugins", "cache"), layout: "provider-cache" };
+  }
+  if (normalized === "openclaw") {
+    const openclawHome = process.env.OPENCLAW_HOME || join(homedir(), ".openclaw");
+    return { provider: "openclaw", root: join(openclawHome, "plugins"), layout: "provider-cache" };
+  }
+  if (normalized === "hermes" || normalized === "hermes-agent") {
+    const hermesHome = process.env.HERMES_HOME || join(homedir(), ".hermes");
+    return { provider: normalized, root: join(hermesHome, "plugins"), layout: "provider-cache" };
+  }
+  return undefined;
+}
+
+function providerEnvKey(provider: string): string {
+  return provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
+async function scanProviderPluginReuseCandidates(source: ProviderReuseSource): Promise<ProviderReusePlugin[]> {
+  const root = source.root;
+  const result: ProviderReusePlugin[] = [];
+  for (const pluginPath of await providerPluginManifestRoots(source)) {
+    const apps = await readProviderReuseApps(join(pluginPath.path, ".app.json"));
+    const mcps = await readProviderReuseMcps(join(pluginPath.path, ".mcp.json"), pluginPath.path);
+    if (!apps.length && !mcps.length) continue;
+    result.push({
+      id: pluginPath.id,
+      provider: source.provider,
+      sourceRoot: pluginPath.sourceRoot,
+      version: pluginPath.version,
+      apps,
+      mcps,
+    });
+  }
+  return result.sort((left, right) => left.id.localeCompare(right.id) || left.version.localeCompare(right.version));
+}
+
+async function providerPluginManifestRoots(source: ProviderReuseSource): Promise<Array<{ readonly id: string; readonly sourceRoot: string; readonly version: string; readonly path: string }>> {
+  const roots: Array<{ readonly id: string; readonly sourceRoot: string; readonly version: string; readonly path: string }> = [];
+  const root = source.root;
+  if (await fileExists(join(root, ".app.json")) || await fileExists(join(root, ".mcp.json"))) {
+    roots.push({ id: source.provider, sourceRoot: "root", version: "local", path: root });
+    return roots;
+  }
+  for (const first of await safeReadDir(root)) {
+    if (!first.isDirectory()) continue;
+    const firstPath = join(root, first.name);
+    if (await fileExists(join(firstPath, ".app.json")) || await fileExists(join(firstPath, ".mcp.json"))) {
+      roots.push({ id: first.name, sourceRoot: "local", version: "local", path: firstPath });
+      continue;
+    }
+    for (const second of await safeReadDir(firstPath)) {
+      if (!second.isDirectory()) continue;
+      const secondPath = join(firstPath, second.name);
+      if (await fileExists(join(secondPath, ".app.json")) || await fileExists(join(secondPath, ".mcp.json"))) {
+        roots.push({ id: first.name, sourceRoot: first.name, version: second.name, path: secondPath });
+        continue;
+      }
+      for (const third of await safeReadDir(secondPath)) {
+        if (!third.isDirectory()) continue;
+        const thirdPath = join(secondPath, third.name);
+        if (await fileExists(join(thirdPath, ".app.json")) || await fileExists(join(thirdPath, ".mcp.json"))) {
+          roots.push({ id: second.name, sourceRoot: first.name, version: third.name, path: thirdPath });
+        }
+      }
+    }
+  }
+  return roots;
+}
+
+async function safeReadDir(path: string): Promise<import("node:fs").Dirent[]> {
+  try {
+    return await readdir(path, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function readProviderReuseApps(path: string): Promise<ProviderReuseApp[]> {
+  const raw = await readJsonObject(path);
+  const apps = raw?.apps;
+  if (!apps || typeof apps !== "object" || Array.isArray(apps)) return [];
+  return Object.entries(apps)
+    .map(([id, value]) => {
+      const detail = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+      return {
+        id: normalizeProviderCapabilityId(id),
+        required: detail.required === true,
+        optional: detail.optional === true,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function readProviderReuseMcps(path: string, versionPath: string): Promise<ProviderReuseMcp[]> {
+  const raw = await readJsonObject(path);
+  const servers = raw?.mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
+  return Object.entries(servers)
+    .map(([id, value]) => {
+      const server = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+      if (server.type === "http" || typeof server.url === "string") {
+        return {
+          id: normalizeProviderMcpId(id),
+          transport: "http" as const,
+          url: typeof server.url === "string" ? server.url : undefined,
+        };
+      }
+      const command = typeof server.command === "string" ? server.command : undefined;
+      const args = Array.isArray(server.args) ? server.args.filter((item): item is string => typeof item === "string") : [];
+      return {
+        id: normalizeProviderMcpId(id),
+        transport: "stdio" as const,
+        command,
+        args: args.map((arg) => arg.startsWith("./") ? resolve(versionPath, arg) : arg),
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function readJsonObject(path: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeProviderCapabilityId(id: string): string {
+  return id.replace(/_/g, "-");
+}
+
+function normalizeProviderMcpId(id: string): string {
+  if (id === "dataAnalyticsWidgets") return "data-analytics-widgets";
+  return normalizeProviderCapabilityId(id);
+}
+
+function providerAppSetupPlugin(appId: string, pluginId: string): string | undefined {
+  const normalizedApp = normalizeProviderCapabilityId(appId);
+  const mapped: Record<string, string> = {
+    figma: "figma",
+    github: "github",
+    "google-calendar": "google-calendar",
+    "google-drive": "google-workspace",
+    heygen: "heygen",
+    notion: "notion",
+    "openai-platform": "provider-openai",
+    salesforce: "sales",
+    hubspot: "sales",
+    supabase: "supabase",
+    slack: "slack",
+    teams: "teams",
+    "microsoft-teams": "teams",
+    gmail: "google-workspace",
+    "outlook-calendar": "google-calendar",
+    "outlook-email": "google-workspace",
+    sharepoint: "google-workspace",
+  };
+  return mapped[normalizedApp] ?? (listBuiltinPlugins().some((entry) => entry.id === pluginId) ? pluginId : undefined);
+}
+
+function providerMcpNextCommand(mcp: ProviderReuseMcp, plugin: ProviderReusePlugin): string {
+  if (mcp.transport === "http") {
+    const builtin = findBuiltinMcpEntry(mcp.id);
+    if (builtin?.install?.transport.kind === "http" && builtin.install.transport.url === mcp.url) return `muster mcp install ${mcp.id} && muster mcp login ${mcp.id}`;
+    if (mcp.url) return `muster mcp add-http ${mcp.id} ${mcp.url} --oauth`;
+  }
+  const command = mcp.command;
+  if (command) {
+    const args = (mcp.args ?? []).join(" ");
+    return `muster mcp add-stdio ${mcp.id} ${command}${args ? ` ${args}` : ""}`;
+  }
+  return `muster plugins setup ${providerAppSetupPlugin(mcp.id, plugin.id) ?? "authenticated-app-reuse"}`;
 }
 
 async function pluginContextCommand(pluginId: string, args: string[]): Promise<void> {
@@ -6865,7 +7135,7 @@ async function integrationsCommand(args: string[]): Promise<void> {
     console.log(`channel\t${spec.id}\t${ready ? "ready" : "needs setup"}\t${next}`);
   }
 
-  const featuredPlugins = ["web-search", "github", "google-workspace", "notion", "artifact-studio", "daily-ops", "data-analytics", "security-review", "research-lab"];
+  const featuredPlugins = ["web-search", "github", "google-workspace", "google-calendar", "notion", "figma", "supabase", "heygen", "product-design", "sales", "authenticated-app-reuse", "artifact-studio", "daily-ops", "data-analytics", "security-review", "research-lab"];
   for (const id of featuredPlugins) {
     const plugin = listBuiltinPlugins().find((entry) => entry.id === id || entry.aliases?.includes(id));
     if (!plugin) continue;

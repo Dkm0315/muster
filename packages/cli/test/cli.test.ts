@@ -35,6 +35,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster artifacts plan/);
   assert.match(stdout, /muster artifacts create/);
   assert.match(stdout, /muster plugins list/);
+  assert.match(stdout, /muster plugins .*reuse <provider>/);
   assert.match(stdout, /muster plugins .*context frappe/);
   assert.match(stdout, /muster mcp list/);
   assert.match(stdout, /muster dashboard status/);
@@ -714,7 +715,14 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(pluginCatalog.stdout, /github\s+hermes.*pack=yes.*mcps=github/);
   assert.match(pluginCatalog.stdout, /slack\s+openclaw.*action=runtime_adapter.*channels=slack/);
   assert.match(pluginCatalog.stdout, /google-workspace\s+hermes.*pack=yes.*mcps=google-drive/);
+  assert.match(pluginCatalog.stdout, /google-calendar\s+muster.*action=setup_plan/);
   assert.match(pluginCatalog.stdout, /notion\s+hermes.*pack=yes.*mcps=notion/);
+  assert.match(pluginCatalog.stdout, /figma\s+muster.*action=mcp_installable.*mcps=figma/);
+  assert.match(pluginCatalog.stdout, /supabase\s+muster.*action=setup_plan/);
+  assert.match(pluginCatalog.stdout, /heygen\s+muster.*action=setup_plan/);
+  assert.match(pluginCatalog.stdout, /product-design\s+muster.*action=setup_plan.*mcps=browser,figma/);
+  assert.match(pluginCatalog.stdout, /sales\s+muster.*action=setup_plan/);
+  assert.match(pluginCatalog.stdout, /authenticated-app-reuse\s+muster.*action=setup_plan/);
   assert.match(pluginCatalog.stdout, /airtable\s+hermes.*pack=yes/);
   assert.match(pluginCatalog.stdout, /jupyter\s+hermes.*pack=yes/);
   assert.match(pluginCatalog.stdout, /huggingface\s+hermes.*pack=yes/);
@@ -727,7 +735,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(pluginCatalog.stdout, /browserbase\s+hermes.*action=setup_plan/);
   assert.match(pluginCatalog.stdout, /memory-mem0\s+hermes.*action=setup_plan.*aliases=mem0/);
   assert.match(pluginCatalog.stdout, /langfuse\s+hermes.*action=setup_plan/);
-  assert.match(pluginCatalog.stdout, /matrix\s+hermes.*action=runtime_adapter.*channels=matrix/);
+  assert.match(pluginCatalog.stdout, /matrix\s+hermes.*action=setup_plan\s+pack=no.*channels=matrix/);
   assert.match(pluginCatalog.stdout, /provider-gemini\s+hermes.*action=setup_plan.*aliases=gemini/);
   assert.match(pluginCatalog.stdout, /provider-groq\s+muster.*action=setup_plan.*aliases=groq/);
   assert.match(pluginCatalog.stdout, /codex\s+hermes.*pack=yes/);
@@ -741,7 +749,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(pluginCatalog.stdout, /discord\s+openclaw.*pack=yes.*channels=discord/);
   assert.match(pluginCatalog.stdout, /whatsapp\s+openclaw.*pack=yes.*channels=whatsapp/);
   assert.match(pluginCatalog.stdout, /teams\s+openclaw.*pack=yes.*channels=teams/);
-  assert.match(pluginCatalog.stdout, /mcp-bridge\s+openclaw.*pack=yes.*mcps=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,linear,n8n/);
+  assert.match(pluginCatalog.stdout, /mcp-bridge\s+openclaw.*pack=yes.*mcps=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,figma,linear,n8n,data-analytics-widgets,openai-api-key-local-confirmation/);
 
   const blockedPlugin = await runCliAllowFailure(["plugins", "enable", "frappe"], cwd);
   assert.equal(blockedPlugin.code, 1);
@@ -864,8 +872,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const mcpBridgeSetup = await runCli(["plugins", "setup", "mcp-bridge"], cwd);
   assert.match(mcpBridgeSetup.stdout, /plugin=mcp-bridge source=openclaw risk=high/);
-  assert.match(mcpBridgeSetup.stdout, /available_mcp=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,linear,n8n/);
+  assert.match(mcpBridgeSetup.stdout, /available_mcp=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,figma,linear,n8n,data-analytics-widgets,openai-api-key-local-confirmation/);
   assert.match(mcpBridgeSetup.stdout, /security linting for shell-based MCP entries/);
+  assert.match(mcpBridgeSetup.stdout, /add-http, add-stdio, inspect\/load, and skills commands/);
 
   const mcpBridgeCheck = await runCli(["plugins", "check", "mcp-bridge"], cwd);
   assert.match(mcpBridgeCheck.stdout, /plugin=mcp-bridge source=openclaw risk=high enabled=false/);
@@ -875,7 +884,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const enabledMcpBridgePlugin = await runCli(["plugins", "enable", "mcp-bridge", "--allow-high-risk"], cwd);
   assert.match(enabledMcpBridgePlugin.stdout, /enabled plugin=mcp-bridge/);
-  assert.match(enabledMcpBridgePlugin.stdout, /available_mcp=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,linear,n8n/);
+  assert.match(enabledMcpBridgePlugin.stdout, /available_mcp=filesystem,git,browser,postgres,sqlite,github,google-drive,notion,figma,linear,n8n,data-analytics-widgets,openai-api-key-local-confirmation/);
 
   const githubSetup = await runCli(["plugins", "setup", "github"], cwd);
   assert.match(githubSetup.stdout, /plugin=github source=hermes risk=medium/);
@@ -988,9 +997,41 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(memoryProviderSetup.stdout, /not an installed execution adapter yet/);
 
   const matrixSetup = await runCli(["plugins", "setup", "matrix"], cwd);
-  assert.match(matrixSetup.stdout, /plugin=matrix source=hermes risk=high action=runtime_adapter/);
+  assert.match(matrixSetup.stdout, /plugin=matrix source=hermes risk=high action=setup_plan/);
   assert.match(matrixSetup.stdout, /next_action=channel_setup command="muster channels setup matrix"/);
   assert.match(matrixSetup.stdout, /next_action=open_setup url=https:\/\/matrix\.org\/docs\//);
+
+  const figmaSetup = await runCli(["plugins", "setup", "figma"], cwd);
+  assert.match(figmaSetup.stdout, /plugin=figma source=muster risk=high action=mcp_installable/);
+  assert.match(figmaSetup.stdout, /mcp=figma status=installable command="muster mcp install figma"/);
+  assert.match(figmaSetup.stdout, /next_action=mcp_install command="muster mcp install figma"/);
+  assert.match(figmaSetup.stdout, /https:\/\/mcp\.figma\.com\/mcp/);
+
+  const appReuseSetup = await runCli(["plugins", "setup", "authenticated-app-reuse"], cwd);
+  assert.match(appReuseSetup.stdout, /plugin=authenticated-app-reuse source=muster risk=high action=setup_plan/);
+  assert.match(appReuseSetup.stdout, /muster plugins reuse <provider>/);
+  assert.match(appReuseSetup.stdout, /MUSTER_<PROVIDER>_PLUGIN_CACHE/);
+  assert.match(appReuseSetup.stdout, /muster mcp add-http/);
+  assert.match(appReuseSetup.stdout, /never copies opaque provider secrets silently/);
+
+  const providerCache = join(cwd, "provider-cache", "curated", "figma", "2.0.12");
+  await mkdir(providerCache, { recursive: true });
+  await writeFile(join(providerCache, ".app.json"), JSON.stringify({ apps: { figma: { required: true }, google_calendar: { optional: true } } }), "utf8");
+  await writeFile(join(providerCache, ".mcp.json"), JSON.stringify({ mcpServers: { figma: { type: "http", url: "https://mcp.figma.com/mcp" }, github: { type: "http", url: "https://api.githubcopilot.com/mcp/" } } }), "utf8");
+  const providerReuse = await runCli(["plugins", "reuse", "test-provider"], cwd, {
+    MUSTER_TEST_PROVIDER_PLUGIN_CACHE: join(cwd, "provider-cache"),
+  });
+  assert.match(providerReuse.stdout, /provider=test-provider status=discovered plugins=1 apps=2 mcps=2/);
+  assert.match(providerReuse.stdout, /policy=discover_only secrets=not_read tokens=not_copied/);
+  assert.match(providerReuse.stdout, /plugin=figma provider=test-provider version=2\.0\.12/);
+  assert.match(providerReuse.stdout, /app=figma mode=required auth=reuse_host next="muster plugins setup figma"/);
+  assert.match(providerReuse.stdout, /app=google-calendar mode=optional auth=reuse_host next="muster plugins setup google-calendar"/);
+  assert.match(providerReuse.stdout, /mcp=figma transport=http url=https:\/\/mcp\.figma\.com\/mcp next="muster mcp install figma && muster mcp login figma"/);
+  assert.match(providerReuse.stdout, /mcp=github transport=http url=https:\/\/api\.githubcopilot\.com\/mcp\/ next="muster mcp add-http github https:\/\/api\.githubcopilot\.com\/mcp\/ --oauth"/);
+  assert.match(providerReuse.stdout, /explicit_mcp_http=muster mcp add-http <name> <url> \[--oauth \.\.\.\]/);
+  assert.match(providerReuse.stdout, /explicit_mcp_stdio=muster mcp add-stdio <name> <command> \[args\.\.\.\]/);
+  assert.match(providerReuse.stdout, /explicit_plugin=muster plugins inspect <path> && muster plugins load <path> \[--allow-high-risk\]/);
+  assert.match(providerReuse.stdout, /explicit_skill=muster skills catalog && muster skills enable <id>/);
 
   const developerToolsCheck = await runCli(["plugins", "check", "developer-tools"], cwd);
   assert.match(developerToolsCheck.stdout, /plugin=developer-tools source=muster risk=medium enabled=false/);
@@ -1301,8 +1342,11 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(integrationGuide.stdout, /plugin\tweb-search\tavailable\tmuster plugins enable web-search/);
   assert.match(integrationGuide.stdout, /plugin\tgithub\tneeds GITHUB_PERSONAL_ACCESS_TOKEN\tmuster plugins enable github/);
   assert.match(integrationGuide.stdout, /plugin\tnotion\tneeds NOTION_API_KEY\|NOTION_API_TOKEN\tmuster plugins enable notion --allow-high-risk/);
+  assert.match(integrationGuide.stdout, /plugin\tfigma\tavailable\tmuster plugins enable figma --allow-high-risk/);
+  assert.match(integrationGuide.stdout, /plugin\tauthenticated-app-reuse\tavailable\tmuster plugins enable authenticated-app-reuse --allow-high-risk/);
   assert.match(integrationGuide.stdout, /mcp\tgithub\tneeds GITHUB_PERSONAL_ACCESS_TOKEN\|GITHUB_TOKEN\tmuster mcp install github/);
   assert.match(integrationGuide.stdout, /mcp\tparallel-search\tinstallable\tmuster mcp install parallel-search/);
+  assert.match(integrationGuide.stdout, /mcp\tfigma\tneeds OAuth\tmuster mcp install figma/);
   assert.match(integrationGuide.stdout, /For non-technical setup/);
 
   const integrationStatus = await runCli(["integrations", "status"], cwd);
@@ -1322,6 +1366,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(mcpCatalog.stdout, /parallel-search\s+openclaw\s+web\s+risk=medium\s+auth=none/);
   assert.match(mcpCatalog.stdout, /firecrawl\s+openclaw\s+web\s+risk=high\s+auth=api_key env=FIRECRAWL_API_KEY/);
   assert.match(mcpCatalog.stdout, /notion\s+hermes\s+productivity\s+risk=high\s+auth=oauth/);
+  assert.match(mcpCatalog.stdout, /figma\s+muster\s+design\s+risk=high\s+auth=oauth/);
+  assert.match(mcpCatalog.stdout, /data-analytics-widgets\s+muster\s+data\s+risk=medium\s+auth=local/);
+  assert.match(mcpCatalog.stdout, /openai-api-key-local-confirmation\s+muster\s+developer\s+risk=high\s+auth=local/);
 
   const githubCheck = await runCli(["mcp", "check", "github"], cwd);
   assert.match(githubCheck.stdout, /mcp=github status=needs_env configured=false installable=false auth=api_key risk=high/);
@@ -1350,6 +1397,11 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const installedNotion = await runCli(["mcp", "install", "notion"], cwd);
   assert.match(installedNotion.stdout, /mcp=notion status=configured/);
   assert.match(installedNotion.stdout, /oauth=not_authenticated/);
+
+  const installedFigma = await runCli(["mcp", "install", "figma"], cwd);
+  assert.match(installedFigma.stdout, /mcp=figma status=configured/);
+  assert.match(installedFigma.stdout, /oauth=not_authenticated/);
+  assert.match(installedFigma.stdout, /oauth_setup=muster mcp oauth setup figma/);
   assert.match(installedNotion.stdout, /oauth_setup=muster mcp oauth setup notion/);
 
   const notionOauthSetup = await runCli(["mcp", "oauth", "setup", "notion"], cwd);
@@ -2148,6 +2200,10 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   const channelRun = await runCli(["qa", "run", "channel_plugin_setup", "--artifact-dir", channelRunArtifact, "--evidence", channelEvidencePath], cwd);
   assert.match(channelRun.stdout, /qa_suite=channel_plugin_setup status=passed/);
   assert.match(channelRun.stdout, /case=catalog_core_surfaces status=passed/);
+  assert.match(channelRun.stdout, /case=catalog_actionability_evidence status=passed/);
+  assert.match(channelRun.stdout, /case=everyday_capability_breadth status=passed/);
+  assert.match(channelRun.stdout, /case=skill_catalog_breadth status=passed/);
+  assert.match(channelRun.stdout, /case=mcp_auth_install_depth status=passed/);
   assert.match(channelRun.stdout, /case=setup_guidance_frappe-federated-bridge status=passed/);
   assert.match(channelRun.stdout, /case=setup_guidance_slack status=passed/);
   assert.match(channelRun.stdout, /case=high_risk_refusal status=passed/);
@@ -2158,7 +2214,12 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   const channelManifest = JSON.parse(await readFile(join(channelRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number };
   assert.equal(channelManifest.suite, "channel_plugin_setup");
   assert.equal(channelManifest.status, "passed");
-  assert.ok(channelManifest.caseCount >= 8);
+  assert.ok(channelManifest.caseCount >= 13);
+  const channelCases = await readFile(join(channelRunArtifact, "cases.jsonl"), "utf8");
+  assert.match(channelCases, /"id":"catalog_actionability_evidence","status":"passed"/);
+  assert.match(channelCases, /"id":"everyday_capability_breadth","status":"passed"/);
+  assert.match(channelCases, /"id":"skill_catalog_breadth","status":"passed"/);
+  assert.match(channelCases, /"id":"mcp_auth_install_depth","status":"passed"/);
   const channelOperatorCases = JSON.parse(await readFile(join(channelRunArtifact, "operator-cases.json"), "utf8")) as { id: string; status: string; evidence: { simulations?: { channel: string; ok: boolean }[] } }[];
   assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_plan_slack" && testCase.status === "passed"));
   assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_simulations" && testCase.evidence.simulations?.some((simulation) => simulation.channel === "whatsapp" && simulation.ok)));
@@ -2167,7 +2228,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.ok(channelCatalog.mcpServers.some((mcp) => mcp.id === "browser"));
   const channelScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", channelEvidencePath], cwd);
   assert.equal(channelScorecard.code, 1);
-  assert.match(channelScorecard.stdout, /passed\s+qa\.channel_plugin_setup\s+Channel\/plugin setup catalog, setup guidance, unsafe-plugin refusal, and enable\/disable policy verified/);
+  assert.match(channelScorecard.stdout, /passed\s+qa\.channel_plugin_setup\s+Channel\/plugin catalog depth, setup guidance, skill\/MCP breadth, unsafe-plugin refusal, and enable\/disable policy verified/);
   assert.match(channelScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
 
   const fakeSsh = await writeFakeSsh(cwd);

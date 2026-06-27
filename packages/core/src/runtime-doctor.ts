@@ -90,6 +90,10 @@ const REQUIRED_QA_CASES: Readonly<Record<RequiredQaSuiteId, readonly string[]>> 
   memory_retrieval_speed: ["retrieval_quality", "probe_latency", "index_health", "external_memory_policy"],
   channel_plugin_setup: [
     "catalog_core_surfaces",
+    "catalog_actionability_evidence",
+    "everyday_capability_breadth",
+    "skill_catalog_breadth",
+    "mcp_auth_install_depth",
     "setup_guidance_frappe-federated-bridge",
     "setup_guidance_web-frameworks",
     "setup_guidance_google-workspace",

@@ -5,7 +5,9 @@ import {
   enableBuiltinPlugin,
   listBuiltinMcpServers,
   listBuiltinPlugins,
+  listBuiltinSkills,
   type BuiltinPluginCatalogEntry,
+  type BuiltinSkillCatalogEntry,
 } from "./builtin-catalog.js";
 import { ensureDefaultConfig, loadConfig } from "./config.js";
 import type { RuntimeDoctorStatus } from "./runtime-doctor.js";
@@ -42,6 +44,10 @@ export async function runChannelPluginSetupQa(input: {
   const cases: QaChannelPluginSetupCase[] = [];
 
   cases.push(caseCatalogCoverage(plugins, mcps));
+  cases.push(caseCatalogActionabilityEvidence(plugins));
+  cases.push(caseEverydayCapabilityBreadth(plugins));
+  cases.push(caseSkillCatalogBreadth(listBuiltinSkills()));
+  cases.push(caseMcpAuthAndInstallDepth(mcps));
   cases.push(caseSetupGuidance(plugins, "frappe-federated-bridge", { needsSetupUrl: true }));
   cases.push(caseSetupGuidance(plugins, "web-frameworks", { needsPack: true }));
   cases.push(caseSetupGuidance(plugins, "google-workspace", { needsSetupUrl: true, needsMcp: true }));
@@ -53,8 +59,8 @@ export async function runChannelPluginSetupQa(input: {
 
   const status: RuntimeDoctorStatus = cases.every((testCase) => testCase.status === "passed") ? "passed" : "failed";
   const summary = status === "passed"
-    ? "Channel/plugin setup catalog, setup guidance, unsafe-plugin refusal, and enable/disable policy verified"
-    : "Channel/plugin setup QA found missing setup guidance or policy regressions";
+    ? "Channel/plugin catalog depth, setup guidance, skill/MCP breadth, unsafe-plugin refusal, and enable/disable policy verified"
+    : "Channel/plugin setup QA found missing catalog depth, setup guidance, or policy regressions";
   const manifestPath = join(artifactDir, "manifest.json");
   const casesPath = join(artifactDir, "cases.jsonl");
   const catalogPath = join(artifactDir, "catalog.json");
@@ -115,6 +121,138 @@ function caseCatalogCoverage(
       ? "core web, channel, Frappe, Playwright, and MCP surfaces are discoverable"
       : "core integration catalog surfaces are missing",
     evidence: { pluginCount: plugins.length, mcpCount: mcps.length, missingPlugins, missingMcps },
+  };
+}
+
+function caseCatalogActionabilityEvidence(plugins: readonly BuiltinPluginCatalogEntry[]): QaChannelPluginSetupCase {
+  const offenders = plugins.filter((plugin) => {
+    const hasSetupUrl = Boolean(plugin.setup?.setupUrls?.length);
+    const hasSetupNote = Boolean(plugin.setup?.notes?.length);
+    const hasMcp = Boolean(plugin.setup?.mcpServers?.length || plugin.setup?.defaultMcpServers?.length);
+    const hasChannel = Boolean(plugin.setup?.channels?.length);
+    const hasEnv = Boolean(plugin.setup?.requiresEnv?.length || plugin.setup?.requiresAnyEnv?.length);
+    const hasPack = Boolean(plugin.packPath);
+    if (plugin.description.trim().length < 24) return true;
+    if (plugin.actionability === "metadata") return true;
+    if (plugin.actionability === "setup_plan") return !(hasSetupUrl && hasSetupNote);
+    if (plugin.actionability === "local_tool" || plugin.actionability === "end_to_end_workflow") return !(hasPack || hasMcp);
+    if (plugin.actionability === "runtime_adapter") return !(hasPack && hasChannel);
+    if (plugin.actionability === "mcp_installable") return !(hasMcp || hasPack || hasSetupUrl);
+    return !(hasPack || hasSetupUrl || hasSetupNote || hasMcp || hasChannel || hasEnv);
+  }).map((plugin) => ({
+    id: plugin.id,
+    actionability: plugin.actionability,
+    category: plugin.category,
+    hasPack: Boolean(plugin.packPath),
+    hasSetupUrl: Boolean(plugin.setup?.setupUrls?.length),
+    hasNotes: Boolean(plugin.setup?.notes?.length),
+    hasMcp: Boolean(plugin.setup?.mcpServers?.length || plugin.setup?.defaultMcpServers?.length),
+    hasChannel: Boolean(plugin.setup?.channels?.length),
+  }));
+  const status: RuntimeDoctorStatus = offenders.length ? "failed" : "passed";
+  return {
+    id: "catalog_actionability_evidence",
+    status,
+    summary: status === "passed"
+      ? "every plugin actionability level is backed by setup, pack, MCP, or channel evidence"
+      : "one or more plugin entries have shallow actionability metadata",
+    evidence: { offenders },
+  };
+}
+
+function caseEverydayCapabilityBreadth(plugins: readonly BuiltinPluginCatalogEntry[]): QaChannelPluginSetupCase {
+  const pluginIds = new Set(plugins.flatMap((plugin) => [plugin.id, ...(plugin.aliases ?? [])]));
+  const required = {
+    channels: ["telegram", "slack", "google-chat", "discord", "whatsapp", "teams"],
+    personalOps: ["daily-ops", "google-workspace", "notion", "obsidian"],
+    officeArtifacts: ["artifact-studio"],
+    developerOps: ["developer-tools", "web-frameworks", "github", "browser"],
+    enterpriseApps: ["frappe-federated-bridge", "data-analytics"],
+    retrievalAndResearch: ["web-search", "research-lab", "mcp-bridge"],
+    providers: ["openai", "anthropic", "gemini", "openrouter", "groq", "huggingface-provider"],
+    memory: ["memory-mem0", "memory-supermemory", "memory-lancedb", "active-memory"],
+  } satisfies Record<string, readonly string[]>;
+  const missing = Object.fromEntries(
+    Object.entries(required)
+      .map(([group, ids]) => [group, ids.filter((id) => !pluginIds.has(id))])
+      .filter(([, ids]) => (ids as string[]).length),
+  );
+  const categoryCounts = plugins.reduce<Record<string, number>>((counts, plugin) => {
+    counts[plugin.category] = (counts[plugin.category] ?? 0) + 1;
+    return counts;
+  }, {});
+  const status: RuntimeDoctorStatus = Object.keys(missing).length ? "failed" : "passed";
+  return {
+    id: "everyday_capability_breadth",
+    status,
+    summary: status === "passed"
+      ? "everyday channels, personal ops, office artifacts, developer, enterprise, research, provider, and memory surfaces are discoverable"
+      : "catalog is missing one or more required everyday capability surfaces",
+    evidence: { missing, categoryCounts },
+  };
+}
+
+function caseSkillCatalogBreadth(skills: readonly BuiltinSkillCatalogEntry[]): QaChannelPluginSetupCase {
+  const requiredCategories = [
+    "software-development",
+    "github",
+    "autonomous-ai-agents",
+    "mcp",
+    "productivity",
+    "research",
+    "artifacts",
+    "security",
+    "data-science",
+    "web-development",
+    "quality",
+  ];
+  const categories = new Set(skills.map((skill) => skill.category));
+  const missingCategories = requiredCategories.filter((category) => !categories.has(category));
+  const shallow = skills.filter((skill) => skill.description.trim().length < 24 || !skill.tags.length).map((skill) => skill.id);
+  const duplicateIds = duplicateValues(skills.map((skill) => skill.id));
+  const status: RuntimeDoctorStatus = missingCategories.length || shallow.length || duplicateIds.length ? "failed" : "passed";
+  return {
+    id: "skill_catalog_breadth",
+    status,
+    summary: status === "passed"
+      ? "built-in skill catalog covers core work families with tagged, non-duplicate entries"
+      : "built-in skill catalog has missing families, shallow entries, or duplicate ids",
+    evidence: {
+      skillCount: skills.length,
+      missingCategories,
+      shallow,
+      duplicateIds,
+      categoryCounts: [...categories].sort().map((category) => ({
+        category,
+        count: skills.filter((skill) => skill.category === category).length,
+      })),
+    },
+  };
+}
+
+function caseMcpAuthAndInstallDepth(mcps: ReturnType<typeof listBuiltinMcpServers>): QaChannelPluginSetupCase {
+  const offenders = mcps.filter((mcp) => {
+    if (mcp.description.trim().length < 24) return true;
+    if ((mcp.auth === "api_key" || mcp.auth === "oauth") && !(mcp.setupUrls?.length)) return true;
+    if (mcp.auth === "api_key" && !(mcp.requiresEnv?.length || mcp.requiresAnyEnv?.length)) return true;
+    if (mcp.auth === "oauth" && !(mcp.install?.auth === "oauth" || mcp.setupUrls?.length)) return true;
+    return !(mcp.install || mcp.setupUrls?.length || mcp.commandHint);
+  }).map((mcp) => ({
+    id: mcp.id,
+    auth: mcp.auth ?? "none",
+    hasInstall: Boolean(mcp.install),
+    setupUrls: mcp.setupUrls ?? [],
+    requiresEnv: mcp.requiresEnv ?? [],
+    requiresAnyEnv: mcp.requiresAnyEnv ?? [],
+  }));
+  const status: RuntimeDoctorStatus = offenders.length ? "failed" : "passed";
+  return {
+    id: "mcp_auth_install_depth",
+    status,
+    summary: status === "passed"
+      ? "MCP catalog entries expose auth, install, setup, and env guidance consistently"
+      : "one or more MCP entries lack auth/install/setup depth",
+    evidence: { offenders },
   };
 }
 
@@ -200,6 +338,16 @@ function caseMcpInstallGuidance(mcps: ReturnType<typeof listBuiltinMcpServers>):
     summary: status === "passed" ? "key MCP entries expose install specs or setup URLs" : "key MCP entries lack install/setup guidance",
     evidence: { missing, withoutSetup, oauthWithoutUrl },
   };
+}
+
+function duplicateValues(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  return [...duplicates].sort();
 }
 
 function catalogPluginSnapshot(plugin: BuiltinPluginCatalogEntry): Record<string, unknown> {
