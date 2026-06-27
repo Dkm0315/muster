@@ -401,6 +401,7 @@ Usage:
   muster memory search --scope user:me [--query "..."] [--include-global]
   muster memory status [--probe --scope user:me --query "..."]
   muster memory doctor [--fix] [--probe --scope user:me --query "..."]
+  muster memory providers | plan <memory-provider> [--scope user:me] [--mode export|sync]
   muster memory promote <memory-id> --to tenant:acme [--allow-global]
   muster goal status [--limit 10]       # active-goal loop ledger: retrieval, memory write, follow-up needs
   muster tui
@@ -575,6 +576,7 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "scope", usage: "/scope <kind:id...|add kind:id|clear>", description: "set or inspect memory recall scopes" },
   { name: "scopes", usage: "/scopes", description: "show active memory recall scopes" },
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
+  { name: "capabilities", usage: "/capabilities [query]", description: "find matching skills, plugins, and MCPs", aliases: ["capability", "caps"] },
   { name: "skills", usage: "/skills [id]", description: "show or enable built-in skills", aliases: ["skill"] },
   { name: "plugins", usage: "/plugins [id]", description: "show or enable built-in plugins", aliases: ["plugin"] },
   { name: "mcp", usage: "/mcp [id]", description: "show configured and suggested MCP servers" },
@@ -1160,6 +1162,11 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
     case "tools":
       printChatTools(args);
       return true;
+    case "capabilities":
+    case "capability":
+    case "caps":
+      await printChatCapabilities(args, state);
+      return true;
     case "skills":
     case "skill":
       await printChatSkills(args, state);
@@ -1238,6 +1245,13 @@ function chatCompletions(line: string): string[] {
   const fragment = parts.at(-1)?.toLowerCase() ?? "";
   if (command === "tools") {
     return CHAT_TOOLSETS.filter((toolset) => toolset.startsWith(fragment));
+  }
+  if (command === "capabilities" || command === "capability" || command === "caps") {
+    return filterPickerOptions([
+      ...chatSkillOptions(),
+      ...CHAT_PLUGIN_OPTIONS,
+      ...CHAT_MCP_OPTIONS,
+    ], fragment).map((option) => option.value);
   }
   if (command === "resume" || command === "name") {
     return recentChatSessionNames().filter((name) => name.toLowerCase().startsWith(fragment));
@@ -1343,6 +1357,20 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
       .map((toolset) => ({
         label: `${color(toolset.padEnd(20), "highlight")} toolset`,
         value: `/tools ${toolset}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/(?:capabilities|capability|caps)(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions([
+      ...chatSkillOptions(),
+      ...await chatPluginOptions(),
+      ...await chatMcpOptions(),
+    ], fragment)
+      .slice(0, 24)
+      .map((capability) => ({
+        label: `${color(capability.value.padEnd(28), "highlight")} ${capability.description ?? "capability"}`,
+        value: `/capabilities ${capability.value}`,
         kind: "completion" as const,
       }));
   }
@@ -1455,7 +1483,7 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
 }
 
 function isBareContextualPickerCommand(trimmed: string): boolean {
-  return /^\/(?:tools|resume|name|provider|use-provider|model|runtime|cloud|speed|skills?|plugins?|mcp)$/i.test(trimmed);
+  return /^\/(?:tools|resume|name|provider|use-provider|model|runtime|cloud|speed|capabilities|capability|caps|skills?|plugins?|mcp)$/i.test(trimmed);
 }
 
 function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggestion[], selectedIndex: number): string {
@@ -2118,6 +2146,41 @@ function printChatTools(toolset?: string): void {
   ]);
 }
 
+async function printChatCapabilities(query: string | undefined, state: ChatState): Promise<void> {
+  const config = await loadConfig();
+  const trimmed = query?.trim() ?? "";
+  if (trimmed) {
+    const mentions = resolveBuiltinCapabilityMentions(trimmed, { limit: 10 });
+    if (!mentions.length) {
+      printChatPanel("Capabilities", [
+        color(`No matching skill, plugin, or MCP found for "${trimmed}".`, "yellow"),
+        `${color("Try", "accent")} /skills · /plugins · /mcp · /capabilities frappe`,
+      ]);
+      return;
+    }
+    const lines = [
+      color(`Matched "${trimmed}" against built-in skills, plugins, and MCP servers.`, "dim"),
+      ...(await Promise.all(mentions.map((mention) => formatMentionedCapabilityCheck(mention, config)))),
+      color("Pick from the opened selector, or run the shown setup/check command.", "dim"),
+    ];
+    printChatPanel("Capabilities", lines);
+    openMentionedCapabilityPicker(state, mentions, config);
+    return;
+  }
+  const skills = summarizeCatalog(listBuiltinSkills(), (skill) => skill.category, (skill) => skill.id, 4);
+  const plugins = summarizeCatalog(listBuiltinPlugins(), (plugin) => plugin.category, (plugin) => plugin.id, 4);
+  const mcps = summarizeCatalog(listBuiltinMcpServers(), (server) => server.category, (server) => server.id, 4);
+  printChatPanel("Capabilities", [
+    `${color("skills", "accent")} ${skills.join(" · ")}`,
+    `${color("plugins", "accent")} ${plugins.join(" · ")}`,
+    `${color("mcp", "accent")} ${mcps.join(" · ")}`,
+    "",
+    `${color("Search", "accent")} /capabilities <what you want>`,
+    `${color("Direct", "accent")} /skills <id> · /plugins <id> · /mcp <id>`,
+  ]);
+  openNextPicker(state, "/capabilities ");
+}
+
 async function printChatSkills(selection: string | undefined, state: ChatState): Promise<void> {
   const selected = selection?.trim();
   if (selected) {
@@ -2376,6 +2439,12 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
           return filterPickerOptions(chatCloudOptions(), request.fragment);
         case "speed":
           return filterPickerOptions(chatSpeedOptions(state.speedMode ?? "fast"), request.fragment);
+        case "capability":
+          return filterPickerOptions([
+            ...chatSkillOptions(),
+            ...await chatPluginOptions(),
+            ...await chatMcpOptions(),
+          ], request.fragment);
         case "skill":
           return filterPickerOptions(chatSkillOptions(), request.fragment);
         case "plugin":
@@ -4310,6 +4379,14 @@ async function memory(args: string[]): Promise<void> {
     for (const record of records.slice(0, 20)) printMemoryObject(record);
     return;
   }
+  if (subcommand === "providers") {
+    printMemoryProviderCatalog();
+    return;
+  }
+  if (subcommand === "plan") {
+    printMemoryProviderPlan(args);
+    return;
+  }
   if (subcommand === "promote") {
     const id = args[1];
     if (!id) throw new Error("Usage: muster memory promote <memory-id> --to tenant:acme [--allow-global]");
@@ -4339,7 +4416,58 @@ async function memory(args: string[]): Promise<void> {
     printMemoryObject(object);
     return;
   }
-  throw new Error("Usage: muster memory <add|search|status|doctor|promote>");
+  throw new Error("Usage: muster memory <add|search|status|doctor|providers|plan|promote>");
+}
+
+function memoryProviderCatalog(): BuiltinPluginCatalogEntry[] {
+  return listBuiltinPlugins().filter((plugin) => plugin.category === "memory" || plugin.slot === "memory-provider");
+}
+
+function findMemoryProvider(id: string | undefined): BuiltinPluginCatalogEntry | undefined {
+  if (!id) return undefined;
+  return memoryProviderCatalog().find((plugin) => plugin.id === id || plugin.aliases?.includes(id));
+}
+
+function printMemoryProviderCatalog(): void {
+  console.log("memory_provider\taction\trisk\tenv\tsetup");
+  for (const provider of memoryProviderCatalog()) {
+    const env = memoryProviderEnv(provider).join("|") || "-";
+    const setup = provider.setup?.setupUrls?.[0] ?? "-";
+    console.log(`${provider.id}\t${provider.actionability}\t${provider.risk}\t${env}\t${setup}`);
+  }
+  console.log("local_authority=sqlite-fts scoped_memory=true external_sync=opt-in");
+}
+
+function printMemoryProviderPlan(args: readonly string[]): void {
+  const provider = findMemoryProvider(args[1]);
+  if (!provider) {
+    console.log("memory_provider_plan status=unknown");
+    console.log(`available=${memoryProviderCatalog().map((entry) => entry.id).join(",")}`);
+    console.log("usage=muster memory plan <memory-provider> --scope user:me [--mode export|sync]");
+    return;
+  }
+  const mode = readFlag([...args], "--mode") ?? "export";
+  if (mode !== "export" && mode !== "sync") throw new Error("--mode must be export or sync.");
+  const scopes = readFlags([...args], "--scope").map(parseMemoryScope);
+  const env = memoryProviderEnv(provider);
+  const missingEnv = env.filter((name) => !process.env[name]);
+  console.log(`memory_provider_plan=${provider.id} source=${provider.source} action=${provider.actionability} risk=${provider.risk}`);
+  console.log(`mode=${mode} local_authority=sqlite-fts external_role=sync_target enabled=false`);
+  console.log(`scope_required=true scopes=${scopes.length ? scopes.map(formatMemoryScope).join(",") : "-"}`);
+  console.log(`export_filter=${scopes.length ? scopes.map(formatMemoryScope).join("|") : "blocked_until_scope_selected"}`);
+  console.log(`missing_env=${missingEnv.join("|") || "-"}`);
+  for (const url of provider.setup?.setupUrls ?? []) console.log(`setup_url=${url}`);
+  console.log("guardrail=no_provider_bypass:true scope_isolation:true explicit_export:true approval_required:true secrets_printed:false");
+  console.log("ledger=record exported_memory_ids, destination_provider, scope_filter, consent, and retrieval impact before enabling recurring sync");
+  console.log(scopes.length ? "next=muster plugins setup " + provider.id : "next=choose at least one --scope before exporting or syncing memory");
+  for (const note of provider.setup?.notes ?? []) console.log(`note=${note}`);
+}
+
+function memoryProviderEnv(provider: BuiltinPluginCatalogEntry): string[] {
+  return [
+    ...(provider.setup?.requiresEnv ?? []),
+    ...(provider.setup?.requiresAnyEnv ?? []).flat(),
+  ];
 }
 
 type MemoryInspection = Awaited<ReturnType<typeof inspectMemoryStore>>;
@@ -5191,6 +5319,7 @@ async function runMemoryQaSuite(args: string[], stamp: string): Promise<void> {
   console.log(`qa_suite=${result.suite} status=${result.status}`);
   console.log(`artifact_dir=${result.artifactDir}`);
   console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
   console.log(`retrieval_manifest=${result.retrievalManifestPath}`);
   console.log(`probe=${result.probePath}`);
   console.log(`metric=recall@5 value=${result.retrieval.suite.recallAtK.toFixed(3)}`);
@@ -5199,6 +5328,9 @@ async function runMemoryQaSuite(args: string[], stamp: string): Promise<void> {
   console.log(`metric=stale_hit_rate value=${result.retrieval.suite.staleHitRate.toFixed(3)}`);
   console.log(`metric=probe_p95_ms value=${result.probe.p95Ms.toFixed(3)} max=${maxP95Ms}`);
   console.log(`backend=${result.probe.backend}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
   if (result.status === "failed") process.exitCode = 1;
 }
 

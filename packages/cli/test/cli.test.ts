@@ -134,6 +134,7 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(commands.stdout, /\/runtime \[id\]/);
   assert.match(commands.stdout, /\/scope <kind:id/);
   assert.match(commands.stdout, /\/tokens \[limit\]/);
+  assert.match(commands.stdout, /\/capabilities \[query\]/);
 
   const commandCompletion = await runCli(["chat", "--complete", "/sta"], cwd);
   assert.match(commandCompletion.stdout, /\/status/);
@@ -158,6 +159,12 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
 
   const pluginAliasCompletion = await runCli(["chat", "--complete", "/plugins pdf"], cwd);
   assert.match(pluginAliasCompletion.stdout, /artifact-studio/);
+
+  const capabilityCompletion = await runCli(["chat", "--complete", "/capabilities tel"], cwd);
+  assert.match(capabilityCompletion.stdout, /telegram/);
+
+  const capabilityAliasCompletion = await runCli(["chat", "--complete", "/caps pdf"], cwd);
+  assert.match(capabilityAliasCompletion.stdout, /artifact-studio/);
 
   const optionalSkillCompletion = await runCli(["chat", "--complete", "/skills advers"], cwd);
   assert.match(optionalSkillCompletion.stdout, /adversarial-ux-test/);
@@ -267,6 +274,24 @@ test("CLI memory status and doctor expose index health and source corruption", a
   ], cwd);
   assert.match(probe.stdout, /probe query=memory doctor FTS runs=3 backend=sqlite-/);
   assert.match(probe.stdout, /probe_latency p50_ms=\d+\.\d{3} p95_ms=\d+\.\d{3}/);
+
+  const providers = await runCli(["memory", "providers"], cwd);
+  assert.match(providers.stdout, /memory-mem0\tsetup_plan\thigh\tMEM0_API_KEY\thttps:\/\/mem0\.ai\//);
+  assert.match(providers.stdout, /memory-supermemory\tsetup_plan\thigh\tSUPERMEMORY_API_KEY/);
+  assert.match(providers.stdout, /local_authority=sqlite-fts scoped_memory=true external_sync=opt-in/);
+
+  const planNoScope = await runCli(["memory", "plan", "mem0", "--mode", "sync"], cwd, { MEM0_API_KEY: "mem0-secret-value" });
+  assert.match(planNoScope.stdout, /memory_provider_plan=memory-mem0 source=hermes action=setup_plan risk=high/);
+  assert.match(planNoScope.stdout, /mode=sync local_authority=sqlite-fts external_role=sync_target enabled=false/);
+  assert.match(planNoScope.stdout, /export_filter=blocked_until_scope_selected/);
+  assert.match(planNoScope.stdout, /missing_env=-/);
+  assert.match(planNoScope.stdout, /guardrail=no_provider_bypass:true scope_isolation:true explicit_export:true approval_required:true secrets_printed:false/);
+  assert.doesNotMatch(planNoScope.stdout, /mem0-secret-value/);
+
+  const scopedPlan = await runCli(["memory", "plan", "memory-supermemory", "--scope", "user:pavan"], cwd);
+  assert.match(scopedPlan.stdout, /scopes=user:pavan/);
+  assert.match(scopedPlan.stdout, /export_filter=user:pavan/);
+  assert.match(scopedPlan.stdout, /missing_env=SUPERMEMORY_API_KEY/);
 
   await writeFile(join(cwd, ".muster", "data", "memory.db"), "not sqlite", "utf8");
   const repaired = await runCli([
@@ -543,6 +568,48 @@ test("CLI chat prompt prints memory receipt scopes and keeps provider user promp
     assert.match(goal.stdout, /matched=deploy/);
     assert.match(goal.stdout, /provenance=cli-chat-test/);
     assert.match(goal.stdout, /Where do we deploy\?/);
+  } finally {
+    server.close();
+  }
+});
+
+test("CLI chat checks mentioned skills, plugins, and MCPs before routing a normal prompt", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-capability-mentions-"));
+  const server = createServer((request, response) => {
+    request.on("data", () => {});
+    request.on("end", () => {
+      if (request.url === "/v1/chat/completions") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ choices: [{ message: { content: "Capability mention acknowledged." } }] }));
+        return;
+      }
+      response.writeHead(404);
+      response.end("not found");
+    });
+  });
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  try {
+    await runCli(["init"], cwd);
+    await runCli(["provider", "add-openai-compatible", "stub", `http://127.0.0.1:${port}/v1`, "stub-fast"], cwd);
+    await runCli(["runtime", "use-provider", "native", "stub", "stub-fast"], cwd);
+
+    const result = await runCli([
+      "chat",
+      "Use the Telegram plugin and browser MCP to plan a reply workflow.",
+      "--fast",
+      "--timeout-ms",
+      "5000",
+    ], cwd);
+
+    assert.match(result.stdout, /Capability Check/);
+    assert.match(result.stdout, /plugin:telegram/);
+    assert.match(result.stdout, /next="\/plugins telegram\s+/);
+    assert.match(result.stdout, /--allow-high-risk"/);
+    assert.match(result.stdout, /mcp:browser/);
+    assert.match(result.stdout, /next="\/mcp browser"/);
+    assert.match(result.stdout, /Capability mention acknowledged\./);
   } finally {
     server.close();
   }
@@ -2039,13 +2106,17 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(memoryRun.stdout, /metric=leakage_rate value=0\.000/);
   assert.match(memoryRun.stdout, /metric=stale_hit_rate value=0\.000/);
   assert.match(memoryRun.stdout, /metric=probe_p95_ms value=\d+\.\d{3} max=1000/);
-  const memoryManifest = JSON.parse(await readFile(join(memoryRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; metrics: { recallAtK: number; mrr: number; leakageRate: number; staleHitRate: number } };
+  assert.match(memoryRun.stdout, /case=external_memory_policy status=passed/);
+  const memoryManifest = JSON.parse(await readFile(join(memoryRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number; metrics: { recallAtK: number; mrr: number; leakageRate: number; staleHitRate: number } };
   assert.equal(memoryManifest.suite, "memory_retrieval_speed");
   assert.equal(memoryManifest.status, "passed");
+  assert.equal(memoryManifest.caseCount, 4);
   assert.equal(memoryManifest.metrics.recallAtK, 1);
   assert.equal(memoryManifest.metrics.mrr, 1);
   assert.equal(memoryManifest.metrics.leakageRate, 0);
   assert.equal(memoryManifest.metrics.staleHitRate, 0);
+  const memoryCases = await readFile(join(memoryRunArtifact, "cases.jsonl"), "utf8");
+  assert.match(memoryCases, /"id":"external_memory_policy","status":"passed"/);
   const memoryScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", memoryEvidencePath], cwd);
   assert.equal(memoryScorecard.code, 1);
   assert.match(memoryScorecard.stdout, /qa_scorecard status=failed/);

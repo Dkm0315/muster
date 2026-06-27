@@ -87,7 +87,7 @@ const REQUIRED_QA_CASES: Readonly<Record<RequiredQaSuiteId, readonly string[]>> 
   ],
   provider_latency: ["sample_1", "overhead_p50_gate"],
   mcp_auth_failure: ["missing_token", "expired_token", "invalid_token", "valid_token", "logout_recovery"],
-  memory_retrieval_speed: ["retrieval_quality", "probe_latency", "index_health"],
+  memory_retrieval_speed: ["retrieval_quality", "probe_latency", "index_health", "external_memory_policy"],
   channel_plugin_setup: [
     "catalog_core_surfaces",
     "setup_guidance_frappe-federated-bridge",
