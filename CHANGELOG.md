@@ -4,6 +4,25 @@ All notable changes to Muster are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 semantic versioning.
 
+## [Unreleased]
+
+### Added
+- Added guide pages for agent harness basics, MCP token visibility, Frappe AI
+  with DocType-aware retrieval, and governed memory for long-running agents.
+- Added launch and backlink playbook with Search Console checks, GitHub/npm
+  metadata instructions, and publish-ready LinkedIn, X, Hacker News, Frappe
+  Forum, and Reddit drafts.
+
+### Changed
+- Updated homepage SEO metadata and exact-query language around "Muster agent
+  harness", governed agent harness, MCP agent harness, Frappe / ERPNext agent
+  harness, and production AI agents.
+- Updated public package metadata to use `https://themuster.dev` as homepage and
+  stronger discovery keywords for agent harness, MCP, scoped memory, token
+  ledger, browser automation, Frappe, and ERPNext.
+- Expanded sitemap and `llms.txt` to include guide and integration landing
+  pages.
+
 ## [0.1.8] - 2026-06-27
 
 Muster 0.1.8 is a release-proof patch for the public npm path.

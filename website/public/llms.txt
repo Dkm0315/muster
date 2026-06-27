@@ -12,6 +12,11 @@ Slack AI agent: https://themuster.dev/slack-ai-agent.html
 Telegram AI agent: https://themuster.dev/telegram-ai-agent.html
 Google Chat AI agent: https://themuster.dev/google-chat-ai-agent.html
 Browser automation agent: https://themuster.dev/browser-automation-agent.html
+Guides: https://themuster.dev/guides.html
+What is an agent harness?: https://themuster.dev/guide-agent-harness.html
+MCP agent harness with token visibility: https://themuster.dev/guide-mcp-agent-harness.html
+Frappe AI with DocType-aware retrieval: https://themuster.dev/guide-frappe-ai.html
+Governed memory for long-running AI agents: https://themuster.dev/guide-governed-memory.html
 
 Core positioning:
 - Governed agent harness for long-running AI agents
@@ -31,4 +36,9 @@ Useful pages:
 - Telegram AI agent: https://themuster.dev/telegram-ai-agent.html
 - Google Chat AI agent: https://themuster.dev/google-chat-ai-agent.html
 - Browser automation agent: https://themuster.dev/browser-automation-agent.html
+- Guides: https://themuster.dev/guides.html
+- What is an agent harness?: https://themuster.dev/guide-agent-harness.html
+- MCP agent harness with token visibility: https://themuster.dev/guide-mcp-agent-harness.html
+- Frappe AI with DocType-aware retrieval: https://themuster.dev/guide-frappe-ai.html
+- Governed memory for long-running AI agents: https://themuster.dev/guide-governed-memory.html
 - GitHub: https://github.com/Dkm0315/muster

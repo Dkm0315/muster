@@ -17,6 +17,11 @@ export default defineConfig({
         telegramAiAgent: resolve(__dirname, "telegram-ai-agent.html"),
         googleChatAiAgent: resolve(__dirname, "google-chat-ai-agent.html"),
         browserAutomationAgent: resolve(__dirname, "browser-automation-agent.html"),
+        guides: resolve(__dirname, "guides.html"),
+        guideAgentHarness: resolve(__dirname, "guide-agent-harness.html"),
+        guideMcpAgentHarness: resolve(__dirname, "guide-mcp-agent-harness.html"),
+        guideFrappeAi: resolve(__dirname, "guide-frappe-ai.html"),
+        guideGovernedMemory: resolve(__dirname, "guide-governed-memory.html"),
         onboarding: resolve(__dirname, "onboarding.html")
       }
     }

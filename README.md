@@ -1,8 +1,10 @@
-# Muster
+# Muster — Governed Agent Harness for Production AI Agents
 
-**Muster is an open-source governed agent harness for production AI systems.**
+**Muster is an open-source governed agent harness for production AI agents.**
 
 Agents that run for more than a demo need boundaries: they should not leak memory, waste tokens, or learn new behavior without tests.
+
+Muster gives those agents scoped memory, a local token ledger, eval-gated learning, MCP/plugin controls, browser automation surfaces, and Frappe / ERPNext capability packs while keeping provider choice flexible across cloud, open-source, self-hosted, and private routes.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node >=24](https://img.shields.io/badge/node-%3E%3D24-5FA04E.svg)](package.json)

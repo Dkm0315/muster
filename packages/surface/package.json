@@ -27,19 +27,21 @@
     "url": "git+https://github.com/Dkm0315/muster.git",
     "directory": "packages/surface"
   },
-  "homepage": "https://github.com/Dkm0315/muster#readme",
+  "homepage": "https://themuster.dev",
   "bugs": "https://github.com/Dkm0315/muster/issues",
   "keywords": [
-    "ai",
-    "agent",
-    "llm",
-    "harness",
-    "agent-framework",
+    "agent-harness",
+    "ai-agent",
+    "ai-agents",
+    "governed-agents",
+    "production-ai",
     "mcp",
-    "claude",
-    "openai",
     "scoped-memory",
-    "token-ledger"
+    "token-ledger",
+    "eval-gated-learning",
+    "browser-automation",
+    "frappe",
+    "erpnext"
   ],
   "files": [
     "dist",
