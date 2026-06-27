@@ -7,6 +7,10 @@ semantic versioning.
 ## [Unreleased]
 
 ### Added
+- Added Artifact Studio builders for DOCX, XLSX, PPTX, and simple PDF outputs,
+  plus app-server handoff planning for higher-fidelity document, spreadsheet,
+  presentation, and PDF workflows when a Codex or Claude host exposes those
+  artifact skills.
 - Added guide pages for agent harness basics, MCP token visibility, Frappe AI
   with DocType-aware retrieval, and governed memory for long-running agents.
 - Added launch and backlink playbook with Search Console checks, GitHub/npm

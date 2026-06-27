@@ -31,6 +31,7 @@ import { claude_code_mode_policy, claude_code_readiness, claude_code_session_pol
 import { codex_native_approval_policy, codex_native_fast_path, codex_native_surface_plan, codex_native_tool_policy } from "../../../capability-packs/codex-native-tools/src/index.js";
 import { codex_web_research_policy, codex_web_search_fallback_plan, codex_web_search_readiness, codex_web_search_setup_plan } from "../../../capability-packs/codex-web-search/src/index.js";
 import { frappe_context_build, frappe_context_setup_plan, frappe_docs_context, frappe_module_context } from "../../../capability-packs/frappe/src/index.js";
+import { artifact_capability_plan, docx_document, pdf_document, pptx_presentation, xlsx_workbook } from "../../../capability-packs/artifact-studio/src/index.js";
 
 const webSearchPackDir = resolve(import.meta.dirname, "..", "..", "..", "capability-packs", "web-search");
 const researchPackDir = resolve(import.meta.dirname, "..", "..", "..", "capability-packs", "research-lab");
@@ -109,6 +110,66 @@ test("research-lab pack parses arXiv Atom results", async () => {
       url: "https://arxiv.org/abs/2601.00001",
     }],
   });
+});
+
+test("artifact-studio creates bounded office and PDF artifacts with honest app-server handoffs", async () => {
+  const docx = await docx_document({
+    title: "Muster Artifact Brief",
+    summary: "Governed artifacts should be deterministic before app-server polish.",
+    sections: [{ heading: "Controls", content: "Scoped memory, token ledger, and artifact review stay visible." }],
+    filename: "artifact-brief",
+  });
+  assert.equal(docx.filename, "artifact-brief.docx");
+  assert.equal(docx.mimeType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  assert.ok(docx.bytes > 1000);
+  const docxBytes = Buffer.from(docx.base64, "base64");
+  assert.ok(docxBytes.subarray(0, 2).equals(Buffer.from("PK")));
+  assert.match(docxBytes.toString("utf8"), /Muster Artifact Brief/);
+  assert.match(docxBytes.toString("utf8"), /word\/document\.xml/);
+
+  const xlsx = await xlsx_workbook({
+    sheetName: "Token Ledger",
+    rows: [{ item: "naive", tokens: 48000 }, { item: "muster", tokens: 1800 }],
+    filename: "token-ledger",
+  });
+  assert.equal(xlsx.filename, "token-ledger.xlsx");
+  assert.equal(xlsx.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const xlsxText = Buffer.from(xlsx.base64, "base64").toString("utf8");
+  assert.match(xlsxText, /Token Ledger/);
+  assert.match(xlsxText, /muster/);
+  assert.match(xlsxText, /1800/);
+
+  const pptx = await pptx_presentation({
+    title: "Harness Controls",
+    slides: [{ title: "Why governance", bullets: ["Memory stays scoped", "Tokens stay visible"] }],
+    filename: "harness-controls",
+  });
+  assert.equal(pptx.filename, "harness-controls.pptx");
+  assert.equal(pptx.mimeType, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  const pptxText = Buffer.from(pptx.base64, "base64").toString("utf8");
+  assert.match(pptxText, /ppt\/slides\/slide1\.xml/);
+  assert.match(pptxText, /Why governance/);
+  assert.match(pptxText, /Memory stays scoped/);
+
+  const pdf = await pdf_document({
+    title: "Artifact Gate",
+    summary: "Simple PDF payloads are available locally.",
+    sections: [{ heading: "Review", content: "Use app-server PDF workflows when visual QA is required." }],
+    filename: "artifact-gate",
+  });
+  assert.equal(pdf.filename, "artifact-gate.pdf");
+  assert.equal(pdf.mimeType, "application/pdf");
+  assert.match(Buffer.from(pdf.base64, "base64").toString("utf8"), /^%PDF-1\.4/);
+  assert.match(Buffer.from(pdf.base64, "base64").toString("utf8"), /Artifact Gate/);
+
+  const plan = await artifact_capability_plan({ formats: ["docx", "xlsx", "pptx", "pdf"], hostCapabilities: { skills: ["documents", "spreadsheets"] } });
+  assert.deepEqual(plan.local, ["docx", "xlsx", "pptx", "pdf"]);
+  assert.deepEqual((plan.appServerHandoffs as Array<{ id: string; available: boolean }>).map((item) => [item.id, item.available]), [
+    ["documents", true],
+    ["spreadsheets", true],
+    ["presentations", false],
+    ["pdf", false],
+  ]);
 });
 
 test("github pack summarizes repos, searches issues, and lists pull requests", async () => {
