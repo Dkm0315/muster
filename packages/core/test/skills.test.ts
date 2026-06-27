@@ -109,11 +109,11 @@ test("built-in plugin catalog declares honest actionability levels", () => {
   assert.equal(byId.get("browserbase")?.actionability, "setup_plan");
   assert.equal(byId.get("memory-mem0")?.actionability, "setup_plan");
   assert.equal(byId.get("langfuse")?.actionability, "setup_plan");
-  assert.equal(byId.get("matrix")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("matrix")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-gemini")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-groq")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-perplexity")?.actionability, "setup_plan");
-  assert.equal(byId.get("signal")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("signal")?.actionability, "setup_plan");
   assert.equal(byId.get("document-extract")?.actionability, "setup_plan");
   assert.equal(byId.get("qa-lab")?.actionability, "setup_plan");
   assert.equal(byId.get("active-memory")?.actionability, "setup_plan");
@@ -121,7 +121,8 @@ test("built-in plugin catalog declares honest actionability levels", () => {
   for (const plugin of plugins) {
     assert.ok(plugin.actionability, `plugin ${plugin.id} must declare actionability`);
     if (plugin.setup?.channels?.length) {
-      assert.equal(plugin.actionability, "runtime_adapter", `channel plugin ${plugin.id} must not overclaim end-to-end induction`);
+      const expected = plugin.packPath ? "runtime_adapter" : "setup_plan";
+      assert.equal(plugin.actionability, expected, `channel plugin ${plugin.id} must distinguish bundled adapters from setup-only guides`);
     }
     if (plugin.actionability === "mcp_installable") {
       assert.ok(plugin.setup?.mcpServers?.length || plugin.setup?.defaultMcpServers?.length, `mcp_installable plugin ${plugin.id} needs MCP setup metadata`);
