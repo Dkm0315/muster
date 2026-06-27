@@ -2957,12 +2957,12 @@ async function resolveBuiltinPackPath(plugin: BuiltinPluginCatalogEntry): Promis
   return undefined;
 }
 
-async function rawPackToolCount(packPath: string): Promise<number> {
+async function rawPackTools(packPath: string): Promise<string[]> {
   try {
     const raw = JSON.parse(await readFile(resolve(packPath, "manifest.json"), "utf8")) as { implementedTools?: unknown };
-    return Array.isArray(raw.implementedTools) ? raw.implementedTools.length : 0;
+    return Array.isArray(raw.implementedTools) ? raw.implementedTools.filter((item): item is string => typeof item === "string") : [];
   } catch {
-    return 0;
+    return [];
   }
 }
 
@@ -2977,8 +2977,17 @@ async function printPluginPackStatus(plugin: BuiltinPluginCatalogEntry): Promise
     return;
   }
   const report = await inspectCapabilityPack(packPath);
-  const tools = await rawPackToolCount(packPath);
-  console.log(`pack=${plugin.packPath} status=${report.status} tools=${tools} path=${packPath}`);
+  const tools = report.manifest?.implementedTools ?? await rawPackTools(packPath);
+  const readiness = report.manifest?.readiness;
+  console.log(`pack=${plugin.packPath} status=${report.status} tools=${tools.length} path=${packPath}`);
+  if (readiness) {
+    console.log(`pack_readiness=level:${readiness.level} status:${readiness.status} action:${readiness.actionability} surfaces:${readiness.surfaces.join(",")}`);
+  }
+  if (tools.length) {
+    const visible = tools.slice(0, 8);
+    const suffix = tools.length > visible.length ? `,+${tools.length - visible.length}` : "";
+    console.log(`pack_tools=${visible.join(",")}${suffix}`);
+  }
   if (report.blockers.length) console.log(`pack_blockers=${report.blockers.join("; ")}`);
   if (report.warnings.length) console.log(`pack_warnings=${report.warnings.join("; ")}`);
 }
@@ -3653,6 +3662,7 @@ async function pluginsCommand(args: string[]): Promise<void> {
     if (!plugin) throw new Error(`Unknown built-in plugin "${path}". Run muster plugins catalog.`);
     console.log(`plugin=${plugin.id} source=${plugin.source} risk=${plugin.risk} action=${plugin.actionability}`);
     if (plugin.risk === "high") console.log("risk_note=High-risk integrations can send/read external messages or data; enabling requires --allow-high-risk.");
+    await printPluginPackStatus(plugin);
     await printPluginSetupStatus(plugin);
     if (!plugin.setup) console.log("setup=none");
     return;

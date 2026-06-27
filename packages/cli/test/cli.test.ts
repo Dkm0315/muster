@@ -979,6 +979,8 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const vllmCheck = await runCli(["plugins", "check", "vllm"], cwd);
   assert.match(vllmCheck.stdout, /plugin=vllm source=hermes risk=medium enabled=false/);
   assert.match(vllmCheck.stdout, /pack=capability-packs\/vllm status=ready tools=4/);
+  assert.match(vllmCheck.stdout, /pack_readiness=level:verified status:beta action:local_tool surfaces:cli/);
+  assert.match(vllmCheck.stdout, /pack_tools=vllm_setup_plan,vllm_server_check,vllm_metrics_summary,vllm_provider_config/);
   assert.match(vllmCheck.stdout, /plugin_env=ready/);
 
   const enabledVllmPlugin = await runCli(["plugins", "enable", "vllm"], cwd);
@@ -1007,6 +1009,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const developerToolsSetup = await runCli(["plugins", "setup", "developer-tools"], cwd);
   assert.match(developerToolsSetup.stdout, /plugin=developer-tools source=muster risk=medium/);
+  assert.match(developerToolsSetup.stdout, /pack=capability-packs\/developer-tools status=ready tools=4/);
+  assert.match(developerToolsSetup.stdout, /pack_readiness=level:verified status:beta action:local_tool surfaces:cli/);
+  assert.match(developerToolsSetup.stdout, /pack_tools=developer_tools_repo_workflow,developer_tools_surface_plan,developer_tools_command_policy,developer_tools_release_check/);
   assert.match(developerToolsSetup.stdout, /mcp=git status=installable/);
   assert.match(developerToolsSetup.stdout, /mcp=filesystem status=installable/);
   assert.match(developerToolsSetup.stdout, /Hermes-style development toolset planning/);
