@@ -6489,26 +6489,26 @@ async function demoCommand(_commandArgs: string[]): Promise<void> {
 
 async function benchmarkCommand(): Promise<void> {
   // Built-in Token Waste Index scenarios — deterministic, no model calls.
-  const toolResult = (name: string, chars: number) => ({ role: "tool" as const, toolName: name, content: `${name} ` + "output line ".repeat(Math.ceil(chars / 12)) });
-  const task = (id: string, description: string, turns: number, chars: number) => {
+  const toolResult = (name: string, size: number) => ({ role: "tool" as const, toolName: name, content: `[${name}] ` + "result line ".repeat(size) });
+  const task = (id: string, description: string, turns: number, toolSize: number) => {
     const transcript: import("@musterhq/core").TranscriptMessage[] = [
-      { role: "system", content: "You are an autonomous agent. Use tools, then report." },
+      { role: "system", content: "You are an autonomous coding/ops agent. Use tools, then report." },
       { role: "user", content: `Task: ${description}` },
     ];
     for (let i = 0; i < turns; i += 1) {
-      transcript.push({ role: "assistant", content: `Step ${i + 1}: inspect the next artifact.` });
-      transcript.push(toolResult(`read_${i}`, chars));
-      transcript.push({ role: "user", content: `Continue with step ${i + 2}.` });
+      transcript.push({ role: "assistant", content: `Step ${i + 1}: I'll inspect the next artifact and proceed.` });
+      transcript.push(toolResult(`read_file_${i}`, toolSize));
+      transcript.push({ role: "user", content: `Looks right, continue with step ${i + 2}.` });
     }
-    transcript.push({ role: "assistant", content: "Done." });
+    transcript.push({ role: "assistant", content: "Done. Summary of all steps follows." });
     return { id, description, transcript };
   };
   const scenarios = [
-    task("codebase-refactor-20", "Refactor a module across 20 files", 20, 1440),
-    task("incident-triage-30", "Triage an incident across 30 log pulls", 30, 1080),
-    task("erp-data-audit-40", "Audit ERP records across 40 queries", 40, 840),
-    task("research-synthesis-25", "Synthesize 25 fetched sources", 25, 1800),
-    task("long-support-thread-50", "Resolve a 50-message support thread", 50, 720),
+    task("codebase-refactor-20", "Refactor a module across 20 files", 20, 120),
+    task("incident-triage-30", "Triage an incident across 30 log/metric pulls", 30, 90),
+    task("erp-data-audit-40", "Audit ERP records across 40 queries", 40, 70),
+    task("research-synthesis-25", "Synthesize findings from 25 fetched sources", 25, 150),
+    task("long-support-thread-50", "Resolve a 50-message support thread with tool lookups", 50, 60),
   ];
   const report = await runWasteBenchmark(scenarios, { budgetTokens: 8000, keepRecentToolResults: 5 });
   console.log(renderWasteReport(report));

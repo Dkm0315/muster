@@ -4,6 +4,17 @@ All notable changes to Muster are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 semantic versioning.
 
+## [0.1.8] - 2026-06-27
+
+Muster 0.1.8 is a release-proof patch for the public npm path.
+
+### Fixed
+- Aligned `muster benchmark` with the canonical benchmark scenario generator so
+  the CLI, README, website, and `benchmark/RESULTS.md` report the same
+  deterministic Token Waste Index values.
+- Updated package README quick-start/proof text so the npm package page uses
+  the verified pnpm command form and current benchmark numbers.
+
 ## [0.1.7] - 2026-06-27
 
 Muster 0.1.7 is the public demo and positioning release. It makes the first

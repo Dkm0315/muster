@@ -5,7 +5,7 @@
 > Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
 
 ```bash
-pnpm dlx @musterhq/cli init && muster demo
+pnpm --package=@musterhq/cli dlx muster demo
 ```
 
 ## See it work — `muster demo`
@@ -42,16 +42,16 @@ The **Token Waste Index** measures what Muster's immutable-transcript renderer a
 ```text
 scenario                          turns  naive    muster   reduction  replay-overhead
 --------------------------------------------------------------------------------------
-codebase-refactor-20              21     82.6k    40.7k    50.7%      90.5%
-incident-triage-30                31     140.4k   56.2k    59.9%      93.6%
-erp-data-audit-40                 41     197.8k   72.4k    63.4%      95.1%
-research-synthesis-25             26     156.8k   64.6k    58.8%      92.3%
-long-support-thread-50            51     268.8k   93.8k    65.1%      96.1%
+codebase-refactor-20              21     84.6k    42.7k    49.6%      90.5%
+incident-triage-30                31     144.9k   60.5k    58.2%      93.6%
+erp-data-audit-40                 41     205.5k   79.5k    61.3%      95.1%
+research-synthesis-25             26     160.0k   67.7k    57.7%      92.3%
+long-support-thread-50            51     280.8k   104.9k   62.7%      96.1%
 --------------------------------------------------------------------------------------
-AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
+AGGREGATE                         170    875.8k   355.2k   59.4%      94.2%
 ```
 
-**~61% fewer tokens on long agent sessions**, and the saving grows with session length. Full methodology + table: [benchmark/RESULTS.md](benchmark/RESULTS.md).
+**59.4% fewer tokens across the aggregate benchmark**, and the saving grows with session length. Full methodology + table: [benchmark/RESULTS.md](benchmark/RESULTS.md).
 
 ## Features
 
