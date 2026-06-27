@@ -438,7 +438,7 @@ Usage:
   muster schedule add "*/5 * * * *" "prompt" | list | remove <id> | run-due
   muster evolve <suite.json> [--runtime pi] [--provider anthropic] [--model ...] [--iterations 2]
   muster evolve selfcheck
-  muster flow save <file.json> | list | check <id> | run <id>
+  muster flow save <file.json> | list | check <id> | run <id> [--toolset core|full] [--allow-command cmd] [--allow-host host] [--pack dir]
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
   muster gateway init
   muster gateway start [--port 7460]
@@ -6550,20 +6550,27 @@ async function evolveCommand(commandArgs: string[]): Promise<void> {
   if (!report.converged || report.harnessChecks.some((check) => check.status === "failed")) process.exitCode = 1;
 }
 
-/**
- * v1 built-in deterministic tool registry for flows. `echo` returns its
- * resolved args, which is enough to demo template resolution and gates.
- * Real tool wiring (capability packs, Pi tools) lands in a later slice.
- */
-function builtinFlowRegistry(): FlowToolRegistry {
-  return {
-    echo: async (args) => args
-  };
+function builtinFlowRegistry(commandArgs: readonly string[] = []): FlowToolRegistry {
+  const toolRegistry = createToolRegistry();
+  registerBuiltinTools(toolRegistry);
+  const toolsets = readFlags([...commandArgs], "--toolset");
+  const allowedTools = new Set<string>();
+  for (const toolset of toolsets.length ? toolsets : ["core"]) {
+    for (const tool of toolRegistry.resolveToolset(toolset)) allowedTools.add(tool);
+  }
+  const registry = toolRegistry.toFlowRegistry({
+    cwd: process.cwd(),
+    allowCommands: readFlags([...commandArgs], "--allow-command"),
+    allowHosts: readFlags([...commandArgs], "--allow-host"),
+    toolAllowlist: [...allowedTools],
+  }, [...allowedTools]);
+  registry.echo = async (args) => args;
+  return registry;
 }
 
 /** Built-in registry plus any capability packs requested via --pack <dir> (repeatable). */
 async function flowRegistryWithPacks(commandArgs: string[]): Promise<FlowToolRegistry> {
-  const registry = builtinFlowRegistry();
+  const registry = builtinFlowRegistry(commandArgs);
   const pluginPolicy = await loadPluginPolicy();
   const slotClaims: Record<string, string> = {};
   for (const packDir of readFlags(commandArgs, "--pack")) {

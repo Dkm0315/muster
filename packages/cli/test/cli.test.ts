@@ -2068,6 +2068,56 @@ test("CLI flow save, check, run with gate, approve, and runs work end to end", a
   assert.match(badCheck.stderr, /Flow not found: missing-flow/);
 });
 
+test("CLI flows run governed built-in tools and keep shell opt-in", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-flow-tools-"));
+  await runCli(["init"], cwd);
+  await writeFile(join(cwd, "notes.txt"), "Muster flow tools can read governed workspace files.", "utf8");
+  await writeFile(
+    join(cwd, "read-notes.json"),
+    JSON.stringify({
+      id: "read-notes",
+      steps: [
+        { id: "read", kind: "tool", tool: "read_file", args: { path: "notes.txt", limit: 5 } },
+      ],
+    }),
+    "utf8",
+  );
+
+  await runCli(["flow", "save", "read-notes.json"], cwd);
+  const checked = await runCli(["flow", "check", "read-notes"], cwd);
+  assert.match(checked.stdout, /flow=read-notes preflight=ok/);
+
+  const run = await runCli(["flow", "run", "read-notes"], cwd);
+  assert.match(run.stdout, /step=read status=completed/);
+  assert.match(run.stdout, /status=completed/);
+  const readRunId = run.stdout.match(/flow_run=(flowrun_[a-f0-9]+)/)?.[1];
+  assert.ok(readRunId);
+  const flowEvents = await readFile(join(cwd, ".muster", "data", "flows", `${readRunId}.jsonl`), "utf8");
+  assert.match(flowEvents, /governed workspace files/);
+
+  await writeFile(
+    join(cwd, "shell.json"),
+    JSON.stringify({
+      id: "shell-check",
+      steps: [{ id: "node", kind: "tool", tool: "terminal", args: { command: "node", args: ["--version"] } }],
+    }),
+    "utf8",
+  );
+  await runCli(["flow", "save", "shell.json"], cwd);
+
+  const defaultShellCheck = await runCliAllowFailure(["flow", "check", "shell-check"], cwd);
+  assert.equal(defaultShellCheck.code, 1);
+  assert.match(defaultShellCheck.stdout, /tool "terminal" is not registered/);
+
+  const shellRunWithoutAllow = await runCliAllowFailure(["flow", "run", "shell-check", "--toolset", "full"], cwd);
+  assert.equal(shellRunWithoutAllow.code, 1);
+  assert.match(shellRunWithoutAllow.stdout, /Tool terminal is not available in this context/);
+
+  const shellRun = await runCli(["flow", "run", "shell-check", "--toolset", "full", "--allow-command", "node"], cwd);
+  assert.match(shellRun.stdout, /step=node status=completed/);
+  assert.match(shellRun.stdout, /status=completed/);
+});
+
 test("CLI doctor --fix bootstraps a fresh workspace and status renders mission control", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-status-"));
 
