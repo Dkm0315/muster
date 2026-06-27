@@ -387,7 +387,7 @@ Usage:
   muster capability load <path> [--allow-high-risk]
   muster artifacts plan --format docx|xlsx|pptx|pdf [--destination local|google-drive|microsoft-365] [--polished]
   muster artifacts create --format docx|xlsx|pptx|pdf --title "..." [--summary "..."] [--out path]
-  muster plugins list | catalog | setup <id> | reuse <provider> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
+  muster plugins list | catalog | setup <id> | reuse <provider> [--adopt-mcp id|--adopt-all-mcps] | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
@@ -2266,6 +2266,7 @@ async function printChatSkills(selection: string | undefined, state: ChatState):
 async function printChatPlugins(selection: string | undefined, state: ChatState): Promise<void> {
   const parsed = parseChatSelection(selection);
   const selected = parsed.value;
+  const rawParts = (selection ?? "").split(/\s+/).filter(Boolean);
   if (selected === "reuse" || selected === "discover") {
     const provider = parsed.rest[0];
     if (!provider) {
@@ -2279,7 +2280,7 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
       openNextPicker(state, "/plugins reuse");
       return;
     }
-    await pluginReuseCommand(provider);
+    await pluginReuseCommand(provider, rawParts.slice(2));
     openNextPicker(state, "/plugins");
     return;
   }
@@ -3649,7 +3650,7 @@ async function pluginsCommand(args: string[]): Promise<void> {
     return;
   }
   if (action === "reuse" || action === "discover") {
-    await pluginReuseCommand(path ?? "codex");
+    await pluginReuseCommand(path ?? "codex", args.slice(2));
     return;
   }
   if (action === "enable" && path) {
@@ -3726,7 +3727,7 @@ interface ProviderReuseMcp {
   readonly args?: readonly string[];
 }
 
-async function pluginReuseCommand(host: string): Promise<void> {
+async function pluginReuseCommand(host: string, args: string[] = []): Promise<void> {
   const source = providerReuseSource(host);
   if (!source) {
     console.log(`provider=${host} status=unsupported`);
@@ -3738,8 +3739,10 @@ async function pluginReuseCommand(host: string): Promise<void> {
   const candidates = await scanProviderPluginReuseCandidates(source);
   const appCount = candidates.reduce((count, plugin) => count + plugin.apps.length, 0);
   const mcpCount = candidates.reduce((count, plugin) => count + plugin.mcps.length, 0);
+  const requestedAdoptions = readFlags(args, "--adopt-mcp").map(normalizeProviderMcpId);
+  const adoptAll = args.includes("--adopt-all-mcps") || args.includes("--adopt-all-mcp");
   console.log(`provider=${source.provider} status=${candidates.length ? "discovered" : "not_found"} plugins=${candidates.length} apps=${appCount} mcps=${mcpCount}`);
-  console.log("policy=discover_only secrets=not_read tokens=not_copied");
+  console.log(`${requestedAdoptions.length || adoptAll ? "policy=adopt_mcp" : "policy=discover_only"} secrets=not_read tokens=not_copied`);
   if (!candidates.length) {
     console.log(`checked=${source.root}`);
     console.log(`next=Install or authenticate provider plugins, or set MUSTER_${providerEnvKey(source.provider)}_PLUGIN_CACHE to the provider plugin cache path.`);
@@ -3761,12 +3764,88 @@ async function pluginReuseCommand(host: string): Promise<void> {
       console.log(`  mcp=${mcp.id} transport=${mcp.transport} ${detail} next="${next}"`);
     }
   }
+  if (requestedAdoptions.length || adoptAll) {
+    const allMcps = candidates.flatMap((plugin) => plugin.mcps.map((mcp) => ({ plugin, mcp })));
+    const selected = adoptAll
+      ? allMcps
+      : requestedAdoptions.flatMap((id) => allMcps.filter((candidate) => candidate.mcp.id === id));
+    const missing = adoptAll ? [] : requestedAdoptions.filter((id) => !allMcps.some((candidate) => candidate.mcp.id === id));
+    for (const id of missing) console.log(`adopted_mcp=${id} status=not_found provider=${source.provider}`);
+    const seen = new Set<string>();
+    for (const candidate of selected) {
+      if (seen.has(candidate.mcp.id)) continue;
+      seen.add(candidate.mcp.id);
+      const result = await adoptProviderReuseMcp(candidate.mcp, candidate.plugin);
+      console.log(`adopted_mcp=${candidate.mcp.id} provider=${source.provider} status=${result.status} transport=${result.transport} auth=${result.auth} next="${result.next}"`);
+    }
+    if (selected.length) console.log("adoption_note=Provider secrets and OAuth tokens were not copied; run login/test commands to authenticate or verify Muster-owned config.");
+  }
   console.log("next=muster mcp catalog");
   console.log("next=muster plugins setup authenticated-app-reuse");
+  console.log("adopt_mcp=muster plugins reuse <provider> --adopt-mcp <id>");
+  console.log("adopt_all_mcps=muster plugins reuse <provider> --adopt-all-mcps");
   console.log("explicit_mcp_http=muster mcp add-http <name> <url> [--oauth ...]");
   console.log("explicit_mcp_stdio=muster mcp add-stdio <name> <command> [args...]");
   console.log("explicit_plugin=muster plugins inspect <path> && muster plugins load <path> [--allow-high-risk]");
   console.log("explicit_skill=muster skills catalog && muster skills enable <id>");
+}
+
+async function adoptProviderReuseMcp(mcp: ProviderReuseMcp, plugin: ProviderReusePlugin): Promise<{ readonly status: "configured" | "skipped"; readonly transport: string; readonly auth: string; readonly next: string }> {
+  const key = safeConfigKey(mcp.id);
+  const existing = (await loadConfig()).tools?.mcp?.servers?.[key];
+  if (existing) {
+    return {
+      status: "skipped",
+      transport: existing.transport.kind,
+      auth: existing.auth ?? "none",
+      next: `muster mcp status ${key}`,
+    };
+  }
+  const builtin = findBuiltinMcpEntry(mcp.id);
+  if (builtin?.install && mcp.transport === "http" && builtin.install.transport.kind === "http" && builtin.install.transport.url === mcp.url) {
+    await configureBuiltinMcp(mcp.id);
+    return {
+      status: "configured",
+      transport: "http",
+      auth: builtin.install.auth ?? builtin.auth ?? "none",
+      next: builtin.install.auth === "oauth" || builtin.auth === "oauth" ? `muster mcp login ${key}` : `muster mcp test ${key}`,
+    };
+  }
+  if (mcp.transport === "http" && mcp.url) {
+    const config = await loadConfig();
+    const server: McpServerConfig = {
+      transport: { kind: "http", url: mcp.url },
+      auth: "oauth",
+      oauth: { setupUrl: mcp.url, clientName: "Muster" },
+    };
+    await saveConfig({
+      ...config,
+      tools: {
+        ...(config.tools ?? {}),
+        mcp: {
+          ...(config.tools?.mcp ?? {}),
+          servers: { ...(config.tools?.mcp?.servers ?? {}), [key]: server },
+        },
+      },
+    });
+    return { status: "configured", transport: "http", auth: "oauth", next: `muster mcp login ${key}` };
+  }
+  if (mcp.transport === "stdio" && mcp.command) {
+    const config = await loadConfig();
+    const server: McpServerConfig = { transport: { kind: "stdio", command: mcp.command, args: [...(mcp.args ?? [])] } };
+    await saveConfig({
+      ...config,
+      tools: {
+        ...(config.tools ?? {}),
+        mcp: {
+          ...(config.tools?.mcp ?? {}),
+          servers: { ...(config.tools?.mcp?.servers ?? {}), [key]: server },
+        },
+      },
+    });
+    return { status: "configured", transport: "stdio", auth: "none", next: `muster mcp test ${key}` };
+  }
+  return { status: "skipped", transport: mcp.transport, auth: "unknown", next: providerMcpNextCommand(mcp, plugin) };
 }
 
 function providerReuseSource(provider: string): ProviderReuseSource | undefined {

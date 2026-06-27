@@ -1045,21 +1045,47 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const providerCache = join(cwd, "provider-cache", "curated", "figma", "2.0.12");
   await mkdir(providerCache, { recursive: true });
   await writeFile(join(providerCache, ".app.json"), JSON.stringify({ apps: { figma: { required: true }, google_calendar: { optional: true } } }), "utf8");
-  await writeFile(join(providerCache, ".mcp.json"), JSON.stringify({ mcpServers: { figma: { type: "http", url: "https://mcp.figma.com/mcp" }, github: { type: "http", url: "https://api.githubcopilot.com/mcp/" } } }), "utf8");
+  await writeFile(join(providerCache, ".mcp.json"), JSON.stringify({
+    mcpServers: {
+      figma: { type: "http", url: "https://mcp.figma.com/mcp" },
+      github: { type: "http", url: "https://api.githubcopilot.com/mcp/", bearerToken: "sk-provider-token-should-not-print" },
+      local_tool: { type: "stdio", command: "node", args: ["./server.js"] },
+    },
+  }), "utf8");
   const providerReuse = await runCli(["plugins", "reuse", "test-provider"], cwd, {
     MUSTER_TEST_PROVIDER_PLUGIN_CACHE: join(cwd, "provider-cache"),
   });
-  assert.match(providerReuse.stdout, /provider=test-provider status=discovered plugins=1 apps=2 mcps=2/);
+  assert.match(providerReuse.stdout, /provider=test-provider status=discovered plugins=1 apps=2 mcps=3/);
   assert.match(providerReuse.stdout, /policy=discover_only secrets=not_read tokens=not_copied/);
   assert.match(providerReuse.stdout, /plugin=figma provider=test-provider version=2\.0\.12/);
   assert.match(providerReuse.stdout, /app=figma mode=required auth=reuse_host next="muster plugins setup figma"/);
   assert.match(providerReuse.stdout, /app=google-calendar mode=optional auth=reuse_host next="muster plugins setup google-calendar"/);
   assert.match(providerReuse.stdout, /mcp=figma transport=http url=https:\/\/mcp\.figma\.com\/mcp next="muster mcp install figma && muster mcp login figma"/);
   assert.match(providerReuse.stdout, /mcp=github transport=http url=https:\/\/api\.githubcopilot\.com\/mcp\/ next="muster mcp add-http github https:\/\/api\.githubcopilot\.com\/mcp\/ --oauth"/);
+  assert.match(providerReuse.stdout, /mcp=local-tool transport=stdio command=node .*server\.js next="muster mcp add-stdio local-tool node .*server\.js"/);
+  assert.doesNotMatch(providerReuse.stdout, /sk-provider-token-should-not-print/);
+  assert.match(providerReuse.stdout, /adopt_mcp=muster plugins reuse <provider> --adopt-mcp <id>/);
   assert.match(providerReuse.stdout, /explicit_mcp_http=muster mcp add-http <name> <url> \[--oauth \.\.\.\]/);
   assert.match(providerReuse.stdout, /explicit_mcp_stdio=muster mcp add-stdio <name> <command> \[args\.\.\.\]/);
   assert.match(providerReuse.stdout, /explicit_plugin=muster plugins inspect <path> && muster plugins load <path> \[--allow-high-risk\]/);
   assert.match(providerReuse.stdout, /explicit_skill=muster skills catalog && muster skills enable <id>/);
+
+  const adoptedProviderMcps = await runCli(["plugins", "reuse", "test-provider", "--adopt-mcp", "github", "--adopt-mcp", "local-tool", "--adopt-mcp", "missing"], cwd, {
+    MUSTER_TEST_PROVIDER_PLUGIN_CACHE: join(cwd, "provider-cache"),
+  });
+  assert.match(adoptedProviderMcps.stdout, /policy=adopt_mcp secrets=not_read tokens=not_copied/);
+  assert.match(adoptedProviderMcps.stdout, /adopted_mcp=github provider=test-provider status=configured transport=http auth=oauth next="muster mcp login github"/);
+  assert.match(adoptedProviderMcps.stdout, /adopted_mcp=local-tool provider=test-provider status=configured transport=stdio auth=none next="muster mcp test local-tool"/);
+  assert.match(adoptedProviderMcps.stdout, /adopted_mcp=missing status=not_found provider=test-provider/);
+  assert.match(adoptedProviderMcps.stdout, /adoption_note=Provider secrets and OAuth tokens were not copied/);
+  assert.doesNotMatch(adoptedProviderMcps.stdout, /sk-provider-token-should-not-print/);
+
+  const adoptedStatus = await runCli(["mcp", "status"], cwd);
+  assert.match(adoptedStatus.stdout, /mcp=github transport=http https:\/\/api\.githubcopilot\.com\/mcp\/ auth=oauth/);
+  assert.match(adoptedStatus.stdout, /mcp=local-tool transport=stdio node .*server\.js auth=none/);
+  assert.doesNotMatch(adoptedStatus.stdout, /sk-provider-token-should-not-print/);
+  await runCli(["mcp", "remove", "github"], cwd);
+  await runCli(["mcp", "remove", "local-tool"], cwd);
 
   const developerToolsCheck = await runCli(["plugins", "check", "developer-tools"], cwd);
   assert.match(developerToolsCheck.stdout, /plugin=developer-tools source=muster risk=medium enabled=false/);
