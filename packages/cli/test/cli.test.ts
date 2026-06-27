@@ -162,6 +162,9 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const optionalSkillCompletion = await runCli(["chat", "--complete", "/skills advers"], cwd);
   assert.match(optionalSkillCompletion.stdout, /adversarial-ux-test/);
 
+  const skillTagCompletion = await runCli(["chat", "--complete", "/skills ux"], cwd);
+  assert.match(skillTagCompletion.stdout, /adversarial-ux-test/);
+
   const mcpCompletion = await runCli(["chat", "--complete", "/mcp par"], cwd);
   assert.match(mcpCompletion.stdout, /parallel-search/);
 

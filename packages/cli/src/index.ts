@@ -599,7 +599,7 @@ const CHAT_SPEED_OPTIONS: readonly PickerOption[] = [
 const CHAT_SKILL_OPTIONS = listBuiltinSkills().map((skill) => ({
   value: skill.id,
   label: skill.id,
-  description: `${skill.category} · ${skill.source} · risk ${skill.risk}`,
+  description: `${skill.category} · ${skill.source} · risk ${skill.risk}${skill.tags.length ? ` · ${skill.tags.join(", ")}` : ""} · ${skill.description}`,
 }));
 const CHAT_PLUGIN_OPTIONS = listBuiltinPlugins().map((plugin) => ({
   value: plugin.id,
@@ -1236,6 +1236,20 @@ function chatCompletions(line: string): string[] {
   if (command === "resume" || command === "name") {
     return recentChatSessionNames().filter((name) => name.toLowerCase().startsWith(fragment));
   }
+  if (command === "skills" || command === "skill") {
+    return filterPickerOptions(chatSkillOptions(), fragment).map((skill) => skill.value);
+  }
+  if (command === "plugins" || command === "plugin") {
+    const lower = fragment.toLowerCase();
+    return CHAT_PLUGIN_OPTIONS
+      .map((option, index) => ({ option, index, rank: pickerMatchRank(option, lower) }))
+      .filter((entry) => entry.rank < Number.POSITIVE_INFINITY)
+      .sort((left, right) => left.rank - right.rank || left.index - right.index)
+      .map((entry) => entry.option.value);
+  }
+  if (command === "mcp") {
+    return filterPickerOptions(CHAT_MCP_OPTIONS, fragment).map((server) => server.value);
+  }
   return [];
 }
 
@@ -1306,7 +1320,7 @@ function clearLiveSuggestions(hintState: { visible: boolean; key: string; active
 
 async function liveSuggestions(line: string, state: ChatState): Promise<ChatSuggestion[]> {
   const trimmed = line.trimStart();
-  if (trimmed === "/" || /^\/[a-z-]*$/i.test(trimmed)) {
+  if (trimmed === "/" || (/^\/[a-z-]*$/i.test(trimmed) && !isBareContextualPickerCommand(trimmed))) {
     const fragment = trimmed.slice(1).toLowerCase();
     return CHAT_COMMANDS
       .filter((command) => command.name.startsWith(fragment) || command.aliases?.some((alias) => alias.startsWith(fragment)))
@@ -1316,8 +1330,8 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
         kind: "command" as const,
       }));
   }
-  if (/^\/tools\s+\S*$/i.test(trimmed)) {
-    const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
+  if (/^\/tools(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
     return CHAT_TOOLSETS
       .filter((toolset) => toolset.startsWith(fragment))
       .map((toolset) => ({
@@ -1326,14 +1340,94 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
         kind: "completion" as const,
       }));
   }
-  if (/^\/resume\s+\S*$/i.test(trimmed) || /^\/name\s+\S*$/i.test(trimmed)) {
+  if (/^\/(?:resume|name)(?:\s+\S*)?$/i.test(trimmed)) {
     const command = trimmed.split(/\s+/)[0] ?? "/resume";
-    const fragment = trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "";
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
     return recentChatSessionNames()
       .filter((name) => name.toLowerCase().startsWith(fragment))
       .map((name) => ({
         label: `${color(name.padEnd(20), "highlight")} chat session`,
         value: `${command} ${name}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/(?:provider|use-provider)(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(await chatProviderOptions(state), fragment)
+      .slice(0, 24)
+      .map((provider) => ({
+        label: `${color(provider.value.padEnd(28), "highlight")} ${provider.description ?? "provider"}`,
+        value: `/provider ${provider.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/model(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(await chatModelOptions(state.provider, state), fragment)
+      .slice(0, 24)
+      .map((model) => ({
+        label: `${color(model.value.padEnd(28), "highlight")} ${model.description ?? "model"}`,
+        value: `/model ${model.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/runtime(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(await chatRuntimeOptions(state), fragment)
+      .slice(0, 24)
+      .map((runtime) => ({
+        label: `${color(runtime.value.padEnd(28), "highlight")} ${runtime.description ?? "runtime"}`,
+        value: `/runtime ${runtime.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/cloud(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(chatCloudOptions(), fragment)
+      .slice(0, 24)
+      .map((cloud) => ({
+        label: `${color(cloud.value.padEnd(28), "highlight")} ${cloud.description ?? "cloud preset"}`,
+        value: `/cloud ${cloud.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/speed(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(chatSpeedOptions(state.speedMode ?? "fast"), fragment)
+      .slice(0, 24)
+      .map((speed) => ({
+        label: `${color(speed.value.padEnd(28), "highlight")} ${speed.description ?? "speed mode"}`,
+        value: `/speed ${speed.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/skills?\s+\S*$/i.test(trimmed) || /^\/skills?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(chatSkillOptions(), fragment)
+      .slice(0, 24)
+      .map((skill) => ({
+        label: `${color(skill.value.padEnd(28), "highlight")} ${skill.description ?? "built-in skill"}`,
+        value: `/skills ${skill.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/plugins?\s+\S*$/i.test(trimmed) || /^\/plugins?$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(await chatPluginOptions(), fragment)
+      .slice(0, 24)
+      .map((plugin) => ({
+        label: `${color(plugin.value.padEnd(28), "highlight")} ${plugin.description ?? "built-in plugin"}`,
+        value: `/plugins ${plugin.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/mcp\s+\S*$/i.test(trimmed) || /^\/mcp$/i.test(trimmed)) {
+    const fragment = trimmed.includes(" ") ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(await chatMcpOptions(), fragment)
+      .slice(0, 24)
+      .map((server) => ({
+        label: `${color(server.value.padEnd(28), "highlight")} ${server.description ?? "MCP server"}`,
+        value: `/mcp ${server.value}`,
         kind: "completion" as const,
       }));
   }
@@ -1352,6 +1446,10 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
       }));
   }
   return [];
+}
+
+function isBareContextualPickerCommand(trimmed: string): boolean {
+  return /^\/(?:tools|resume|name|provider|use-provider|model|runtime|cloud|speed|skills?|plugins?|mcp)$/i.test(trimmed);
 }
 
 function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggestion[], selectedIndex: number): string {
@@ -1376,7 +1474,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   const prompt = routed ? routed.prompt : text;
   const agentId = routed?.agentId;
   const config = await loadConfig();
-  await printMentionedCapabilityChecks(prompt, config);
+  const mentionedCapabilities = await printMentionedCapabilityChecks(prompt, config);
   const started = Date.now();
   const stopWorking = state.statusSink ? startTuiWorkingStatus(state.statusSink, agentId, started) : startWorkingStatus(agentId, started);
   let outcome: RunOutcome;
@@ -1405,6 +1503,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   }
   persistChatTranscriptIfMissing(state.sessionName, prompt, outcome);
   printAssistantResponse(outcome);
+  openMentionedCapabilityPicker(state, mentionedCapabilities, config);
 }
 
 function startTuiWorkingStatus(sink: MusterChatSink, agentId: string | undefined, started: number): () => void {
@@ -1455,9 +1554,12 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
   return { agentId: match[1], prompt: match[2].trim() };
 }
 
-async function printMentionedCapabilityChecks(prompt: string, config: Awaited<ReturnType<typeof loadConfig>>): Promise<void> {
+async function printMentionedCapabilityChecks(
+  prompt: string,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): Promise<readonly BuiltinCapabilityMention[]> {
   const mentions = resolveBuiltinCapabilityMentions(prompt, { limit: 5 });
-  if (!mentions.length) return;
+  if (!mentions.length) return [];
   const lines: string[] = [];
   for (const mention of mentions) {
     lines.push(await formatMentionedCapabilityCheck(mention, config));
@@ -1465,8 +1567,48 @@ async function printMentionedCapabilityChecks(prompt: string, config: Awaited<Re
   printChatPanel("Capability Check", [
     color("Muster noticed capability names in your prompt and checked setup before routing.", "dim"),
     ...lines,
-    color("Use /plugins, /skills, or /mcp to select, enable, install, test, or inspect one explicitly.", "dim"),
+    color("The matching picker opens after this turn so you can confirm setup instead of guessing commands.", "dim"),
   ]);
+  return mentions;
+}
+
+function openMentionedCapabilityPicker(
+  state: ChatState,
+  mentions: readonly BuiltinCapabilityMention[],
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): void {
+  if (!state.statusSink || !mentions.length) return;
+  const mention = mentions.find((candidate) => candidate.kind === "plugin" && !isMentionedPluginEnabled(candidate, config))
+    ?? mentions.find((candidate) => candidate.kind === "mcp" && !isMentionedMcpConfigured(candidate, config))
+    ?? mentions.find((candidate) => candidate.kind === "skill")
+    ?? mentions[0];
+  if (!mention) return;
+  if (mention.kind === "plugin") {
+    const suffix = mention.risk === "high" && !isMentionedPluginEnabled(mention, config) ? " --allow-high-risk" : "";
+    openNextPicker(state, `/plugins ${mention.id}${suffix}`);
+    return;
+  }
+  if (mention.kind === "skill") {
+    openNextPicker(state, `/skills ${mention.id}`);
+    return;
+  }
+  openNextPicker(state, `/mcp ${isMentionedMcpConfigured(mention, config) ? `test ${mention.id}` : mention.id}`);
+}
+
+function isMentionedPluginEnabled(
+  mention: BuiltinCapabilityMention,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): boolean {
+  return mention.kind === "plugin" && config.plugins?.entries?.[mention.id]?.enabled !== false && Boolean(
+    config.plugins?.entries?.[mention.id] !== undefined || config.plugins?.allow?.includes(mention.id)
+  );
+}
+
+function isMentionedMcpConfigured(
+  mention: BuiltinCapabilityMention,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): boolean {
+  return mention.kind === "mcp" && Boolean(config.tools?.mcp?.servers?.[safeConfigKey(mention.id)]);
 }
 
 async function formatMentionedCapabilityCheck(
