@@ -31,6 +31,11 @@ Each PR must include the smallest useful implementation plus evidence:
 
 - Unit or integration tests for the changed behavior.
 - `muster qa scorecard` impact when relevant.
+- `muster qa run pack_readiness --artifact-dir <dir> --evidence <scorecard>`
+  for capability, plugin, skill, MCP, or channel-pack claims.
+- `muster qa scorecard --evidence <scorecard> --strict-release` before release;
+  strict mode checks suite-specific required case IDs and rejects thin smoke
+  artifacts.
 - Frappe-2 live evidence for terminal, provider, retrieval, or integration work.
 - No passed QA suite without `manifest.json` and passing `cases.jsonl`.
 - No provider or integration feature marked ready without setup and failure UX.

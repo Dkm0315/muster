@@ -111,11 +111,14 @@ import {
   inspectProviderConfig,
   buildRuntimeMaturityScorecard,
   renderRuntimeMaturityScorecard,
+  validateStrictReleaseEvidence,
+  renderStrictReleaseValidation,
   loadRuntimeQaEvidence,
   qaEvidencePath,
   recordRuntimeQaSuiteEvidence,
   runMcpAuthFailureQa,
   runMemoryRetrievalSpeedQa,
+  runPackReadinessQa,
   runProviderLatencyQa,
   runChannelPluginSetupQa,
   REQUIRED_QA_SUITES,
@@ -370,9 +373,9 @@ Usage:
   muster integrations [list|guide|status]  # layman setup guide for chat apps, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
-  muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path]
+  muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] [--strict-release]
   muster qa suites
-  muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path]
+  muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts|pack_readiness [--artifact-dir DIR] [--evidence path]
   muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary "..."
   muster memory add --summary "..." --scope user:me --provenance manual
   muster memory search --scope user:me [--query "..."] [--include-global]
@@ -4602,7 +4605,7 @@ async function qaCommand(args: string[]): Promise<void> {
     return;
   }
   if (subcommand !== "scorecard") {
-    throw new Error("Usage: muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] | muster qa suites | muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path] | muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary \"...\"");
+    throw new Error("Usage: muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] [--strict-release] | muster qa suites | muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts|pack_readiness [--artifact-dir DIR] [--evidence path] | muster qa record <suite> --status passed|warning|failed|unknown --artifact-dir DIR --summary \"...\"");
   }
   await ensureDefaultConfig();
   const config = await loadConfig();
@@ -4620,6 +4623,10 @@ async function qaCommand(args: string[]): Promise<void> {
     evidence: storedEvidence,
   });
   console.log(renderRuntimeMaturityScorecard(scorecard));
+  const strictValidation = args.includes("--strict-release")
+    ? validateStrictReleaseEvidence(storedEvidence)
+    : undefined;
+  if (strictValidation) console.log(renderStrictReleaseValidation(strictValidation));
   console.log(`evidence=${evidencePath}`);
   console.log(`required_suites=${REQUIRED_QA_SUITES.join(",")}`);
   if (providerReports.length) {
@@ -4629,7 +4636,7 @@ async function qaCommand(args: string[]): Promise<void> {
       if (provider.fix && provider.status !== "passed") console.log(`fix     ${provider.id.padEnd(16)} ${provider.fix}`);
     }
   }
-  if (scorecard.status === "failed") process.exitCode = 1;
+  if (scorecard.status === "failed" || strictValidation?.status === "failed") process.exitCode = 1;
 }
 
 function printQaSuites(): void {
@@ -4666,8 +4673,8 @@ async function recordQaEvidence(args: string[]): Promise<void> {
 
 async function runQaSuite(args: string[]): Promise<void> {
   const suite = args[0];
-  if (suite !== "pty_tui" && suite !== "mcp_auth_failure" && suite !== "memory_retrieval_speed" && suite !== "provider_latency" && suite !== "channel_plugin_setup" && suite !== "frappe2_real_prompts") {
-    throw new Error("Usage: muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts [--artifact-dir DIR] [--evidence path]");
+  if (suite !== "pty_tui" && suite !== "mcp_auth_failure" && suite !== "memory_retrieval_speed" && suite !== "provider_latency" && suite !== "channel_plugin_setup" && suite !== "frappe2_real_prompts" && suite !== "pack_readiness") {
+    throw new Error("Usage: muster qa run pty_tui|mcp_auth_failure|memory_retrieval_speed|provider_latency|channel_plugin_setup|frappe2_real_prompts|pack_readiness [--artifact-dir DIR] [--evidence path]");
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   if (suite === "frappe2_real_prompts") {
@@ -4688,6 +4695,10 @@ async function runQaSuite(args: string[]): Promise<void> {
   }
   if (suite === "memory_retrieval_speed") {
     await runMemoryQaSuite(args, stamp);
+    return;
+  }
+  if (suite === "pack_readiness") {
+    await runPackReadinessQaSuite(args, stamp);
     return;
   }
   await runMcpAuthQaSuite(args, stamp);
@@ -4844,6 +4855,28 @@ async function runMemoryQaSuite(args: string[], stamp: string): Promise<void> {
   console.log(`metric=stale_hit_rate value=${result.retrieval.suite.staleHitRate.toFixed(3)}`);
   console.log(`metric=probe_p95_ms value=${result.probe.p95Ms.toFixed(3)} max=${maxP95Ms}`);
   console.log(`backend=${result.probe.backend}`);
+  if (result.status === "failed") process.exitCode = 1;
+}
+
+async function runPackReadinessQaSuite(args: string[], stamp: string): Promise<void> {
+  const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `pack-readiness-${stamp}`));
+  const result = await runPackReadinessQa({ artifactDir });
+  const evidencePath = readFlag(args, "--evidence");
+  await recordRuntimeQaSuiteEvidence({
+    suite: "pack_readiness",
+    status: result.status,
+    artifactDir: result.artifactDir,
+    summary: result.summary,
+    evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
+  });
+  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`artifact_dir=${result.artifactDir}`);
+  console.log(`artifact_manifest=${result.manifestPath}`);
+  console.log(`artifact_cases=${result.casesPath}`);
+  console.log(`artifact_catalog=${result.catalogPath}`);
+  for (const testCase of result.cases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
   if (result.status === "failed") process.exitCode = 1;
 }
 

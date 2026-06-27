@@ -53,6 +53,12 @@ export interface RuntimeMaturityScorecard {
   };
 }
 
+export interface StrictReleaseValidation {
+  readonly status: RuntimeDoctorStatus;
+  readonly checks: readonly RuntimeDoctorCheck[];
+  readonly summary: RuntimeMaturityScorecard["summary"];
+}
+
 export const REQUIRED_QA_SUITES = [
   "pty_tui",
   "provider_latency",
@@ -60,9 +66,55 @@ export const REQUIRED_QA_SUITES = [
   "memory_retrieval_speed",
   "channel_plugin_setup",
   "frappe2_real_prompts",
+  "pack_readiness",
 ] as const;
 
 export type RequiredQaSuiteId = typeof REQUIRED_QA_SUITES[number];
+
+const REQUIRED_QA_CASES: Readonly<Record<RequiredQaSuiteId, readonly string[]>> = {
+  pty_tui: [
+    "slash_overlay_stable",
+    "escape_closes_overlay",
+    "history_navigation",
+    "prompt_visible_after_output",
+    "agent_overlay",
+    "large_overlay_scroll",
+    "selected_row_contrast",
+    "provider_model_speed_workflow",
+    "cramped_transcript_receipts",
+    "key_classifier",
+    "responsive_widths",
+  ],
+  provider_latency: ["sample_1", "overhead_p50_gate"],
+  mcp_auth_failure: ["missing_token", "expired_token", "invalid_token", "valid_token", "logout_recovery"],
+  memory_retrieval_speed: ["retrieval_quality", "probe_latency", "index_health"],
+  channel_plugin_setup: [
+    "catalog_core_surfaces",
+    "setup_guidance_frappe-federated-bridge",
+    "setup_guidance_web-frameworks",
+    "setup_guidance_google-workspace",
+    "setup_guidance_telegram",
+    "setup_guidance_slack",
+    "high_risk_refusal",
+    "enable_disable_policy",
+    "mcp_install_guidance",
+  ],
+  frappe2_real_prompts: [
+    "remote_identity",
+    "global_help_and_qa_catalog",
+    "codex_runtime_doctor",
+    "memory_status_probe",
+    "real_prompt_latency",
+    "retrieval_artifact_gate",
+  ],
+  pack_readiness: [
+    "all_manifests_parse",
+    "readiness_metadata_visible",
+    "no_release_ready_without_evidence",
+    "high_risk_has_secrets_and_policy",
+    "declared_evals_are_visible",
+  ],
+};
 
 export interface QaSuiteEvidence {
   readonly status: RuntimeDoctorStatus;
@@ -329,6 +381,81 @@ export function buildRuntimeMaturityScorecard(input: {
   return { status, checks, summary };
 }
 
+export function validateStrictReleaseEvidence(evidence?: RuntimeQaEvidence): StrictReleaseValidation {
+  const checks: RuntimeDoctorCheck[] = [];
+  for (const suiteId of REQUIRED_QA_SUITES) {
+    const suite = evidence?.suites?.[suiteId];
+    const baseStatus = effectiveQaSuiteStatus(suiteId, suite);
+    const artifactDir = suite?.artifactDir;
+    if (!suite) {
+      checks.push({
+        id: `strict.${suiteId}`,
+        status: "failed",
+        summary: "required QA suite has no recorded evidence",
+        fix: qaSuiteFix(suiteId),
+      });
+      continue;
+    }
+    if (baseStatus !== "passed") {
+      checks.push({
+        id: `strict.${suiteId}`,
+        status: "failed",
+        summary: `required QA suite is ${baseStatus ?? "missing"}, not passed`,
+        detail: suite.summary,
+        fix: qaSuiteFix(suiteId),
+      });
+      continue;
+    }
+    if (!artifactDir) {
+      checks.push({
+        id: `strict.${suiteId}`,
+        status: "failed",
+        summary: "passed QA suite has no artifact directory",
+        fix: qaSuiteFix(suiteId),
+      });
+      continue;
+    }
+    const validation = validatePassedQaArtifact(suiteId, artifactDir);
+    if (validation) {
+      checks.push({
+        id: `strict.${suiteId}`,
+        status: "failed",
+        summary: validation,
+        detail: `artifact=${artifactDir}`,
+        fix: qaSuiteFix(suiteId),
+      });
+      continue;
+    }
+    const cases = readQaArtifactCases(pathJoin(artifactDir, "cases.jsonl"));
+    const passedCases = new Set(cases.filter((entry) => entry.status === "passed").map((entry) => entry.id).filter(Boolean));
+    const missing = REQUIRED_QA_CASES[suiteId].filter((caseId) => !passedCases.has(caseId));
+    checks.push({
+      id: `strict.${suiteId}`,
+      status: missing.length ? "failed" : "passed",
+      summary: missing.length ? `missing required passed case(s): ${missing.join(", ")}` : "required release cases passed",
+      detail: `artifact=${artifactDir} cases=${cases.length}`,
+      fix: missing.length ? qaSuiteFix(suiteId) : undefined,
+    });
+  }
+  const summary = summarizeChecks(checks);
+  return {
+    status: summary.failed > 0 ? "failed" : summary.warning > 0 || summary.unknown > 0 ? "warning" : "passed",
+    checks,
+    summary,
+  };
+}
+
+export function renderStrictReleaseValidation(validation: StrictReleaseValidation): string {
+  const lines = [
+    `strict_release status=${validation.status} passed=${validation.summary.passed} warning=${validation.summary.warning} failed=${validation.summary.failed} unknown=${validation.summary.unknown}`,
+  ];
+  for (const check of validation.checks) {
+    lines.push(`${check.status.padEnd(7)} ${check.id.padEnd(36)} ${check.summary}${check.detail ? ` (${check.detail})` : ""}`);
+    if (check.fix && check.status !== "passed") lines.push(`fix     ${check.id.padEnd(36)} ${check.fix}`);
+  }
+  return lines.join("\n");
+}
+
 function allRequiredQaSuitesPassed(suites: RuntimeQaEvidence["suites"]): boolean {
   return REQUIRED_QA_SUITES.every((suiteId) => effectiveQaSuiteStatus(suiteId, suites?.[suiteId]) === "passed");
 }
@@ -351,6 +478,8 @@ function qaSuiteFix(suiteId: RequiredQaSuiteId): string {
       return "Run channel/plugin setup tests for missing credentials, enable/disable, and recovery UX.";
     case "frappe2_real_prompts":
       return "Run Frappe-2 real prompt regression tests against the globally installed Muster build.";
+    case "pack_readiness":
+      return "Run pack-readiness QA to prove capability manifests, readiness levels, eval paths, and release-ready claims are honest.";
   }
 }
 

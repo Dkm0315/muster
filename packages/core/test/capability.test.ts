@@ -58,6 +58,89 @@ test("inspectCapabilityManifest requires declared secret names for secret access
   assert.match(result.blockers.join("\n"), /secrets permission/);
 });
 
+test("capability manifest accepts readiness metadata", () => {
+  const inspection = inspectCapabilityManifest("/packs/demo", {
+    schemaVersion: 1,
+    id: "demo-pack",
+    name: "Demo Pack",
+    version: "0.1.0",
+    kind: "tool",
+    entrypoint: "src/index.ts",
+    permissions: ["network"],
+    sandbox: "network_limited",
+    readiness: {
+      level: "executable",
+      status: "beta",
+      actionability: "local_tool",
+      owner: "muster",
+      surfaces: ["cli", "tui"],
+      setup: {
+        urls: ["https://example.test/setup"],
+        requiredEnv: ["DEMO_TOKEN"],
+        requiredAnyEnv: [],
+        credentialStorage: "env",
+      },
+      diagnostics: {
+        doctorCommand: "muster plugins check demo-pack",
+        smokeCommand: "muster plugins test demo-pack",
+        latencyBudgetMs: 500,
+        requiresLiveCredentials: true,
+      },
+      safety: {
+        risk: "medium",
+        permissionMode: "ask",
+        mutationApproval: "required",
+        resultCapBytes: 65536,
+        secretRedaction: true,
+      },
+      evidence: {
+        unitTests: ["packages/core/test/demo.test.ts"],
+        qaSuites: ["pack_readiness"],
+        liveArtifacts: [],
+        docs: ["docs/demo.md"],
+      },
+    },
+  });
+
+  assert.equal(inspection.status, "ready");
+  assert.equal(inspection.manifest?.readiness?.level, "executable");
+  assert.equal(inspection.manifest?.readiness?.setup.requiredEnv[0], "DEMO_TOKEN");
+});
+
+test("capability readiness rejects unknown levels and unsafe secret redaction", () => {
+  const inspection = inspectCapabilityManifest("/packs/demo", {
+    schemaVersion: 1,
+    id: "demo-pack",
+    name: "Demo Pack",
+    version: "0.1.0",
+    kind: "tool",
+    entrypoint: "src/index.ts",
+    permissions: ["network"],
+    sandbox: "network_limited",
+    readiness: {
+      level: "pretend_ready",
+      status: "stable",
+      actionability: "local_tool",
+      owner: "muster",
+      surfaces: ["cli"],
+      setup: { urls: [], requiredEnv: [], requiredAnyEnv: [], credentialStorage: "env" },
+      diagnostics: { requiresLiveCredentials: false },
+      safety: {
+        risk: "low",
+        permissionMode: "ask",
+        mutationApproval: "never",
+        resultCapBytes: 1000,
+        secretRedaction: false,
+      },
+      evidence: { unitTests: [], qaSuites: [], liveArtifacts: [], docs: [] },
+    },
+  });
+
+  assert.equal(inspection.status, "blocked");
+  assert.match(inspection.blockers.join("\n"), /readiness.level/);
+  assert.match(inspection.blockers.join("\n"), /secretRedaction/);
+});
+
 test("inspectCapabilityPack blocks a manifest whose entrypoint digest does not match", async () => {
   const dir = join(tmpdir(), `muster-capability-digest-${Date.now()}`);
   await mkdir(dir, { recursive: true });

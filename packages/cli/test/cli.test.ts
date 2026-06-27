@@ -1885,13 +1885,24 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(scorecard.stdout, /failed\s+mcp\.auth_workflow/);
   assert.match(scorecard.stdout, /unknown\s+qa\.pty_tui/);
   assert.match(scorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
-  assert.match(scorecard.stdout, /required_suites=pty_tui,provider_latency,mcp_auth_failure,memory_retrieval_speed,channel_plugin_setup,frappe2_real_prompts/);
+  assert.match(scorecard.stdout, /required_suites=pty_tui,provider_latency,mcp_auth_failure,memory_retrieval_speed,channel_plugin_setup,frappe2_real_prompts,pack_readiness/);
   assert.match(scorecard.stdout, /providers:/);
   assert.match(scorecard.stdout, /passed\s+codex\s+codex-cli model=gpt-5\.5/);
 
   const suites = await runCli(["qa", "suites"], cwd);
   assert.match(suites.stdout, /suite=pty_tui/);
   assert.match(suites.stdout, /suite=frappe2_real_prompts/);
+  assert.match(suites.stdout, /suite=pack_readiness/);
+
+  const packRunArtifact = join(cwd, "qa-artifacts", "pack-readiness-run");
+  const packEvidencePath = join(cwd, "pack-evidence.json");
+  const packRun = await runCli(["qa", "run", "pack_readiness", "--artifact-dir", packRunArtifact, "--evidence", packEvidencePath], cwd);
+  assert.match(packRun.stdout, /qa_suite=pack_readiness status=(passed|warning)/);
+  assert.match(packRun.stdout, /case=all_manifests_parse status=passed/);
+  assert.match(packRun.stdout, /case=readiness_metadata_visible status=(passed|warning)/);
+  const packManifest = JSON.parse(await readFile(join(packRunArtifact, "manifest.json"), "utf8")) as { suite: string; status: string; caseCount: number };
+  assert.equal(packManifest.suite, "pack_readiness");
+  assert.ok(packManifest.caseCount >= 5);
 
   const ptyRunArtifact = join(cwd, "qa-artifacts", "pty-run");
   const ptyEvidencePath = join(cwd, "pty-evidence.json");
@@ -2063,6 +2074,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
     memory_retrieval_speed: join(cwd, "qa-artifacts", "memory"),
     channel_plugin_setup: join(cwd, "qa-artifacts", "channels"),
     frappe2_real_prompts: join(cwd, "qa-artifacts", "frappe2"),
+    pack_readiness: join(cwd, "qa-artifacts", "packs"),
   };
   for (const [suite, dir] of Object.entries(artifactDirs)) {
     await mkdir(dir, { recursive: true });
@@ -2089,6 +2101,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
       memory_retrieval_speed: { status: "passed", artifactDir: artifactDirs.memory_retrieval_speed, summary: "scoped SQLite/FTS speed gate verified" },
       channel_plugin_setup: { status: "passed", artifactDir: artifactDirs.channel_plugin_setup, summary: "channel and plugin setup failures verified" },
       frappe2_real_prompts: { status: "passed", artifactDir: artifactDirs.frappe2_real_prompts, summary: "global Frappe-2 prompt regression verified" },
+      pack_readiness: { status: "passed", artifactDir: artifactDirs.pack_readiness, summary: "pack readiness fixture verified" },
     },
   }), "utf8");
   const evidencedScorecard = await runCli(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", evidencePath], cwd);
@@ -2096,6 +2109,13 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(evidencedScorecard.stdout, /passed\s+mcp\.auth_workflow/);
   assert.match(evidencedScorecard.stdout, /passed\s+qa\.frappe2_real_prompts\s+global Frappe-2 prompt regression verified/);
   assert.match(evidencedScorecard.stdout, new RegExp(`evidence=${evidencePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
+  const strictThinScorecard = await runCliAllowFailure(["qa", "scorecard", "--strict-release", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", evidencePath], cwd);
+  assert.equal(strictThinScorecard.code, 1);
+  assert.match(strictThinScorecard.stdout, /qa_scorecard status=passed/);
+  assert.match(strictThinScorecard.stdout, /strict_release status=failed/);
+  assert.match(strictThinScorecard.stdout, /failed\s+strict\.pty_tui\s+missing required passed case\(s\): slash_overlay_stable/);
+  assert.match(strictThinScorecard.stdout, /failed\s+strict\.provider_latency\s+missing required passed case\(s\): sample_1, overhead_p50_gate/);
 });
 
 async function writeFakeCodex(cwd: string, version: string): Promise<string> {

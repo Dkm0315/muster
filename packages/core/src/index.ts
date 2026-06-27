@@ -29,6 +29,7 @@ export * from "./provider.js";
 export * from "./providers-catalog.js";
 export * from "./qa-mcp.js";
 export * from "./qa-memory.js";
+export * from "./qa-pack-readiness.js";
 export * from "./qa-provider.js";
 export * from "./qa-channel-plugin.js";
 export * from "./pi.js";
