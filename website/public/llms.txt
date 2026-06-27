@@ -1,0 +1,21 @@
+# Muster
+
+Muster is an open-source governed agent harness for production AI agents.
+
+Website: https://themuster.dev/
+Repository: https://github.com/Dkm0315/muster
+Docs: https://themuster.dev/docs.html
+Frappe AI: https://themuster.dev/frappe-ai.html
+
+Core positioning:
+- Governed agent harness for long-running AI agents
+- Scoped memory, token ledger, eval-gated learning, MCP capabilities
+- Browser automation and Frappe / ERPNext support
+- Frappe AI and ERPNext AI context packs for DocTypes, fields, workflows, reports, scripts, and permission-aware setup
+- Multi-provider routing while keeping governance outside the model provider
+
+Useful pages:
+- Home: https://themuster.dev/
+- Docs: https://themuster.dev/docs.html
+- Frappe AI: https://themuster.dev/frappe-ai.html
+- GitHub: https://github.com/Dkm0315/muster

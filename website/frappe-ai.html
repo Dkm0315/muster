@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frappe AI Agent Harness — Muster for ERPNext and Frappe Automation</title>
+  <meta name="description" content="Muster brings governed Frappe AI and ERPNext automation to production systems with DocType context, scoped memory, token ledger, MCP capabilities, browser automation, and permission-aware setup." />
+  <meta name="keywords" content="Frappe AI, ERPNext AI, Frappe agent, ERPNext agent, Frappe automation, ERPNext automation, Frappe MCP, Frappe AI assistant, Muster Frappe, governed agent harness" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/frappe-ai.html" />
+  <meta name="theme-color" content="#F0EEE9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("muster-theme");
+        var dark = saved ? saved === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Muster" />
+  <meta property="og:title" content="Frappe AI Agent Harness — Muster for ERPNext and Frappe" />
+  <meta property="og:description" content="Build Frappe AI and ERPNext automation with governed memory, token visibility, DocType context, MCP capabilities, and permission-aware setup." />
+  <meta property="og:url" content="https://themuster.dev/frappe-ai.html" />
+  <meta property="og:image" content="https://themuster.dev/assets/demo/frappe-context-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Frappe AI Agent Harness — Muster" />
+  <meta name="twitter:description" content="Governed Frappe AI and ERPNext automation with scoped memory, DocType context, token ledger, MCP, and browser automation." />
+  <meta name="twitter:image" content="https://themuster.dev/assets/demo/frappe-context-card.png" />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" src="/src/main.ts"></script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Muster Frappe AI",
+      "alternateName": ["Frappe AI Agent Harness", "ERPNext AI Agent Harness"],
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux, Windows",
+      "url": "https://themuster.dev/frappe-ai.html",
+      "codeRepository": "https://github.com/Dkm0315/muster",
+      "description": "Governed Frappe AI and ERPNext automation using scoped memory, token ledger, DocType context, MCP capabilities, browser automation, and permission-aware setup.",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Muster",
+        "url": "https://themuster.dev/"
+      },
+      "keywords": "Frappe AI, ERPNext AI, Frappe automation, ERPNext automation, agent harness, MCP, scoped memory"
+    }
+  </script>
+</head>
+<body>
+  <div id="scroll-progress" aria-hidden="true"></div>
+  <div id="hero-stage" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+
+  <header class="topbar">
+    <a class="brand" href="/">muster<span class="brand-dot">.</span></a>
+    <nav aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/docs.html">Docs</a>
+      <a href="/frappe-ai.html" aria-current="page">Frappe AI</a>
+      <a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+      <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.4v2.6M12 19v2.6M4.6 4.6l1.9 1.9M17.5 17.5l1.9 1.9M2.4 12h2.6M19 12h2.6M4.6 19.4l1.9-1.9M17.5 6.5l1.9-1.9"/></g></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.5 14.3A8.4 8.4 0 0 1 9.7 3.5a.7.7 0 0 0-.93-.86A9.4 9.4 0 1 0 21.4 15.2a.7.7 0 0 0-.9-.9z"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-inner">
+        <p class="kicker hero-step">Frappe AI · ERPNext AI · governed automation</p>
+        <h1 class="hero-step">Frappe AI that understands <em>DocTypes, fields, workflows, and permissions.</em></h1>
+        <p class="sub hero-step">
+          Muster gives Frappe and ERPNext teams an agent harness that can build context from sites, installed apps, modules, DocTypes, reports, scripts, and workflows before it acts.
+        </p>
+        <p class="sub hero-step">
+          The goal is practical: fewer generic ERP guesses, more permission-aware answers, scoped memory, token visibility, and auditable automation.
+        </p>
+        <div class="hero-cta hero-step">
+          <div class="install" role="group" aria-label="Install command">
+            <code>pnpm --package=@musterhq/cli dlx muster demo</code>
+            <button class="copy-btn" data-copy="pnpm --package=@musterhq/cli dlx muster demo" aria-label="Copy install command">copy</button>
+          </div>
+        </div>
+        <div class="hero-actions hero-step">
+          <a class="btn-cta" href="https://github.com/Dkm0315/muster" rel="noopener">View on GitHub</a>
+          <a class="btn-ghost" href="/docs.html#capability-packs">Read Frappe pack docs →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="band terminal-band" data-reveal>
+      <p class="sec-kicker reveal-child">Frappe context pack</p>
+      <h2 class="reveal-child">A plugin-owned context layer, not a bloated core binary.</h2>
+      <p class="sec-sub reveal-child">Muster keeps the main harness light. The Frappe / ERPNext pack is where site-specific context belongs: docs, installed apps, module metadata, DocTypes, fields, permissions, reports, scripts, and workflows.</p>
+      <div class="term-tray reveal-child">
+        <div class="term-window" role="img" aria-label="Terminal showing Muster Frappe AI setup checks">
+          <div class="term-bar">
+            <span class="term-dots" aria-hidden="true"><i class="term-dot red"></i><i class="term-dot yellow"></i><i class="term-dot green"></i></span>
+            <span class="term-title">muster — frappe-ai</span>
+          </div>
+          <div class="term-body">
+            <pre class="term-out"><span class="t-line" data-prompt><span class="t-prompt">$</span> <span class="t-cmd">muster plugins setup frappe-federated-bridge</span></span><span class="t-line t-muted">checks: FRAPPE_SITE_URL · FRAPPE_API_TOKEN · docs context · live metadata</span><span class="t-line">pack: <span class="t-cyan">Frappe / ERPNext Federated Bridge</span></span><span class="t-line">context: DocTypes · DocFields · Custom Fields · Workflows · Reports · Scripts</span><span class="t-line">policy: actions run as the paired Frappe user; Frappe remains the authorization authority</span><span class="t-line">memory: tenant/workspace/user/session scoped, indexed, and receipt-backed</span><span class="t-line">ledger: token usage and replay waste recorded per run</span><span class="t-line" data-prompt><span class="t-prompt">$</span> <span class="t-cursor" aria-hidden="true">█</span></span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="band band-alt" data-reveal>
+      <p class="sec-kicker reveal-child">Why Frappe AI needs a harness</p>
+      <h2 class="reveal-child">ERP context is relational, permissioned, and constantly customized.</h2>
+      <div class="cards five">
+        <article class="card reveal-child">
+          <h3>DocType-aware retrieval</h3>
+          <p>Frappe answers need module, DocType, child table, field, custom field, and workflow context, not generic docs alone.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Permission-aware actions</h3>
+          <p>Reads and writes should execute as the real paired Frappe user, with Frappe remaining the authority.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Token visibility</h3>
+          <p>Long support and ERP investigation threads should show token cost and replay waste instead of hiding spend.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Scoped memory</h3>
+          <p>Tenant, site, workspace, user, and session context must stay separated to avoid cross-customer leakage.</p>
+        </article>
+        <article class="card reveal-child">
+          <h3>Eval-gated learning</h3>
+          <p>New Frappe behavior should be backed by fixtures before it becomes durable assistant behavior.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="band" data-reveal>
+      <p class="sec-kicker reveal-child">Use cases</p>
+      <h2 class="reveal-child">What Muster can help Frappe and ERPNext teams build.</h2>
+      <div class="capability-board reveal-child">
+        <article class="capability-panel">
+          <span class="cap-label">support</span>
+          <h3>ERP support assistant</h3>
+          <p>Answer operational questions with site, module, workflow, and record context while keeping memory scoped.</p>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">developer</span>
+          <h3>Frappe developer copilot</h3>
+          <p>Inspect apps, DocTypes, hooks, client scripts, reports, and bench commands with an audit trail.</p>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">operator</span>
+          <h3>Production runbooks</h3>
+          <p>Guide deployments, migrations, scheduled jobs, and incident triage with receipts and token accounting.</p>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">automation</span>
+          <h3>Permissioned actions</h3>
+          <p>Create or update records only through explicit tools, setup checks, and user-bound permission context.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="closer" data-reveal>
+      <h2 class="reveal-child">Build Frappe AI with controls first.</h2>
+      <p class="sec-sub reveal-child">Muster is open source. The Frappe / ERPNext path is strongest when contributors add real fixtures, module packs, field-level retrieval tests, and production-safe adapter hardening.</p>
+      <div class="hero-actions reveal-child">
+        <a class="btn-cta" href="https://github.com/Dkm0315/muster" rel="noopener">Star on GitHub</a>
+        <a class="btn-ghost" href="/docs.html#capability-packs">Read capability docs →</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>© <span id="year">2026</span> Muster — open source, MIT</span>
+      <span class="footer-sep">·</span>
+      <a href="/">Home</a>
+      <span class="footer-sep">·</span>
+      <a href="/docs.html">Docs</a>
+      <span class="footer-sep">·</span>
+      <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>

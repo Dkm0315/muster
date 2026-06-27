@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Muster — Governed Agent Harness for Production AI Systems</title>
-  <meta name="description" content="Muster is an open-source governed agent harness for long-running AI agents with scoped memory, token ledger, eval-gated learning, MCP, browser automation, and Frappe / ERPNext support." />
-  <meta name="keywords" content="governed agent harness, AI agent framework, production AI agents, scoped memory, token ledger, eval-gated learning, MCP, browser automation, Frappe, ERPNext, Gemini, open-source models, self-hosted LLMs, multi-provider LLM routing" />
+  <title>Muster Agent Harness — Governed AI Agents for Production Systems</title>
+  <meta name="description" content="Muster is an open-source governed agent harness for production AI agents with scoped memory, token ledger, eval-gated learning, MCP capabilities, browser automation, and Frappe / ERPNext support." />
+  <meta name="keywords" content="Muster, Muster agent harness, governed agent harness, AI agent framework, production AI agents, scoped memory, token ledger, eval-gated learning, MCP, browser automation, Frappe, ERPNext, Gemini, open-source models, self-hosted LLMs, multi-provider LLM routing" />
+  <meta name="application-name" content="Muster" />
+  <meta name="apple-mobile-web-app-title" content="Muster" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
   <link rel="canonical" href="https://themuster.dev/" />
   <meta name="theme-color" content="#F0EEE9" />
   <!-- Set theme before first paint to avoid a flash. localStorage wins, else
@@ -24,13 +27,13 @@
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Muster" />
-  <meta property="og:title" content="Muster — Governed Agent Harness for Production AI Systems" />
-  <meta property="og:description" content="Open-source governed agent harness for long-running agents: scoped memory, token visibility, eval-gated learning, MCP capabilities, browser automation, Frappe / ERPNext support, and multi-provider routing." />
+  <meta property="og:title" content="Muster Agent Harness — Governed AI Agents for Production Systems" />
+  <meta property="og:description" content="Muster is an open-source governed agent harness for production AI agents: scoped memory, token visibility, eval-gated learning, MCP capabilities, browser automation, Frappe / ERPNext support, and multi-provider routing." />
   <meta property="og:url" content="https://themuster.dev/" />
   <meta property="og:image" content="https://themuster.dev/assets/brand/muster-og.png" />
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Muster — Governed Agent Harness for Production AI Systems" />
+  <meta name="twitter:title" content="Muster Agent Harness — Governed AI Agents for Production Systems" />
   <meta name="twitter:description" content="Agents that do not leak memory, waste tokens, or learn without tests. Open-source, TypeScript, MIT." />
   <meta name="twitter:image" content="https://themuster.dev/assets/brand/muster-og.png" />
   <!-- Fonts: Clash Display (headings) + Hanken Grotesk (body) via Fontshare; JetBrains Mono for code only. -->
@@ -40,6 +43,42 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
   <script type="module" src="/src/main.ts"></script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://themuster.dev/#organization",
+          "name": "Muster",
+          "url": "https://themuster.dev/",
+          "logo": "https://themuster.dev/assets/brand/muster-logo.png",
+          "sameAs": ["https://github.com/Dkm0315/muster"]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://themuster.dev/#website",
+          "name": "Muster",
+          "alternateName": ["Muster Agent Harness", "The Muster"],
+          "url": "https://themuster.dev/",
+          "publisher": { "@id": "https://themuster.dev/#organization" }
+        },
+        {
+          "@type": "SoftwareSourceCode",
+          "@id": "https://themuster.dev/#software",
+          "name": "Muster",
+          "alternateName": "Muster Agent Harness",
+          "description": "Open-source governed agent harness for production AI agents with scoped memory, token ledger, eval-gated learning, MCP capabilities, browser automation, and Frappe / ERPNext support.",
+          "codeRepository": "https://github.com/Dkm0315/muster",
+          "programmingLanguage": "TypeScript",
+          "license": "https://github.com/Dkm0315/muster/blob/main/LICENSE",
+          "url": "https://themuster.dev/",
+          "applicationCategory": "DeveloperApplication",
+          "publisher": { "@id": "https://themuster.dev/#organization" }
+        }
+      ]
+    }
+  </script>
 </head>
 <body>
   <!-- Liquid Glass refraction filter (progressive enhancement). Safari/Firefox
@@ -77,6 +116,7 @@
       <a href="#solution">Controls</a>
       <a href="#use-cases">Use cases</a>
       <a href="#capabilities">Capabilities</a>
+      <a href="/frappe-ai.html">Frappe AI</a>
       <a href="#architecture">Architecture</a>
       <a href="#proof">Proof</a>
       <a href="/docs.html">Docs</a>
@@ -93,7 +133,7 @@
     <section class="hero" id="hero">
       <div class="hero-inner">
         <p class="kicker hero-step">open-source · TypeScript · MIT</p>
-        <h1 class="hero-step">Governed agent harness for <em>long-running AI agents.</em></h1>
+        <h1 class="hero-step">Muster is a governed agent harness for <em>long-running AI agents.</em></h1>
         <p class="sub hero-step">
           Muster keeps memory scoped, tokens accounted, tools policy-wrapped,
           and learning behind evals.

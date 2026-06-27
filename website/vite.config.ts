@@ -10,6 +10,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         portal: resolve(__dirname, "portal.html"),
         docs: resolve(__dirname, "docs.html"),
+        frappeAi: resolve(__dirname, "frappe-ai.html"),
         onboarding: resolve(__dirname, "onboarding.html")
       }
     }
