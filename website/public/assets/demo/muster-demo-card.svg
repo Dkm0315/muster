@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
+  <title id="title">Muster terminal demo card</title>
+  <desc id="desc">A terminal-style demo showing a governed prompt, scoped memory receipt, token ledger, and integrity check.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1400" y2="840" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101820"/>
+      <stop offset="0.55" stop-color="#050505"/>
+      <stop offset="1" stop-color="#0B1120"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#29D3FF"/>
+      <stop offset="0.5" stop-color="#68F5A8"/>
+      <stop offset="1" stop-color="#F7C66A"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="28" stdDeviation="26" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <rect width="1400" height="840" fill="url(#page)"/>
+  <text x="84" y="96" fill="#29D3FF" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="54" font-weight="850">Recall a deployment without leaking context</text>
+  <text x="86" y="146" fill="#8EA1B5" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="28" font-weight="550">real flow: named session → scoped memory → token ledger → eval check</text>
+  <g transform="translate(84 196)" filter="url(#shadow)">
+    <rect width="1232" height="560" rx="28" fill="#050505"/>
+    <rect width="1232" height="58" rx="28" fill="#101820"/>
+    <circle cx="36" cy="29" r="8" fill="#FF6B7A"/>
+    <circle cx="62" cy="29" r="8" fill="#FBBF24"/>
+    <circle cx="88" cy="29" r="8" fill="#34D399"/>
+    <text x="116" y="38" fill="#8EA1B5" font-family="JetBrains Mono, Menlo, monospace" font-size="18">muster: production ops</text>
+    <rect x="32" y="92" width="1168" height="426" rx="18" fill="#0B1120" stroke="#29D3FF"/>
+    <text x="60" y="136" fill="#29D3FF" font-family="JetBrains Mono, Menlo, monospace" font-size="24">$ muster</text>
+    <text x="60" y="190" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="25">&gt; In the oxygenhr rollout, where did we deploy UAT?</text>
+    <text x="84" y="232" fill="#F7C66A" font-family="JetBrains Mono, Menlo, monospace" font-size="22">recalled: session oxygenhr-rollout · scope=frappe/prod</text>
+    <text x="84" y="274" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="22">UAT deploy target: uat-oxygenhr.frappe.cloud</text>
+    <rect x="60" y="314" width="690" height="3" fill="url(#bar)"/>
+    <text x="60" y="360" fill="#8EA1B5" font-family="JetBrains Mono, Menlo, monospace" font-size="20">run            provider   in    out   saved</text>
+    <text x="60" y="398" fill="#8EA1B5" font-family="JetBrains Mono, Menlo, monospace" font-size="20">287bde9c       selected   38    17    4.1k ctx</text>
+    <text x="60" y="436" fill="#8EA1B5" font-family="JetBrains Mono, Menlo, monospace" font-size="20">653b434a       selected   7     18    scoped</text>
+    <text x="60" y="488" fill="#68F5A8" font-family="JetBrains Mono, Menlo, monospace" font-size="22">eval gate: passed before memory promotion</text>
+    <g transform="translate(832 116)">
+      <rect width="300" height="320" rx="24" fill="#101820" stroke="#29D3FF"/>
+      <text x="28" y="54" fill="#29D3FF" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="26" font-weight="800">Controls visible</text>
+      <text x="28" y="104" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="18">✓ memory scope</text>
+      <text x="28" y="148" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="18">✓ token ledger</text>
+      <text x="28" y="192" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="18">✓ eval promotion</text>
+      <text x="28" y="236" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="18">✓ provider choice</text>
+      <text x="28" y="280" fill="#F8FAFC" font-family="JetBrains Mono, Menlo, monospace" font-size="18">✓ Frappe context</text>
+    </g>
+  </g>
+</svg>

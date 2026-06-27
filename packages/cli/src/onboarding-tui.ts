@@ -158,7 +158,7 @@ const steps: readonly Step[] = [
       choice("teams", "Microsoft Teams", "Bot app ID, tenant ID, client secret, and Teams app package.", "enterprise", "peach", "Teams setup benefits from explicit tenant and org install choices.", controls("Reply mode", "Manual first", "Install scope", "Team")),
       choice("whatsapp", "WhatsApp", "Business phone ID, access token, verify token, and webhook secret.", "business", "lime", "WhatsApp should default to human-reviewed drafts for customer-facing messages.", controls("Reply mode", "Draft first", "Visibility", "Selected numbers"), channelFields("whatsapp")),
       choice("discord", "Discord", "Bot token, application ID, public key, and guild/channel defaults.", "community", "lavender", "Discord can move fast; selected guild/channel scope prevents surprise reach.", controls("Reply mode", "Draft first", "Visibility", "Selected channels"), channelFields("discord")),
-      choice("telegram", "Telegram", "Bot token and webhook URL where Telegram is available.", "regional", "cyan", "Telegram setup depends on region availability; keep it optional and explicit.", controls("Reply mode", "Manual first", "Availability", "Check first"), channelFields("telegram")),
+      choice("telegram", "Telegram", "Bot token, live Bot API check, long-poll local test, and webhook URL.", "chat", "cyan", "Telegram is a strong everyday chat surface when the Bot API is reachable; keep sends explicit until the bot is trusted.", controls("Reply mode", "Manual first", "Test mode", "Long-poll"), channelFields("telegram")),
     ],
   },
   {

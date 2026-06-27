@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Muster Docs — getting started, providers, flows, gateway, CLI</title>
-  <meta name="description" content="Muster documentation: getting started, 20+ provider presets, the flow engine with approval gates, the gateway with six chat adapters and a web client, capability packs, and the full CLI reference." />
+  <title>Muster Docs — Governed Agent Harness for Production AI Systems</title>
+  <meta name="description" content="Muster documentation for the open-source governed agent harness: getting started, multi-provider LLM routing, scoped memory, token ledger, eval-gated learning, MCP, capability packs, browser automation, and Frappe / ERPNext support." />
   <meta name="theme-color" content="#F0EEE9" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
   <!-- Set theme before first paint to avoid a flash (mirrors src/theme.ts). -->
@@ -19,8 +19,8 @@
     })();
   </script>
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Muster Docs" />
-  <meta property="og:description" content="Documentation for the AI agent harness you can audit." />
+  <meta property="og:title" content="Muster Docs — Governed Agent Harness" />
+  <meta property="og:description" content="Documentation for scoped memory, token visibility, eval-gated learning, MCP capabilities, browser automation, and Frappe / ERPNext workflows." />
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
@@ -65,7 +65,7 @@
           <h2>1 · Initialize</h2>
           <pre class="mono codeblock">$ muster init
 Created or reused Muster config: .muster/config.json
-Default provider: Codex CLI with model gpt-5.5
+Default provider: generated from local config; use provider presets to pick cloud, open-source, self-hosted, Gemini, aggregator, or CLI-auth routes
 Next: muster doctor</pre>
           <p><code>muster doctor</code> checks the config, routing policy (<em>one active runtime per run</em>), and probes every configured provider's <code>/models</code> endpoint. <code>muster doctor --fix</code> repairs the config and data directory.</p>
 
@@ -80,7 +80,7 @@ $ muster runtime use-provider native openai  # bind the native runtime to it</pr
 recalled 1 scoped memories into context
 run=ea59ad5f… runtime=native model=stub/stub-model task=simple_qa status=completed
 tokens in=54~ out=64~</pre>
-          <p>Every run is recorded as an episode with scoped memory recall and token estimates. Options: <code>--runtime pi</code>, <code>--provider anthropic</code>, <code>--model …</code>, <code>--session memory|create|continue</code>, <code>--task-kind coding</code>, <code>--sensitive</code>.</p>
+          <p>Every run is recorded as an episode with scoped memory recall and token estimates. Options: <code>--runtime pi</code>, <code>--provider gemini|groq|openrouter|vllm|...</code>, <code>--model …</code>, <code>--session memory|create|continue</code>, <code>--task-kind coding</code>, <code>--sensitive</code>.</p>
 
           <h2>4 · Audit</h2>
           <pre class="mono codeblock">$ muster tokens        # per-run ledger + totals by model + waste flags
@@ -92,7 +92,7 @@ $ muster status        # one-screen mission control</pre>
 
         <section id="providers" class="docs-section reveal">
           <h1>Providers</h1>
-          <p>No API or AI provider is ever a bottleneck. Anything speaking the OpenAI-compatible chat protocol works out of the box; CLI runtimes (Claude Code, Codex, Pi) and local servers are first-class too. List presets any time with <code>muster provider presets</code>. Source: <code>packages/core/src/providers-catalog.ts</code>.</p>
+          <p>No API or AI provider should be a bottleneck. Muster is provider-family agnostic: direct cloud APIs, Gemini, OpenAI-compatible endpoints, aggregators, local/open-source servers, Pi, and optional CLI-auth runtimes are all supported through the same governed run loop. List presets any time with <code>muster provider presets</code>. Source: <code>packages/core/src/providers-catalog.ts</code>.</p>
 
           <h2>Cloud providers</h2>
           <table class="docs-table">
@@ -133,13 +133,13 @@ $ muster status        # one-screen mission control</pre>
             </tbody>
           </table>
 
-          <h2>CLI-auth runtimes (subscription auth, no raw API key)</h2>
+          <h2>CLI-auth runtimes (optional subscription auth, no raw API key)</h2>
           <pre class="mono codeblock">codex-cli      OpenAI Codex CLI — uses your local `codex` login (default gpt-5.5)
 
 Also available without presets:
   any OpenAI-compatible endpoint:  muster provider add-openai-compatible &lt;id&gt; &lt;base-url&gt; &lt;model&gt; [--api-key-env VAR]
   Claude Code CLI runtime:         muster run "..." --runtime claude-code   (uses your local `claude` login)
-  Pi-managed providers:            muster run "..." --runtime pi --provider anthropic   (uses Pi auth)</pre>
+  Pi-managed providers:            muster run "..." --runtime pi --provider gemini|anthropic|openai|...   (uses Pi auth)</pre>
         </section>
 
         <section id="flows" class="docs-section reveal">

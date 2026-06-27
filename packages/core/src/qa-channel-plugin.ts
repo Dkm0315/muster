@@ -45,6 +45,7 @@ export async function runChannelPluginSetupQa(input: {
   cases.push(caseSetupGuidance(plugins, "frappe-federated-bridge", { needsSetupUrl: true }));
   cases.push(caseSetupGuidance(plugins, "web-frameworks", { needsPack: true }));
   cases.push(caseSetupGuidance(plugins, "google-workspace", { needsSetupUrl: true, needsMcp: true }));
+  cases.push(caseSetupGuidance(plugins, "telegram", { needsChannel: true, needsSetupUrl: true, needsPack: true }));
   cases.push(caseSetupGuidance(plugins, "slack", { needsChannel: true, needsSetupUrl: true }));
   cases.push(await caseHighRiskRefusal(cwd, plugins));
   cases.push(await caseEnableDisablePolicy(cwd, "web-frameworks"));
@@ -92,6 +93,7 @@ function caseCatalogCoverage(
     "github",
     "google-workspace",
     "notion",
+    "telegram",
     "slack",
     "teams",
     "google-chat",
