@@ -76,6 +76,7 @@
       <a href="#problem">Problem</a>
       <a href="#solution">Controls</a>
       <a href="#use-cases">Use cases</a>
+      <a href="#capabilities">Capabilities</a>
       <a href="#architecture">Architecture</a>
       <a href="#proof">Proof</a>
       <a href="/docs.html">Docs</a>
@@ -228,10 +229,96 @@
       </div>
     </section>
 
+    <!-- ===================== CAPABILITIES ===================== -->
+    <section class="band band-alt" id="capabilities" data-reveal>
+      <p class="sec-kicker reveal-child">Capability packs</p>
+      <h2 class="reveal-child"><span class="sec-num">04</span> Operators people can recognize and configure.</h2>
+      <p class="sec-sub reveal-child">Muster is not only a terminal chat. It ships setup surfaces, readiness checks, and policy boundaries for channel operators, MCP servers, providers, browser work, and app-specific packs.</p>
+      <div class="capability-board reveal-child">
+        <article class="capability-panel">
+          <span class="cap-label">channels</span>
+          <h3>Chat app operators</h3>
+          <p>Bring the same governed run loop behind real team and customer surfaces.</p>
+          <ul class="cap-pills" aria-label="Supported channel operators">
+            <li>Telegram</li>
+            <li>Slack</li>
+            <li>Google Chat</li>
+            <li>Teams</li>
+            <li>WhatsApp</li>
+            <li>Discord</li>
+          </ul>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">tools</span>
+          <h3>MCP + OAuth setup</h3>
+          <p>Connect external tools with explicit setup links, env checks, OAuth guidance, include/exclude policy, and result caps.</p>
+          <ul class="cap-pills" aria-label="MCP and tool examples">
+            <li>GitHub</li>
+            <li>Notion</li>
+            <li>Linear</li>
+            <li>Google Drive</li>
+            <li>Postgres</li>
+            <li>Firecrawl</li>
+          </ul>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">operators</span>
+          <h3>Browser and web-app work</h3>
+          <p>Run web QA, browser evidence capture, Playwright-style inspection, and enterprise web-app flows through the same audit trail.</p>
+          <ul class="cap-pills" aria-label="Browser operator examples">
+            <li>Browser QA</li>
+            <li>Playwright</li>
+            <li>Web search</li>
+            <li>Visual checks</li>
+            <li>Artifacts</li>
+          </ul>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">business apps</span>
+          <h3>Frappe / ERPNext packs</h3>
+          <p>Build context around sites, installed apps, modules, DocTypes, fields, reports, scripts, workflows, and production runbooks.</p>
+          <ul class="cap-pills" aria-label="Frappe and ERPNext context">
+            <li>Frappe</li>
+            <li>ERPNext</li>
+            <li>DocTypes</li>
+            <li>Reports</li>
+            <li>Workflows</li>
+            <li>Bench</li>
+          </ul>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">providers</span>
+          <h3>Model and runtime routes</h3>
+          <p>Keep governance outside the model provider while routing to cloud, open-source, local, OpenAI-compatible, and CLI-auth runtimes.</p>
+          <ul class="cap-pills" aria-label="Provider route examples">
+            <li>OpenAI</li>
+            <li>Anthropic</li>
+            <li>Gemini</li>
+            <li>vLLM</li>
+            <li>Self-hosted</li>
+            <li>OpenAI-compatible</li>
+          </ul>
+        </article>
+        <article class="capability-panel">
+          <span class="cap-label">outputs</span>
+          <h3>Artifact and data packs</h3>
+          <p>Use governed runs for reports, dashboards, generated docs, data checks, release notes, and repeatable eval evidence.</p>
+          <ul class="cap-pills" aria-label="Artifact and data examples">
+            <li>Reports</li>
+            <li>Dashboards</li>
+            <li>Docs</li>
+            <li>Data QA</li>
+            <li>Evals</li>
+          </ul>
+        </article>
+      </div>
+      <p class="proof-link reveal-child"><a href="https://github.com/Dkm0315/muster#what-muster-does" rel="noopener">Explore the harness controls in the README →</a></p>
+    </section>
+
     <!-- ===================== ARCHITECTURE ===================== -->
-    <section class="band band-alt" id="architecture" data-reveal>
+    <section class="band" id="architecture" data-reveal>
       <p class="sec-kicker reveal-child">How it works</p>
-      <h2 class="reveal-child"><span class="sec-num">04</span> One harness around models, memory, tools, and apps.</h2>
+      <h2 class="reveal-child"><span class="sec-num">05</span> One harness around models, memory, tools, and apps.</h2>
       <p class="sec-sub reveal-child">The CLI and gateway feed the same run loop. Providers answer; Muster owns the scoped memory, token ledger, MCP policy, capability packs, flows, and eval evidence.</p>
       <div class="cards five">
         <article class="card reveal-child">
@@ -261,7 +348,7 @@
     <!-- ===================== PROOF: TOKEN WASTE INDEX ===================== -->
     <section class="band" id="proof" data-reveal>
       <p class="sec-kicker reveal-child">Proof</p>
-      <h2 class="reveal-child"><span class="sec-num">05</span> The Token Waste Index.</h2>
+      <h2 class="reveal-child"><span class="sec-num">06</span> The Token Waste Index.</h2>
       <p class="sec-sub reveal-child">Deterministic measurement — no model is called. Across 5 realistic agent tasks (170 turns), a naive replay-everything harness sends <strong>876k tokens</strong>; Muster sends <strong>355k</strong> — a <strong>59.4% reduction</strong>, up to 62.7% on the longest threads. Reproduce with <code>muster benchmark</code>.</p>
       <div class="proof-table reveal-child" role="region" aria-label="Token Waste Index results">
         <table>
@@ -284,7 +371,7 @@
     <!-- ===================== POSITIONING ===================== -->
     <section class="band band-alt" id="positioning" data-reveal>
       <p class="sec-kicker reveal-child">Positioning</p>
-      <h2 class="reveal-child"><span class="sec-num">06</span> What Muster is, and what it is not.</h2>
+      <h2 class="reveal-child"><span class="sec-num">07</span> What Muster is, and what it is not.</h2>
       <p class="sec-sub reveal-child">Muster is a harness for governed execution. It can work alongside agent frameworks, workflow graphs, coding agents, MCP servers, and business apps.</p>
       <div class="eco-grid reveal-child">
         <article class="eco-card shipped">

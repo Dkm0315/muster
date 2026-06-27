@@ -498,7 +498,12 @@ main::before {
   transition: all 0.18s var(--ease-out);
 }
 .copy-btn:hover { color: var(--ink); border-color: var(--primary); }
-.copy-btn.copied { color: var(--ink); border-color: var(--pop); background: var(--pop); }
+.copy-btn.copied {
+  color: #0E0B1A;
+  border-color: var(--pop);
+  background: var(--pop);
+  text-shadow: none;
+}
 
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 8px 0 30px; }
 .btn-cta {
@@ -509,14 +514,14 @@ main::before {
   font-weight: 600;
   font-size: var(--t-label);
   background: var(--pop);
-  color: var(--ink) !important;
+  color: #0E0B1A !important;
   border: 1px solid rgba(26, 23, 38, 0.12);
   box-shadow: 0 8px 26px -8px rgba(150, 200, 0, 0.7);
   transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
   will-change: transform;
 }
 .btn-cta:hover {
-  color: var(--ink) !important;
+  color: #0E0B1A !important;
   transform: translateY(-2px);
   box-shadow: 0 14px 34px -8px rgba(150, 200, 0, 0.85);
 }
@@ -526,6 +531,11 @@ main::before {
   color: var(--ink-dim);
 }
 .btn-ghost:hover { color: var(--ink); }
+
+[data-theme="dark"] .btn-cta {
+  color: #0E0B1A !important;
+  text-shadow: none;
+}
 
 .hero-footnote {
   font-family: var(--mono);
@@ -788,6 +798,85 @@ html.supports-lg-refract .glass-card {
 }
 .card p { font-size: var(--t-sm); color: var(--ink-dim); margin: 0; line-height: 1.55; }
 .card p + p { margin-top: 8px; }
+
+/* ---- capability/operator board ---- */
+.capability-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.capability-panel {
+  position: relative;
+  padding: 22px 20px;
+  border-radius: 20px;
+  background: var(--lg-fill);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-specular), var(--lg-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  contain: layout style paint;
+  transition: transform 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+.capability-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding-top: 1px;
+  background: linear-gradient(180deg, var(--lg-sheen), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.capability-panel:hover { transform: translateY(-3px); border-color: var(--accent); }
+.cap-label {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+  background: rgba(6, 182, 212, 0.14);
+  color: var(--accent-deep);
+}
+.capability-panel h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: var(--t-h3);
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+.capability-panel p {
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  margin: 0 0 14px;
+  line-height: 1.55;
+}
+.cap-pills {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cap-pills li {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 999px;
+  color: var(--ink);
+  border: 1px solid var(--line-soft);
+  background: rgba(167, 139, 250, 0.12);
+}
+[data-theme="dark"] .cap-pills li {
+  background: rgba(185, 162, 255, 0.12);
+}
 
 /* ============================================================
    3D CARD TILT — cursor-tracking perspective tilt + moving sheen
