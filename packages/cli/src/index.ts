@@ -627,6 +627,16 @@ const CHAT_MCP_OPTIONS = listBuiltinMcpServers().map((server) => ({
   label: server.id,
   description: `${server.category} · ${server.source} · risk ${server.risk}`,
 }));
+const CHAT_MCP_ACTION_OPTIONS: readonly PickerOption[] = [
+  { value: "add-http", label: "add-http", description: "add a custom Streamable HTTP MCP server" },
+  { value: "add-stdio", label: "add-stdio", description: "add a custom stdio MCP server" },
+  { value: "status", label: "status", description: "show configured MCP auth and transport status" },
+  { value: "login", label: "login", description: "start OAuth setup for a configured MCP server" },
+  { value: "remove", label: "remove", description: "remove a configured MCP server" },
+  { value: "test", label: "test", description: "test a configured MCP server" },
+  { value: "check", label: "check", description: "check a built-in MCP setup path" },
+  { value: "install", label: "install", description: "install a built-in MCP server" },
+];
 
 function defaultChatScopes(): MemoryScope[] {
   return [parseMemoryScope(`user:${process.env.USER || process.env.USERNAME || "local"}`)];
@@ -690,6 +700,11 @@ async function chat(commandArgs: string[]): Promise<void> {
     return;
   }
   if (prompt) {
+    if (prompt.startsWith("/")) {
+      await ensureDefaultConfig();
+      await handleChatCommand(prompt, state);
+      return;
+    }
     await runChatTurn(prompt, state, { timeoutMs: readNumberFlag(commandArgs, "--timeout-ms"), keepAlive: false });
     return;
   }
@@ -2338,6 +2353,55 @@ async function printChatPlugins(selection: string | undefined, state: ChatState)
 async function printChatMcp(selection: string | undefined, state: ChatState): Promise<void> {
   const parsed = parseChatSelection(selection);
   const selected = parsed.value;
+  const rawParts = (selection ?? "").split(/\s+/).filter(Boolean);
+  if (selected === "status" || selected === "list") {
+    await printMcpStatus(parsed.rest[0]);
+    return;
+  }
+  if (selected === "login") {
+    const target = parsed.rest[0];
+    if (!target) {
+      printChatPanel("MCP", [
+        color("Usage: /mcp login <name>", "yellow"),
+        "Pick a configured OAuth MCP server, then submit /mcp login <name>.",
+      ]);
+      openNextPicker(state, "/mcp");
+      return;
+    }
+    await printMcpOauthSetup(target, rawParts.slice(2));
+    return;
+  }
+  if (selected === "remove" || selected === "rm") {
+    const target = parsed.rest[0];
+    if (!target) {
+      printChatPanel("MCP", [
+        color("Usage: /mcp remove <name>", "yellow"),
+        "Remove only the Muster MCP config entry. Provider/cache credentials are not touched.",
+      ]);
+      openNextPicker(state, "/mcp");
+      return;
+    }
+    const config = await loadConfig();
+    const servers = { ...(config.tools?.mcp?.servers ?? {}) };
+    const key = safeConfigKey(target);
+    const existed = Boolean(servers[key]);
+    delete servers[key];
+    await saveConfig({ ...config, tools: { ...(config.tools ?? {}), mcp: { ...(config.tools?.mcp ?? {}), servers } } });
+    await refreshChatTuiHeader(state);
+    printChatPanel("MCP", [
+      existed ? `${color("removed", "green")} ${key}` : `${color("not found", "yellow")} ${key}`,
+      "Provider-hosted credentials, OAuth tokens, and external app auth were not changed.",
+    ]);
+    return;
+  }
+  if (selected === "add-http") {
+    await chatAddHttpMcp(rawParts.slice(1), state);
+    return;
+  }
+  if (selected === "add-stdio") {
+    await chatAddStdioMcp(rawParts.slice(1), state);
+    return;
+  }
   if (selected === "test") {
     const target = parsed.rest[0];
     if (!target) {
@@ -2434,6 +2498,90 @@ async function printChatMcp(selection: string | undefined, state: ChatState): Pr
     `${color("Inspect", "accent")} /mcp <id>`,
   ]);
   openNextPicker(state, "/mcp");
+}
+
+async function chatAddHttpMcp(args: string[], state: ChatState): Promise<void> {
+  const [name, url] = args;
+  if (!name || !url) {
+    printChatPanel("MCP", [
+      color("Usage: /mcp add-http <name> <url> [--oauth --setup-url URL --authorization-url URL --token-url URL --client-id ID --client-secret-env ENV --scope S --redirect-port N]", "yellow"),
+      "Use this when you want the MCP owned by Muster instead of reused from a provider cache.",
+    ]);
+    openNextPicker(state, "/mcp add-http");
+    return;
+  }
+  const oauth = args.includes("--oauth");
+  const oauthConfig = oauth ? {
+    setupUrl: readFlag(args, "--setup-url"),
+    authorizationUrl: readFlag(args, "--authorization-url"),
+    tokenUrl: readFlag(args, "--token-url"),
+    clientId: readFlag(args, "--client-id"),
+    clientSecret: readEnvFlag(args, "--client-secret-env"),
+    scope: readFlag(args, "--scope"),
+    clientName: readFlag(args, "--client-name") ?? "Muster",
+    redirectPort: readNumberFlag(args, "--redirect-port"),
+  } : undefined;
+  const key = safeConfigKey(name);
+  const config = await loadConfig();
+  const server: McpServerConfig = {
+    transport: { kind: "http", url },
+    ...(oauth ? { auth: "oauth" as const, oauth: oauthConfig } : {}),
+  };
+  await saveConfig({
+    ...config,
+    tools: {
+      ...(config.tools ?? {}),
+      mcp: {
+        ...(config.tools?.mcp ?? {}),
+        servers: {
+          ...(config.tools?.mcp?.servers ?? {}),
+          [key]: server,
+        },
+      },
+    },
+  });
+  await refreshChatTuiHeader(state);
+  printChatPanel("MCP", [
+    `${color("configured", "green")} ${key} transport=http${oauth ? " auth=oauth" : ""}`,
+    `${color("url", "accent")} ${url}`,
+    oauth ? `${color("Login", "accent")} /mcp login ${key}` : `${color("Test", "accent")} /mcp test ${key}`,
+    "No provider cache token was copied; this MCP is now owned by Muster config.",
+  ]);
+}
+
+async function chatAddStdioMcp(args: string[], state: ChatState): Promise<void> {
+  const [name, command, ...commandArgs] = args;
+  if (!name || !command) {
+    printChatPanel("MCP", [
+      color("Usage: /mcp add-stdio <name> <command> [args...]", "yellow"),
+      "Use this for local MCP servers, provider-discovered stdio helpers, or your own tools.",
+    ]);
+    openNextPicker(state, "/mcp add-stdio");
+    return;
+  }
+  const key = safeConfigKey(name);
+  const config = await loadConfig();
+  const server: McpServerConfig = { transport: { kind: "stdio", command, args: commandArgs } };
+  await saveConfig({
+    ...config,
+    tools: {
+      ...(config.tools ?? {}),
+      mcp: {
+        ...(config.tools?.mcp ?? {}),
+        servers: {
+          ...(config.tools?.mcp?.servers ?? {}),
+          [key]: server,
+        },
+      },
+    },
+  });
+  await refreshChatTuiHeader(state);
+  printChatPanel("MCP", [
+    `${color("configured", "green")} ${key} transport=stdio`,
+    `${color("command", "accent")} ${command}${commandArgs.length ? ` ${commandArgs.join(" ")}` : ""}`,
+    `${color("Test", "accent")} /mcp test ${key}`,
+    "No provider cache token was copied; this MCP is now owned by Muster config.",
+  ]);
 }
 
 function parseChatSelection(input: string | undefined): { value: string; rest: string[]; allowHighRisk: boolean } {
@@ -2612,10 +2760,11 @@ async function chatReuseProviderOptions(): Promise<PickerOption[]> {
 async function chatMcpOptions(): Promise<PickerOption[]> {
   const config = await loadConfig().catch(() => undefined);
   const configured = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
-  return sortPickerOptions(CHAT_MCP_OPTIONS.map((option) => ({
+  const servers = sortPickerOptions(CHAT_MCP_OPTIONS.map((option) => ({
     ...option,
     description: `${configured.has(option.value) ? "configured · " : ""}${option.description ?? ""}`,
   })), [...configured][0]);
+  return [...servers, ...CHAT_MCP_ACTION_OPTIONS];
 }
 
 function sortPickerOptions(options: readonly PickerOption[], active?: string): PickerOption[] {

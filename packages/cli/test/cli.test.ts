@@ -179,6 +179,31 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const mcpCompletion = await runCli(["chat", "--complete", "/mcp par"], cwd);
   assert.match(mcpCompletion.stdout, /parallel-search/);
 
+  const mcpActionCompletion = await runCli(["chat", "--complete", "/mcp add"], cwd);
+  assert.match(mcpActionCompletion.stdout, /add-http/);
+  assert.match(mcpActionCompletion.stdout, /add-stdio/);
+
+  const chatHttpMcp = await runCli(["chat", "/mcp add-http product https://mcp.example.test/mcp --oauth --setup-url https://mcp.example.test/setup"], cwd);
+  assert.match(chatHttpMcp.stdout, /configured/);
+  assert.match(chatHttpMcp.stdout, /product transport=http auth=oauth/);
+  assert.match(chatHttpMcp.stdout, /No provider cache token was copied/);
+  assert.doesNotMatch(chatHttpMcp.stdout, /client_secret/i);
+
+  const mcpStatus = await runCli(["mcp", "status", "product"], cwd);
+  assert.match(mcpStatus.stdout, /mcp=product transport=http https:\/\/mcp\.example\.test\/mcp auth=oauth/);
+  assert.match(mcpStatus.stdout, /login=muster mcp login product/);
+
+  const chatStdioMcp = await runCli(["chat", "/mcp add-stdio local-tool node ./server.js --stdio"], cwd);
+  assert.match(chatStdioMcp.stdout, /configured/);
+  assert.match(chatStdioMcp.stdout, /local-tool transport=stdio/);
+
+  const mcpList = await runCli(["mcp", "list"], cwd);
+  assert.match(mcpList.stdout, /local-tool\tstdio node \.\/server\.js --stdio/);
+
+  const chatRemoveMcp = await runCli(["chat", "/mcp remove local-tool"], cwd);
+  assert.match(chatRemoveMcp.stdout, /removed/);
+  assert.match(chatRemoveMcp.stdout, /Provider-hosted credentials/);
+
   const sessionCompletion = await runCli(["chat", "--complete", "/resume rel"], cwd);
   assert.match(sessionCompletion.stdout, /release-audit/);
 
