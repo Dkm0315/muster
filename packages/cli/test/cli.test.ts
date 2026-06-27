@@ -1832,6 +1832,25 @@ test("CLI artifacts command plans gated workflows and creates local files", asyn
   const bytes = await readFile(join(cwd, "out", "brief.docx"));
   assert.ok(bytes.subarray(0, 2).equals(Buffer.from("PK")));
   assert.match(bytes.toString("utf8"), /Muster Board Brief/);
+
+  await writeFile(join(cwd, "ledger-spec.json"), `${JSON.stringify({
+    title: "Token Ledger Export",
+    filename: "ledger-export",
+    sheetName: "Ledger",
+    columns: ["model", "input", "output", "waste"],
+    rows: [
+      { model: "codex/gpt-5.5", input: 54600, output: 1500, waste: 0 },
+      { model: "muster-local/workspace-read", input: 0, output: 0, waste: 0 },
+    ],
+  }, null, 2)}\n`, "utf8");
+  const xlsx = await runCli(["artifacts", "create", "--format", "xlsx", "--spec", "ledger-spec.json", "--out", "out/ledger.xlsx"], cwd);
+  assert.match(xlsx.stdout, /artifact=.*out\/ledger\.xlsx/);
+  assert.match(xlsx.stdout, /format=xlsx/);
+  const xlsxBytes = await readFile(join(cwd, "out", "ledger.xlsx"));
+  const xlsxText = xlsxBytes.toString("utf8");
+  assert.match(xlsxText, /Ledger/);
+  assert.match(xlsxText, /codex\/gpt-5\.5/);
+  assert.match(xlsxText, /54600/);
 });
 
 test("CLI skills index renders pinned skill digests", async () => {
