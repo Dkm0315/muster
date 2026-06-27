@@ -6,6 +6,8 @@ Agents that run for more than a demo need boundaries: they should not leak memor
 
 Muster gives those agents scoped memory, a local token ledger, eval-gated learning, MCP/plugin controls, browser automation surfaces, and Frappe / ERPNext capability packs while keeping provider choice flexible across cloud, open-source, self-hosted, and private routes.
 
+It is also the product surface around that harness: tools, skills, plugins, memory, channels, and an early personal-agent app layer for day-to-day work across terminal, web, and chat surfaces.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node >=24](https://img.shields.io/badge/node-%3E%3D24-5FA04E.svg)](package.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg)](tsconfig.base.json)
@@ -62,6 +64,19 @@ tokens     2        0
 
 Full methodology: [benchmark/RESULTS.md](benchmark/RESULTS.md)
 
+## Product Surface
+
+Muster is not only a run loop. The harness is meant to become the controlled operating layer around the agent someone actually uses every day.
+
+| Surface | What it means in Muster |
+|---|---|
+| **Tools** | Built-in and pack-provided actions for shell, files, git, browser work, web search, providers, Frappe/ERPNext, channels, and MCP. Tools should run with policy, receipts, caps, and clear failure states. |
+| **Skills** | Reusable workflows and instructions that can be listed, inspected, curated, activated, and attributed in the token ledger. Skills should make repeat work easier without hiding what changed. |
+| **Plugins** | Installable bundles that can bring tools, skills, MCP setup, auth guidance, tests, and policy defaults together. The catalog should tell users what is executable today, what needs credentials, and what is only a setup plan. |
+| **Memory** | Scoped, indexed memory across tenant, workspace, user, role, session, tags, and time. Retrieval should be fast as memory grows, and leakage tests should catch unsafe cross-scope recall. |
+| **Channels** | Telegram, Slack, Discord, WhatsApp, Google Chat, Teams, and web entry points through the gateway, with setup checks and live diagnostics instead of silent webhook failure. |
+| **Personal agent app** | The direction for the user-facing product: `muster` opens a guided terminal agent today; named sessions, onboarding, channel setup, memory controls, and web/gateway surfaces move it toward a personal agent that can follow the user across work surfaces. |
+
 ## Why Muster Exists
 
 Most agents fail after the demo.
@@ -84,10 +99,14 @@ Muster exists to keep those controls outside the model provider.
 | Token cost becomes invisible | **Token ledger** records every run, estimates or records usage, and flags replay waste. |
 | Tools run without boundaries | **Governed execution** routes tools, flows, subagents, browser work, and channels through explicit config, policy, and evidence. |
 | Agents "learn" from vibes | **Eval-gated learning** turns feedback into replayable fixtures before behavior is promoted. |
+| Everyday work needs repeatable actions | **Tool catalogs** expose built-in and pack-provided actions with policy, receipts, and setup checks. |
+| Repeated workflows become tribal knowledge | **Skills** package reusable instructions and runbooks so teams can inspect and reuse them. |
 | Integrations sprawl | **Capability packs** bundle typed tools, declared secrets, permissions, and setup guidance. |
 | MCP servers are useful but risky | **MCP/plugin support** adds stdio/http servers with include/exclude policy, result caps, circuit breakers, and OAuth/PKCE helpers. |
+| Chat apps need a reliable backend | **Channel adapters** connect Telegram, Slack, Discord, WhatsApp, Google Chat, Teams, and webhooks to the same governed harness. |
 | Browser and web apps need audit trails | **Browser and web-app automation** can be routed through the same harness and gateway surfaces. |
 | ERP systems need domain context | **Frappe/ERPNext support** ships as a capability pack with permission-scoped tools and docs/live-context setup. |
+| Users need a product, not only libraries | **Personal-agent surfaces** make setup, memory, providers, channels, plugins, and command workflows discoverable from the CLI/TUI first, with richer web/app surfaces planned. |
 | Provider choice should stay flexible | **Multi-provider LLM support** covers cloud APIs, open-source/self-hosted servers, aggregators, OpenAI-compatible endpoints, Gemini, Groq, Cerebras, Mistral, DeepSeek, Kimi, Qwen, OpenRouter, Together, Fireworks, LM Studio, vLLM, SGLang, Pi, Codex CLI, and Claude Code CLI. |
 
 ## Quick Start
@@ -172,10 +191,13 @@ Muster is a TypeScript monorepo. The CLI is the main entry point; the core packa
 
 ```mermaid
 flowchart TD
-  User[Terminal / Gateway / Channel] --> CLI[packages/cli]
+  User[Terminal TUI / Web / Chat Channels] --> SurfaceLayer[personal-agent surface]
+  SurfaceLayer --> CLI[packages/cli]
+  SurfaceLayer --> Gateway[packages/gateway]
   CLI --> Router[router + profile + provider resolver]
   Router --> Runtime[provider family: cloud APIs / open-source servers / aggregators / CLI-auth runtimes]
   Router --> Tools[tool registry + MCP client + capability packs]
+  Router --> Skills[skills + plugin catalog]
   Tools --> Packs[capability-packs/*]
   Tools --> MCP[MCP stdio/http servers]
   Router --> Memory[scoped memory lanes]
@@ -183,8 +205,8 @@ flowchart TD
   Router --> Ledger[episode store + token ledger]
   Ledger --> Verify[muster verify]
   Ledger --> Evals[eval fixtures + evolve suites]
-  Gateway[packages/gateway] --> Router
   Surface[packages/surface] --> Gateway
+  Gateway --> Router
 ```
 
 Key directories:
@@ -206,6 +228,7 @@ Muster uses provider APIs, OpenAI-compatible servers, aggregators, self-hosted o
 - **Enterprise web-app automation**: use the gateway and web surface to connect app events to governed runs.
 - **Governed long-running agents**: keep sessions, memory, token spend, and learning visible over days or weeks.
 - **MCP-based capability extension**: attach MCP servers with per-server policy, result caps, OAuth setup, and failure isolation.
+- **Personal agent surfaces**: expose the same governed backend through terminal chat, named sessions, channel webhooks, and web/app surfaces instead of forcing every user to think in SDK calls.
 
 ## Comparison
 
@@ -217,6 +240,7 @@ Muster is not trying to replace every agent framework. It is the governance laye
 | Workflow graph tools such as LangGraph | explicit graph/state machines for agent workflows | Muster includes flows, but its wedge is the harness around runs: scoped memory, provider routing, MCP policy, token accounting, and eval-backed learning. |
 | Coding agents such as Codex or Claude Code | high-quality coding interaction with native tools | Muster can route through these CLIs when you want subscription-auth coding workflows, while keeping local ledgers, sessions, provider policy, and capability boundaries. They are optional routes, not the whole harness. |
 | OpenClaw/Hermes-inspired systems | broad agent surfaces, adapters, skills, and operational UX | Muster is inspired by their breadth and UX patterns, but is narrower and more explicit about governance. Not every inspired catalog entry is a fully wired runtime adapter. |
+| Broad harnesses such as OpenHarness | tools, skills, plugins, channels, memory, and personal agent UX | Muster should match that everyday-product breadth while staying stricter about scoped memory, token ledgering, eval gates, policy, and receipts. |
 
 OpenClaw and Hermes have broader mature ecosystems. Muster's current edge is auditability: scoped memory, token visibility, eval-gated learning, MCP policy, and an integration induction layer that marks setup plans differently from executable packs.
 
@@ -228,13 +252,16 @@ Muster is pre-1.0. Core governance paths are implemented and tested; public APIs
 |---|---|
 | CLI/TUI | Implemented. `muster` opens the chat UI after onboarding with slash-command completion, `@agent` completion, history, named sessions, provider/model/runtime pickers, token, plugin, skill, MCP, and memory commands. |
 | Provider/runtime path | Implemented for direct APIs, OpenAI-compatible providers, aggregators, local/self-hosted servers, Pi, Codex CLI, and Claude Code CLI. Presets include OpenAI, Anthropic, Gemini, xAI, Kimi, DeepSeek, Mistral, Qwen, Zhipu, Perplexity, Groq, Cerebras, OpenRouter, Together, Fireworks, LM Studio, vLLM, and SGLang. |
+| Tools | Implemented base registry and pack model. Core tools, MCP tools, channel tools, browser/search/provider tools, and Frappe tools are discoverable through CLI commands and pack manifests. |
+| Skills | Implemented base system. Skills can be listed, inspected, curated, and attributed; more default skills and QA coverage are still being expanded. |
 | Memory | Implemented. Scoped memory uses SQLite/FTS with receipt reporting, graph-linked expansion, latency probes, rebuild/doctor commands, and leakage tests. |
 | Token/cost | Implemented. Per-run ledger, cost estimates where pricing is known, replay-waste detection, session mode/id tracking, and skill attribution. |
-| Plugins/skills | Implemented base system. In-repo capability packs are executable; broader catalog entries are marked by actionability. |
+| Plugins | Implemented base system. In-repo capability packs are executable; broader catalog entries are marked by actionability and should not pretend setup-only packs are live runtime integrations. |
 | MCP | Implemented client, stdio/http registration, include/exclude policy, result caps, circuit breakers, OAuth/PKCE setup/import, and curated install catalog. |
 | Frappe/ERPNext | Implemented as a capability pack with docs/live-context setup, module/doc resources, Frappe tools, generic graph-retrieval eval fixtures, and web-framework checks. |
 | Gateway/channels | Framework and setup packs exist for Telegram, Slack, Discord, WhatsApp, Google Chat, Teams, and web. Production hardening depends on real provider credentials and webhook setup. |
-| Dashboard/web UI | Basic status/export/start surfaces exist. Full desktop app is not done. |
+| Personal agent app | Early. TUI/onboarding/named sessions/channel gateway/web surface pieces exist; a dedicated polished desktop/mobile app is not done. |
+| Dashboard/web UI | Basic status/export/start surfaces exist. Full dashboard/desktop app is not done. |
 
 ## Roadmap
 
@@ -245,6 +272,7 @@ The detailed working board lives in [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md). 
 - harden TUI and setup workflows with PTY tests
 - expand real-provider latency tests
 - tighten Telegram/channel setup and live diagnostics
+- make tools, skills, plugins, memory, channels, and personal-agent workflows obvious from onboarding and `/` pickers
 - improve README, website, examples, and demos
 
 ### Next
@@ -254,6 +282,7 @@ The detailed working board lives in [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md). 
 - more browser automation examples with evidence capture
 - stronger provider/model picker workflows and latency hints
 - more capability-pack eval suites
+- dry-run previews for channel/plugin/MCP setup so users see what will happen before secrets or webhooks are touched
 
 ### Later
 
@@ -261,6 +290,7 @@ The detailed working board lives in [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md). 
 - community capability-pack registry
 - more channel adapters and live round-trip QA
 - hosted demo assets, videos, and example repos
+- full personal-agent app experience across terminal, browser, and chat surfaces
 
 ## Contributing
 
@@ -283,6 +313,8 @@ Good contribution areas:
 - browser automation examples
 - TUI interaction tests
 - capability-pack manifests and safety checks
+- channel adapters, live diagnostics, and setup guides
+- personal-agent onboarding, memory, and session UX
 
 Look for [`good first issue`](https://github.com/Dkm0315/muster/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) and [`help wanted`](https://github.com/Dkm0315/muster/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22). For larger work, open an issue first so the design can be reviewed before code.
 
@@ -291,6 +323,10 @@ Look for [`good first issue`](https://github.com/Dkm0315/muster/issues?q=is%3Ais
 ### Is Muster another agent framework?
 
 Not exactly. Muster is a governed harness around agents. It can route to agent CLIs, OpenAI-compatible providers, MCP servers, capability packs, and gateway surfaces while keeping memory, tokens, learning, and tool policy auditable.
+
+### Is Muster only a governance backend?
+
+No. Governance is the wedge, but the product surface matters just as much. Muster is being built around tools, skills, plugins, memory, channels, and a personal-agent app layer so non-framework users can still set up integrations, recall work, pick providers, and run workflows.
 
 ### How is it different from LangGraph, CrewAI, or AutoGen?
 
