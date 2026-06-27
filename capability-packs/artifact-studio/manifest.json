@@ -6,7 +6,7 @@
   "kind": "tool",
   "slot": "artifacts",
   "entrypoint": "src/index.ts",
-  "description": "Pure artifact helpers for turning structured inputs into markdown reports, CSV, and lightweight dashboard manifests.",
+  "description": "Pure artifact helpers for turning structured inputs into markdown, CSV, dashboard manifests, DOCX, XLSX, PPTX, and simple PDF artifacts with app-server handoff planning, Office tool integration maps, and gated multi-step artifact workflows.",
   "permissions": [],
   "sandbox": "none",
   "evals": [
@@ -15,9 +15,17 @@
   "implementedTools": [
     "markdown_report",
     "rows_to_csv",
-    "dashboard_manifest"
+    "dashboard_manifest",
+    "docx_document",
+    "xlsx_workbook",
+    "pptx_presentation",
+    "pdf_document",
+    "artifact_capability_plan",
+    "office_tool_integrations",
+    "office_artifact_workflow",
+    "artifact_goal_passes"
   ],
-  "status": "v0: deterministic artifact builders that return strings/JSON for the caller to save or render.",
+  "status": "v0: deterministic artifact builders that return strings, JSON, or base64 file payloads for the caller to save, plus honest app-server handoff planning and gated multi-step Office workflows for polished document creation.",
   "readiness": {
     "level": "executable",
     "status": "beta",
@@ -42,13 +50,14 @@
       "risk": "low",
       "permissionMode": "allow_when_scoped",
       "mutationApproval": "never",
-      "resultCapBytes": 65536,
+      "resultCapBytes": 1048576,
       "secretRedaction": true
     },
     "evidence": {
       "unitTests": [
         "packages/core/test/capability-load.test.ts",
-        "packages/core/test/capability.test.ts"
+        "packages/core/test/capability.test.ts",
+        "packages/core/test/integration-packs.test.ts"
       ],
       "qaSuites": [
         "pack_readiness"
