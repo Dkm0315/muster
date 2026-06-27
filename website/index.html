@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Muster — Governed Agent Harness for Production AI Systems</title>
   <meta name="description" content="Muster is an open-source governed agent harness for long-running AI agents with scoped memory, token ledger, eval-gated learning, MCP, browser automation, and Frappe / ERPNext support." />
-  <meta name="keywords" content="governed agent harness, AI agent framework, production AI agents, scoped memory, token ledger, eval-gated learning, MCP, browser automation, Frappe, ERPNext, Gemini, open-source models, self-hosted LLMs, OpenAI-compatible providers, multi-provider LLM routing" />
+  <meta name="keywords" content="governed agent harness, AI agent framework, production AI agents, scoped memory, token ledger, eval-gated learning, MCP, browser automation, Frappe, ERPNext, Gemini, open-source models, self-hosted LLMs, multi-provider LLM routing" />
   <link rel="canonical" href="https://themuster.dev/" />
   <meta name="theme-color" content="#F0EEE9" />
   <!-- Set theme before first paint to avoid a flash. localStorage wins, else
@@ -119,8 +119,8 @@
       <div class="hero-cards hero-step" aria-hidden="true">
         <div class="glass-card card-ledger">
           <span class="gc-label">token ledger</span>
-          <code class="gc-row">openai-compatible  48.1K in  <span class="gc-flag">6.2&times; waste</span></code>
-          <code class="gc-row dim">local-vllm           1.8K in  ledgered ✓</code>
+          <code class="gc-row">cloud route      48.1K in  <span class="gc-flag">6.2&times; waste</span></code>
+          <code class="gc-row dim">private route     1.8K in  ledgered ✓</code>
         </div>
         <div class="glass-card card-savings">
           <span class="gc-big">59%</span>
@@ -289,14 +289,14 @@
         <article class="capability-panel">
           <span class="cap-label">providers</span>
           <h3>Model and runtime routes</h3>
-          <p>Keep governance outside the model provider while routing to cloud, open-source, local, OpenAI-compatible, and CLI-auth runtimes.</p>
+          <p>Keep governance outside the model provider while routing to cloud, open-source, private, local, and CLI-auth runtimes.</p>
           <ul class="cap-pills" aria-label="Provider route examples">
-            <li>OpenAI</li>
-            <li>Anthropic</li>
+            <li>Cloud APIs</li>
+            <li>Enterprise APIs</li>
             <li>Gemini</li>
             <li>vLLM</li>
             <li>Self-hosted</li>
-            <li>OpenAI-compatible</li>
+            <li>Private endpoints</li>
           </ul>
         </article>
         <article class="capability-panel">
@@ -327,7 +327,7 @@
         </article>
         <article class="card reveal-child">
           <h3>Runtime router</h3>
-          <p>Routes to cloud APIs, Gemini, open-source/self-hosted servers, aggregators, Pi, OpenAI-compatible endpoints, and optional CLI-auth runtimes.</p>
+          <p>Routes to cloud APIs, Gemini, open-source/self-hosted servers, aggregators, Pi, private endpoints, and optional CLI-auth runtimes.</p>
         </article>
         <article class="card reveal-child">
           <h3>Capability layer</h3>
@@ -392,12 +392,12 @@
         <article class="eco-card shipped">
           <span class="eco-status">is</span>
           <h3>Provider-flexible</h3>
-          <p>Route through cloud APIs, Gemini, open-source/self-hosted servers, aggregators, Pi, OpenAI-compatible endpoints, and optional CLI-auth runtimes without moving governance into the provider.</p>
+          <p>Route through cloud APIs, Gemini, open-source/self-hosted servers, aggregators, Pi, private endpoints, and optional CLI-auth runtimes without moving governance into the provider.</p>
         </article>
         <article class="eco-card shipped">
           <span class="eco-status">is</span>
-          <h3>Hermes/OpenClaw-inspired</h3>
-          <p>Muster learns from their UX and breadth, while keeping setup plans distinct from fully wired runtime adapters.</p>
+          <h3>Integration-aware</h3>
+          <p>Muster separates setup plans, readiness checks, and executable adapters so teams can see what is configured before an agent acts.</p>
         </article>
         <article class="eco-card shipped">
           <span class="eco-status">is</span>

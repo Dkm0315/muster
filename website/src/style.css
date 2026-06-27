@@ -1082,15 +1082,15 @@ html.supports-lg-refract .glass-card {
   transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
 }
 
-/* Banner gradient: gold crown -> amber body -> ember base (mirrors banner.ts). */
+/* Banner gradient: cyan crown -> green body -> warm amber foot (mirrors banner.ts). */
 .term-banner { line-height: 1.05; }
-.term-banner .b0 { color: #ffd166; }
-.term-banner .b1 { color: #ffc43d; }
-.term-banner .b2 { color: #ffb714; }
-.term-banner .b3 { color: #f7a500; }
-.term-banner .b4 { color: #e69000; }
-.term-banner .b5 { color: #d67a00; }
-.term-tag { color: #ffb000; }
+.term-banner .b0 { color: #29d3ff; }
+.term-banner .b1 { color: #41dcdf; }
+.term-banner .b2 { color: #58e5c0; }
+.term-banner .b3 { color: #72eba2; }
+.term-banner .b4 { color: #b5d986; }
+.term-banner .b5 { color: #f7c66a; }
+.term-tag { color: #8ea1b5; }
 
 /* Prompt + command + output colors. */
 .t-prompt { color: #28C840; font-weight: 700; }
