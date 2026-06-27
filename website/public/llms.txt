@@ -6,11 +6,18 @@ Website: https://themuster.dev/
 Repository: https://github.com/Dkm0315/muster
 Docs: https://themuster.dev/docs.html
 Frappe AI: https://themuster.dev/frappe-ai.html
+Agent harness: https://themuster.dev/agent-harness.html
+MCP agent harness: https://themuster.dev/mcp-agent-harness.html
+Slack AI agent: https://themuster.dev/slack-ai-agent.html
+Telegram AI agent: https://themuster.dev/telegram-ai-agent.html
+Google Chat AI agent: https://themuster.dev/google-chat-ai-agent.html
+Browser automation agent: https://themuster.dev/browser-automation-agent.html
 
 Core positioning:
 - Governed agent harness for long-running AI agents
 - Scoped memory, token ledger, eval-gated learning, MCP capabilities
 - Browser automation and Frappe / ERPNext support
+- Gateway adapters for Telegram, Slack, Google Chat, Teams, Discord, WhatsApp, and web surfaces
 - Frappe AI and ERPNext AI context packs for DocTypes, fields, workflows, reports, scripts, and permission-aware setup
 - Multi-provider routing while keeping governance outside the model provider
 
@@ -18,4 +25,10 @@ Useful pages:
 - Home: https://themuster.dev/
 - Docs: https://themuster.dev/docs.html
 - Frappe AI: https://themuster.dev/frappe-ai.html
+- Agent harness: https://themuster.dev/agent-harness.html
+- MCP agent harness: https://themuster.dev/mcp-agent-harness.html
+- Slack AI agent: https://themuster.dev/slack-ai-agent.html
+- Telegram AI agent: https://themuster.dev/telegram-ai-agent.html
+- Google Chat AI agent: https://themuster.dev/google-chat-ai-agent.html
+- Browser automation agent: https://themuster.dev/browser-automation-agent.html
 - GitHub: https://github.com/Dkm0315/muster

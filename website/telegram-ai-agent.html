@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Telegram AI Agent Harness — Governed Telegram Bots with Muster</title>
+  <meta name="description" content="Build a governed Telegram AI agent with Muster's gateway adapter, webhook or long-poll mode, pairing, scoped memory, token ledger, and tool policy." />
+  <meta name="keywords" content="Telegram AI agent, Telegram bot AI, Telegram agent harness, AI agent for Telegram, governed Telegram bot, Muster Telegram" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/telegram-ai-agent.html" />
+  <meta property="og:type" content="website" /><meta property="og:site_name" content="Muster" /><meta property="og:title" content="Telegram AI Agent Harness — Muster" /><meta property="og:description" content="Govern Telegram bots with pairing, webhook/long-poll support, scoped memory, token ledger, and tool policy." /><meta property="og:url" content="https://themuster.dev/telegram-ai-agent.html" /><meta property="og:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <div id="scroll-progress" aria-hidden="true"></div><div id="hero-stage" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+  <header class="topbar"><a class="brand" href="/">muster<span class="brand-dot">.</span></a><nav aria-label="Main"><a href="/">Home</a><a href="/docs.html#gateway">Gateway docs</a><a href="/slack-ai-agent.html">Slack</a><a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a></nav></header>
+  <main>
+    <section class="hero"><div class="hero-inner"><p class="kicker hero-step">Telegram AI · bot gateway</p><h1 class="hero-step">Put a governed agent behind Telegram.</h1><p class="sub hero-step">Muster's Telegram adapter supports webhook handling, optional secret-token checks, long-poll operation, sender pairing, draft-style replies, scoped memory, and token-ledger receipts.</p><div class="hero-actions hero-step"><a class="btn-cta" href="/docs.html#gateway">Read gateway docs</a><a class="btn-ghost" href="/agent-harness.html">Agent harness -></a></div></div></section>
+    <section class="band" data-reveal><p class="sec-kicker reveal-child">Telegram path</p><h2 class="reveal-child">Bot token first; agent access only after pairing.</h2><pre class="mono codeblock reveal-child">$ muster gateway init
+$ muster channels setup telegram
+$ muster gateway start --port 7460
+$ muster pairing approve &lt;code&gt;</pre><div class="capability-board reveal-child"><article class="capability-panel"><span class="cap-label">webhook</span><h3>Webhook adapter</h3><p>Telegram updates become the same SurfaceMessage envelope as every other channel.</p></article><article class="capability-panel"><span class="cap-label">long poll</span><h3>No public URL mode</h3><p>The gateway also includes long-poll support for development or private setups.</p></article><article class="capability-panel"><span class="cap-label">governance</span><h3>Pairing and memory scope</h3><p>Unknown chat IDs are challenged; accepted chats get scoped session continuity.</p></article><article class="capability-panel"><span class="cap-label">ledger</span><h3>Token receipts</h3><p>Telegram conversations remain accountable through the same run ledger.</p></article></div></section>
+  </main>
+</body>
+</html>
