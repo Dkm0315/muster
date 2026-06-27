@@ -579,7 +579,7 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
   { name: "capabilities", usage: "/capabilities [query]", description: "find matching skills, plugins, and MCPs", aliases: ["capability", "caps"] },
   { name: "skills", usage: "/skills [id]", description: "show or enable built-in skills", aliases: ["skill"] },
-  { name: "plugins", usage: "/plugins [id]", description: "show or enable built-in plugins", aliases: ["plugin"] },
+  { name: "plugins", usage: "/plugins [id|reuse provider]", description: "show, enable, or reuse provider-authenticated plugins", aliases: ["plugin"] },
   { name: "mcp", usage: "/mcp [id]", description: "show configured and suggested MCP servers" },
   { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
   { name: "tokens", usage: "/tokens [limit]", description: "show token ledger", aliases: ["usage", "ledger"] },
@@ -615,6 +615,13 @@ const CHAT_PLUGIN_OPTIONS = listBuiltinPlugins().map((plugin) => ({
   label: plugin.id,
   description: `${plugin.category} · ${plugin.actionability} · ${plugin.source} · risk ${plugin.risk}${plugin.aliases?.length ? ` · ${plugin.aliases.join(", ")}` : ""} · ${plugin.description}`,
 }));
+const CHAT_REUSE_PROVIDER_PRESETS: readonly PickerOption[] = [
+  { value: "codex", label: "codex", description: "scan ~/.codex/plugins/cache or CODEX_HOME for authenticated apps/MCPs" },
+  { value: "claude", label: "claude", description: "scan ~/.claude/plugins/cache or CLAUDE_HOME when available" },
+  { value: "openclaw", label: "openclaw", description: "scan ~/.openclaw/plugins or OPENCLAW_HOME when available" },
+  { value: "hermes", label: "hermes", description: "scan ~/.hermes/plugins or HERMES_HOME when available" },
+  { value: "custom", label: "custom", description: "set MUSTER_<PROVIDER>_PLUGIN_CACHE or MUSTER_PROVIDER_PLUGIN_CACHE" },
+];
 const CHAT_MCP_OPTIONS = listBuiltinMcpServers().map((server) => ({
   value: server.id,
   label: server.id,
@@ -741,6 +748,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       recentSessions: recentChatSessionNames,
       catalog: createChatCompletionCatalog(state),
       agents: chatAgentOptions,
+      pluginReuseProviders: chatReuseProviderOptions,
       statusLine: () => chatStatusLine(state),
       onSubmit: async (text, sink) => {
         state.statusSink = sink;
@@ -1443,6 +1451,17 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
       .map((skill) => ({
         label: `${color(skill.value.padEnd(28), "highlight")} ${skill.description ?? "built-in skill"}`,
         value: `/skills ${skill.value}`,
+        kind: "completion" as const,
+      }));
+  }
+  if (/^\/plugins?\s+reuse(?:\s+\S*)?$/i.test(trimmed)) {
+    const fragment = trimmed.split(/\s+/).length > 2 ? trimmed.split(/\s+/).at(-1)?.toLowerCase() ?? "" : "";
+    return (await chatReuseProviderOptions())
+      .filter((provider) => !fragment || provider.value.toLowerCase().startsWith(fragment) || provider.description?.toLowerCase().includes(fragment))
+      .slice(0, 24)
+      .map((provider) => ({
+        label: `${color(provider.value.padEnd(28), "highlight")} ${provider.description ?? "provider plugin cache"}`,
+        value: `/plugins reuse ${provider.value}`,
         kind: "completion" as const,
       }));
   }
@@ -2232,6 +2251,23 @@ async function printChatSkills(selection: string | undefined, state: ChatState):
 async function printChatPlugins(selection: string | undefined, state: ChatState): Promise<void> {
   const parsed = parseChatSelection(selection);
   const selected = parsed.value;
+  if (selected === "reuse" || selected === "discover") {
+    const provider = parsed.rest[0];
+    if (!provider) {
+      printChatPanel("Plugins", [
+        color("Usage: /plugins reuse <provider>", "yellow"),
+        "Reuse authenticated provider apps, plugins, skills, and MCP manifests without copying secrets.",
+        `${color("Known", "accent")} ${(await chatReuseProviderOptions()).map((option) => option.value).join(" · ")}`,
+        `${color("Custom", "accent")} set MUSTER_<PROVIDER>_PLUGIN_CACHE or MUSTER_PROVIDER_PLUGIN_CACHE`,
+        `${color("Explicit", "accent")} /mcp <id> · muster mcp add-http/add-stdio · muster plugins inspect/load · muster skills enable`,
+      ]);
+      openNextPicker(state, "/plugins reuse");
+      return;
+    }
+    await pluginReuseCommand(provider);
+    openNextPicker(state, "/plugins");
+    return;
+  }
   if (selected) {
     try {
       const current = await loadConfig();
@@ -2450,6 +2486,8 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
           return filterPickerOptions(chatSkillOptions(), request.fragment);
         case "plugin":
           return filterPickerOptions(await chatPluginOptions(), request.fragment);
+        case "plugin-reuse-provider":
+          return filterPickerOptions(await chatReuseProviderOptions(), request.fragment);
         case "mcp":
           return filterPickerOptions(await chatMcpOptions(), request.fragment);
         case "agent": {
@@ -2561,6 +2599,14 @@ async function chatPluginOptions(): Promise<PickerOption[]> {
     ...option,
     description: `${enabled.has(option.value) ? "enabled · " : ""}${option.description ?? ""}`,
   })), [...enabled][0]);
+}
+
+async function chatReuseProviderOptions(): Promise<PickerOption[]> {
+  const config = await loadConfig().catch(() => undefined);
+  const configuredProviders = Object.keys(config?.providers ?? {})
+    .filter((id) => !CHAT_REUSE_PROVIDER_PRESETS.some((preset) => preset.value === id))
+    .map((id) => ({ value: id, label: id, description: `configured provider · set MUSTER_${providerEnvKey(id)}_PLUGIN_CACHE to reuse its plugin manifests` }));
+  return [...CHAT_REUSE_PROVIDER_PRESETS, ...configuredProviders];
 }
 
 async function chatMcpOptions(): Promise<PickerOption[]> {

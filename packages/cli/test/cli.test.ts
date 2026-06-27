@@ -161,6 +161,9 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const pluginAliasCompletion = await runCli(["chat", "--complete", "/plugins pdf"], cwd);
   assert.match(pluginAliasCompletion.stdout, /artifact-studio/);
 
+  const pluginReuseCompletion = await runCli(["chat", "--complete", "/plugins reuse co"], cwd);
+  assert.equal(pluginReuseCompletion.stdout.trim(), "codex");
+
   const capabilityCompletion = await runCli(["chat", "--complete", "/capabilities tel"], cwd);
   assert.match(capabilityCompletion.stdout, /telegram/);
 

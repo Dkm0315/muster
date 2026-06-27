@@ -31,6 +31,7 @@ export interface MusterAutocompleteOptions {
   readonly capabilities?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly skills?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly plugins?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
+  readonly pluginReuseProviders?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly mcpServers?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly agents: () => readonly string[] | Promise<readonly string[]>;
 }
@@ -48,6 +49,7 @@ export type MusterCompletionKind =
   | "capability"
   | "skill"
   | "plugin"
+  | "plugin-reuse-provider"
   | "mcp"
   | "agent";
 
@@ -521,6 +523,7 @@ function slashCompletionContext(trimmed: string):
   | { kind: "capability"; fragment: string; prefix: string }
   | { kind: "skill"; fragment: string; prefix: string }
   | { kind: "plugin"; fragment: string; prefix: string }
+  | { kind: "plugin-reuse-provider"; fragment: string; prefix: string }
   | { kind: "mcp"; fragment: string; prefix: string }
   | undefined {
   switch (trimmed.toLowerCase()) {
@@ -574,6 +577,8 @@ function slashCompletionContext(trimmed: string):
   if (capabilityMatch) return { kind: "capability", fragment: capabilityMatch[1] ?? "", prefix: trimmed };
   const skillMatch = trimmed.match(/^\/skills?\s+([^\s]*)$/i);
   if (skillMatch) return { kind: "skill", fragment: skillMatch[1] ?? "", prefix: trimmed };
+  const pluginReuseMatch = trimmed.match(/^\/plugins?\s+reuse(?:\s+([^\s]*))?$/i);
+  if (pluginReuseMatch) return { kind: "plugin-reuse-provider", fragment: pluginReuseMatch[1] ?? "", prefix: trimmed };
   const pluginMatch = trimmed.match(/^\/plugins?\s+([^\s]*)$/i);
   if (pluginMatch) return { kind: "plugin", fragment: pluginMatch[1] ?? "", prefix: trimmed };
   const mcpMatch = trimmed.match(/^\/mcp\s+([^\s]*)$/i);
@@ -651,6 +656,8 @@ function createCallbackCompletionCatalog(options: MusterAutocompleteOptions): Mu
           return filterPickerOptions(await options.skills?.() ?? [], request.fragment);
         case "plugin":
           return filterPickerOptions(await options.plugins?.() ?? [], request.fragment);
+        case "plugin-reuse-provider":
+          return filterPickerOptions(await options.pluginReuseProviders?.() ?? [], request.fragment);
         case "mcp":
           return filterPickerOptions(await options.mcpServers?.() ?? [], request.fragment);
         case "agent": {
@@ -714,6 +721,7 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
   if (/^\/speed\s+/i.test(trimmed)) return `/speed ${item.value}`;
   if (/^\/(?:capabilities|capability|caps)\s+/i.test(trimmed)) return `/capabilities ${item.value}`;
   if (/^\/skills?\s+/i.test(trimmed)) return `/skills ${item.value}`;
+  if (/^\/plugins?\s+reuse(?:\s+.*)?$/i.test(trimmed)) return `/plugins reuse ${item.value}`;
   if (/^\/plugins?\s+/i.test(trimmed)) return `/plugins ${item.value}`;
   if (/^\/mcp\s+/i.test(trimmed)) return `/mcp ${item.value}`;
   return item.value;
