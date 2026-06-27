@@ -4,6 +4,34 @@ All notable changes to Muster are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 semantic versioning.
 
+## [0.1.7] - 2026-06-27
+
+Muster 0.1.7 is the public demo and positioning release. It makes the first
+GitHub/npm experience clearer, safer to try, and easier to share.
+
+### Added
+- README and website positioning around Muster as an open-source governed agent
+  harness for production AI systems.
+- Public demo assets, social preview assets, and a terminal demo GIF for the
+  README and website.
+- Channel/plugin readiness diagnostics in the CLI so integration setup can
+  report concrete missing prerequisites.
+
+### Changed
+- README quick start now starts with the deterministic no-key demo:
+  `pnpm --package=@musterhq/cli dlx muster demo`.
+- Website hero now leads with the governed-agent wedge, a "Run the demo" CTA,
+  and concise proof instead of a dense capability list.
+- Website SEO/social metadata now includes clearer descriptions and preview
+  imagery for shared links.
+- Package versions are aligned for the next npm publication.
+
+### Fixed
+- Replaced the broken `pnpm dlx @musterhq/cli demo` command form with the
+  verified pnpm syntax for packages that expose multiple binaries.
+- Restored near-top Token Waste Index proof in the README so visitors see
+  deterministic token-savings evidence before long explanations.
+
 ## [0.1.6] - 2026-06-23
 
 Muster 0.1.6 is the integration and CLI usability release. It moves Muster
