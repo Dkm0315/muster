@@ -163,12 +163,18 @@ import {
 import {
   approvePairing,
   DEFAULT_GATEWAY_PORT,
+  discordInteractionToInbound,
+  gchatEventToSurfaceMessage,
   initGatewayConfig,
   loadGatewayConfig,
   loadPairings,
   pollTelegram,
   saveGatewayConfig,
-  startGatewayServer
+  slackEventToSurfaceMessage,
+  startGatewayServer,
+  teamsActivityToSurfaceMessage,
+  telegramUpdateToSurfaceMessage,
+  whatsAppWebhookToSurfaceMessages
 } from "@musterhq/gateway";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -383,7 +389,7 @@ Usage:
   muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
-  muster channels list | status [channel] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
+  muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
   muster integrations [list|guide|status]  # layman setup guide for chat apps, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
@@ -5050,23 +5056,69 @@ async function runPtyTuiQaSuite(args: string[], stamp: string): Promise<void> {
 async function runChannelPluginSetupQaSuite(args: string[], stamp: string): Promise<void> {
   const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `channel-plugin-setup-${stamp}`));
   const result = await runChannelPluginSetupQa({ artifactDir });
+  const operatorCases = channelOperatorQaCases();
+  const operatorCasesPath = join(artifactDir, "operator-cases.json");
+  await writeFile(operatorCasesPath, `${JSON.stringify(operatorCases, null, 2)}\n`, "utf8");
+  const status = result.status === "passed" && operatorCases.every((testCase) => testCase.status === "passed") ? "passed" : "failed";
+  const summary = status === "passed"
+    ? `${result.summary}; channel operator plans and adapter simulations verified`
+    : "Channel/plugin setup QA found missing setup guidance, policy regressions, or broken operator simulations";
   const evidencePath = readFlag(args, "--evidence");
   await recordRuntimeQaSuiteEvidence({
     suite: "channel_plugin_setup",
-    status: result.status,
+    status,
     artifactDir: result.artifactDir,
-    summary: result.summary,
+    summary,
     evidencePath: evidencePath ? resolve(process.cwd(), evidencePath) : undefined,
   });
-  console.log(`qa_suite=${result.suite} status=${result.status}`);
+  console.log(`qa_suite=${result.suite} status=${status}`);
   console.log(`artifact_dir=${result.artifactDir}`);
   console.log(`artifact_manifest=${result.manifestPath}`);
   console.log(`artifact_cases=${result.casesPath}`);
   console.log(`artifact_catalog=${result.catalogPath}`);
+  console.log(`artifact_operator_cases=${operatorCasesPath}`);
   for (const testCase of result.cases) {
     console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
   }
-  if (result.status === "failed") process.exitCode = 1;
+  for (const testCase of operatorCases) {
+    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
+  }
+  if (status === "failed") process.exitCode = 1;
+}
+
+function channelOperatorQaCases(): Array<{ readonly id: string; readonly status: RuntimeDoctorStatus; readonly summary: string; readonly evidence: Record<string, unknown> }> {
+  const config = { port: DEFAULT_GATEWAY_PORT } as GatewayConfig;
+  const slack = requireChannelSpec("slack");
+  const slackMissing = channelMissingSetup("slack", config);
+  const slackPlanPassed = slack.route === "/v1/adapters/slack" &&
+    channelAuthMode("slack") === "slack-signature-required" &&
+    channelReplyMode("slack", config) === "direct_post" &&
+    slackMissing.includes("slack.botToken") &&
+    slackMissing.includes("slack.signingSecret");
+  const simulations = (["telegram", "slack", "gchat", "discord", "whatsapp", "teams", "web"] as const).map((channel) => {
+    const simulated = simulateChannelInbound(channel, "qa local simulation");
+    return {
+      channel,
+      ok: simulated.ok,
+      surfaceId: simulated.ok ? simulated.surfaceId : undefined,
+      reason: simulated.ok ? undefined : simulated.reason,
+    };
+  });
+  const failedSimulations = simulations.filter((simulation) => !simulation.ok);
+  return [
+    {
+      id: "operator_plan_slack",
+      status: slackPlanPassed ? "passed" : "failed",
+      summary: slackPlanPassed ? "Slack operator plan exposes route, auth mode, reply mode, and missing setup" : "Slack operator plan contract is incomplete",
+      evidence: { route: slack.route, authMode: channelAuthMode("slack"), replyMode: channelReplyMode("slack", config), missing: slackMissing },
+    },
+    {
+      id: "operator_simulations",
+      status: failedSimulations.length ? "failed" : "passed",
+      summary: failedSimulations.length ? "one or more channel adapter simulations failed" : "all channel adapter simulations normalize local inbound messages",
+      evidence: { simulations, failedSimulations },
+    },
+  ];
 }
 
 async function runMcpAuthQaSuite(args: string[], stamp: string): Promise<void> {
@@ -6233,6 +6285,17 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     for (const spec of CHANNEL_SETUP_SPECS) printChannelStatus(spec, config);
     return;
   }
+  if (action === "plan" && channel) {
+    const spec = requireChannelSpec(channel);
+    const config = await loadGatewayConfig().catch(() => ({ port: DEFAULT_GATEWAY_PORT }) as GatewayConfig);
+    printChannelOperatorPlan(spec, config, commandArgs);
+    return;
+  }
+  if (action === "simulate" && channel) {
+    const spec = requireChannelSpec(channel);
+    printChannelSimulation(spec, readFlag(commandArgs, "--message") ?? "hello from Muster local simulation");
+    return;
+  }
   if (action === "doctor" && channel) {
     const spec = requireChannelSpec(channel);
     const config = await loadGatewayConfig();
@@ -6250,7 +6313,7 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     printChannelSetup(spec, updated, commandArgs);
     return;
   }
-  throw new Error("Usage: muster channels list | status [channel] | doctor <telegram|slack|gchat|discord|whatsapp|teams|web> [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
+  throw new Error("Usage: muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <telegram|slack|gchat|discord|whatsapp|teams|web> [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
 }
 
 function printChannelCatalog(): void {
@@ -6271,6 +6334,144 @@ function printChannelStatus(spec: ChannelSetupSpec, config: GatewayConfig): void
   if (spec.id === "whatsapp") console.log(`  access_token=${configured(Boolean(config.whatsapp?.accessToken))} verify_token=${configured(Boolean(config.whatsapp?.verifyToken))} phone_number_id=${configured(Boolean(config.whatsapp?.phoneNumberId))}`);
   if (spec.id === "teams") console.log(`  hmac_secret=${configured(Boolean(config.teams?.hmacSecret))}`);
   if (spec.id === "web") console.log(`  bearer_token=${configured(Boolean(config.token))}`);
+}
+
+function printChannelOperatorPlan(spec: ChannelSetupSpec, config: GatewayConfig, args: readonly string[]): void {
+  const publicUrl = readFlag([...args], "--public-url")?.replace(/\/$/, "");
+  const localBase = `http://127.0.0.1:${config.port ?? DEFAULT_GATEWAY_PORT}`;
+  const webhookUrl = spec.route ? `${publicUrl ?? localBase}${spec.route}` : "-";
+  const ready = channelReady(spec.id, config);
+  const missing = channelMissingSetup(spec.id, config);
+  console.log(`channel_plan=${spec.id} label="${spec.label}" ready=${ready}`);
+  console.log(`route=${spec.route ?? "-"} webhook_url=${webhookUrl}`);
+  console.log(`operator_contract=inbound_normalize -> scoped_memory_recall -> policy_gate -> draft_or_reply -> token_ledger`);
+  console.log(`local_simulation=muster channels simulate ${spec.id} --message "hello"`);
+  console.log(`setup_command=muster channels setup ${spec.id}${publicUrl ? ` --public-url ${publicUrl}` : ""}`);
+  console.log(`doctor_command=muster channels doctor ${spec.id}${spec.id === "telegram" ? " --live" : ""}`);
+  console.log(`start_command=${spec.id === "telegram" ? "muster gateway poll" : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`}`);
+  console.log(`security=signature_or_token_check:${channelAuthMode(spec.id)} approval_required_for_mutations:true secrets_printed:false`);
+  console.log(`reply_mode=${channelReplyMode(spec.id, config)}`);
+  if (missing.length) console.log(`missing_setup=${missing.join(",")}`);
+  for (const url of spec.setupUrls) console.log(`setup_url=${url}`);
+  for (const note of spec.notes) console.log(`note=${note}`);
+}
+
+function printChannelSimulation(spec: ChannelSetupSpec, message: string): void {
+  const normalized = simulateChannelInbound(spec.id, message);
+  console.log(`channel_simulation=${spec.id} normalized=${normalized.ok}`);
+  console.log(`route=${spec.route ?? "/v1/messages"}`);
+  if (!normalized.ok) {
+    console.log(`ignored_reason=${normalized.reason}`);
+    return;
+  }
+  console.log(`surface=${normalized.surfaceId}`);
+  console.log(`conversation=${normalized.conversationId}`);
+  console.log(`sender=${normalized.senderId}`);
+  console.log(`text=${normalized.text}`);
+  console.log(`reply_to=${normalized.replyTo ?? "-"}`);
+  console.log(`next=run gateway handler, apply pairing/policy, record tokens, then draft or send reply`);
+}
+
+function simulateChannelInbound(channel: ChannelId, message: string): { readonly ok: true; readonly surfaceId: string; readonly conversationId: string; readonly senderId: string; readonly text: string; readonly replyTo?: string } | { readonly ok: false; readonly reason: string } {
+  if (channel === "telegram") {
+    const mapped = telegramUpdateToSurfaceMessage({
+      update_id: 1001,
+      message: { message_id: 42, chat: { id: 7001 }, from: { id: 3001 }, text: message },
+    });
+    return mapped ? simulationFromSurface(mapped) : { ok: false, reason: "telegram mapper returned no message" };
+  }
+  if (channel === "slack") {
+    const inbound = slackEventToSurfaceMessage({
+      type: "event_callback",
+      team_id: "TLOCAL",
+      event: { type: "app_mention", channel: "CLOCAL", user: "ULOCAL", text: message, ts: "1710000000.000100" },
+    });
+    return inbound.kind === "message"
+      ? simulationFromSurface(inbound.message)
+      : { ok: false, reason: inbound.kind === "url_verification" ? "slack url verification challenge" : inbound.reason };
+  }
+  if (channel === "gchat") {
+    const inbound = gchatEventToSurfaceMessage({
+      type: "MESSAGE",
+      space: { name: "spaces/LOCAL" },
+      message: { name: "spaces/LOCAL/messages/1", argumentText: message, sender: { name: "users/local", type: "HUMAN" }, thread: { name: "spaces/LOCAL/threads/1" } },
+    });
+    return inbound.kind === "message" ? simulationFromSurface(inbound.message) : { ok: false, reason: inbound.reason };
+  }
+  if (channel === "discord") {
+    const inbound = discordInteractionToInbound({
+      type: 2,
+      guild_id: "GLOCAL",
+      channel_id: "DLOCAL",
+      member: { user: { id: "UDISCORD", bot: false } },
+      data: { name: "muster", options: [{ name: "prompt", type: 3, value: message }] },
+    });
+    return inbound.kind === "message" ? simulationFromSurface(inbound.message) : { ok: false, reason: inbound.kind };
+  }
+  if (channel === "whatsapp") {
+    const messages = whatsAppWebhookToSurfaceMessages({
+      object: "whatsapp_business_account",
+      entry: [{ id: "WABA", changes: [{ field: "messages", value: { messaging_product: "whatsapp", metadata: { phone_number_id: "PNLOCAL" }, messages: [{ from: "919999999999", id: "wamid.LOCAL", type: "text", text: { body: message } }] } }] }],
+    });
+    return messages[0] ? simulationFromSurface(messages[0]) : { ok: false, reason: "whatsapp mapper returned no message" };
+  }
+  if (channel === "teams") {
+    const inbound = teamsActivityToSurfaceMessage({
+      type: "message",
+      id: "activity-local",
+      text: `<at>Muster</at> ${message}`,
+      from: { id: "UTEAMS", name: "Local Tester" },
+      conversation: { id: "CONVLOCAL" },
+      channelData: { tenant: { id: "TENANTLOCAL" } },
+    });
+    return inbound.kind === "message" ? simulationFromSurface(inbound.message) : { ok: false, reason: inbound.reason };
+  }
+  return {
+    ok: true,
+    surfaceId: "web:local",
+    conversationId: "web-local-conversation",
+    senderId: "web-local-user",
+    text: message,
+  };
+}
+
+function simulationFromSurface(message: { readonly surfaceId: string; readonly conversationId: string; readonly senderId: string; readonly text: string; readonly replyTo?: string }): { readonly ok: true; readonly surfaceId: string; readonly conversationId: string; readonly senderId: string; readonly text: string; readonly replyTo?: string } {
+  return {
+    ok: true,
+    surfaceId: message.surfaceId,
+    conversationId: message.conversationId,
+    senderId: message.senderId,
+    text: message.text,
+    replyTo: message.replyTo,
+  };
+}
+
+function channelMissingSetup(channel: ChannelId, config: GatewayConfig): string[] {
+  if (channel === "telegram") return [config.telegram?.botToken ? "" : "telegram.botToken"].filter(Boolean);
+  if (channel === "slack") return [config.slack?.botToken ? "" : "slack.botToken", config.slack?.signingSecret ? "" : "slack.signingSecret"].filter(Boolean);
+  if (channel === "gchat") return [config.gchat ? "" : "gchat section"].filter(Boolean);
+  if (channel === "discord") return [config.discord?.botToken ? "" : "discord.botToken"].filter(Boolean);
+  if (channel === "whatsapp") return [config.whatsapp?.accessToken ? "" : "whatsapp.accessToken", config.whatsapp?.verifyToken ? "" : "whatsapp.verifyToken", config.whatsapp?.phoneNumberId ? "" : "whatsapp.phoneNumberId"].filter(Boolean);
+  if (channel === "teams") return [config.teams ? "" : "teams section"].filter(Boolean);
+  return [config.token ? "" : "gateway.token"].filter(Boolean);
+}
+
+function channelAuthMode(channel: ChannelId): string {
+  if (channel === "telegram") return "secret-token-header-recommended";
+  if (channel === "slack") return "slack-signature-required";
+  if (channel === "discord") return "ed25519-public-key-recommended";
+  if (channel === "whatsapp") return "verify-token-and-graph-token";
+  if (channel === "gchat") return "verification-token-optional";
+  if (channel === "teams") return "hmac-secret-optional";
+  return "bearer-token";
+}
+
+function channelReplyMode(channel: ChannelId, config: GatewayConfig): string {
+  if (channel === "telegram") return config.telegram?.stream === "draft" ? "draft_stream" : "direct_send";
+  if (channel === "slack") return config.slack?.stream === "draft" ? "draft_stream" : "direct_post";
+  if (channel === "discord" || channel === "gchat" || channel === "teams") return "synchronous_response";
+  if (channel === "whatsapp") return "graph_api_send";
+  return "http_response";
 }
 
 async function printChannelDoctor(

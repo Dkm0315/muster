@@ -1156,6 +1156,25 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const gatewayInitForChannels = await runCli(["gateway", "init"], cwd);
   assert.match(gatewayInitForChannels.stdout, /gateway_config=/);
 
+  const slackPlanBeforeSetup = await runCli(["channels", "plan", "slack", "--public-url", "https://example.test/muster"], cwd);
+  assert.match(slackPlanBeforeSetup.stdout, /channel_plan=slack label="Slack App" ready=false/);
+  assert.match(slackPlanBeforeSetup.stdout, /operator_contract=inbound_normalize -> scoped_memory_recall -> policy_gate -> draft_or_reply -> token_ledger/);
+  assert.match(slackPlanBeforeSetup.stdout, /webhook_url=https:\/\/example\.test\/muster\/v1\/adapters\/slack/);
+  assert.match(slackPlanBeforeSetup.stdout, /missing_setup=slack\.botToken,slack\.signingSecret/);
+  assert.match(slackPlanBeforeSetup.stdout, /security=signature_or_token_check:slack-signature-required approval_required_for_mutations:true secrets_printed:false/);
+
+  const telegramSimulation = await runCli(["channels", "simulate", "telegram", "--message", "what is pending today?"], cwd);
+  assert.match(telegramSimulation.stdout, /channel_simulation=telegram normalized=true/);
+  assert.match(telegramSimulation.stdout, /surface=telegram:bot/);
+  assert.match(telegramSimulation.stdout, /conversation=7001/);
+  assert.match(telegramSimulation.stdout, /text=what is pending today\?/);
+
+  const whatsappSimulation = await runCli(["channels", "simulate", "whatsapp", "--message", "show my payroll approvals"], cwd);
+  assert.match(whatsappSimulation.stdout, /channel_simulation=whatsapp normalized=true/);
+  assert.match(whatsappSimulation.stdout, /surface=whatsapp:PNLOCAL/);
+  assert.match(whatsappSimulation.stdout, /sender=919999999999/);
+  assert.match(whatsappSimulation.stdout, /next=run gateway handler, apply pairing\/policy, record tokens, then draft or send reply/);
+
   const telegramDoctorBeforeSetup = await runCli(["channels", "doctor", "telegram"], cwd);
   assert.match(telegramDoctorBeforeSetup.stdout, /channel_doctor=telegram status=needs_setup/);
   assert.match(telegramDoctorBeforeSetup.stdout, /check=telegram_live status=warning detail="not run; add --live to call getMe without printing the token"/);
@@ -1196,6 +1215,11 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(slackStatus.stdout, /channel=slack ready=true/);
   assert.match(slackStatus.stdout, /bot_token=configured signing_secret=configured stream=draft/);
   assert.doesNotMatch(slackStatus.stdout, /xoxb-secret|slack-signing-secret/);
+
+  const slackPlanAfterSetup = await runCli(["channels", "plan", "slack", "--public-url", "https://example.test/muster"], cwd);
+  assert.match(slackPlanAfterSetup.stdout, /channel_plan=slack label="Slack App" ready=true/);
+  assert.match(slackPlanAfterSetup.stdout, /reply_mode=draft_stream/);
+  assert.doesNotMatch(slackPlanAfterSetup.stdout, /xoxb-secret|slack-signing-secret/);
 
   const gchatSetup = await runCli(["channels", "setup", "gchat", "--public-url", "https://chat.example.test"], cwd);
   assert.match(gchatSetup.stdout, /channel=gchat .*ready=false/);
@@ -2057,10 +2081,16 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(channelRun.stdout, /case=setup_guidance_slack status=passed/);
   assert.match(channelRun.stdout, /case=high_risk_refusal status=passed/);
   assert.match(channelRun.stdout, /case=enable_disable_policy status=passed/);
+  assert.match(channelRun.stdout, /artifact_operator_cases=/);
+  assert.match(channelRun.stdout, /case=operator_plan_slack status=passed/);
+  assert.match(channelRun.stdout, /case=operator_simulations status=passed/);
   const channelManifest = JSON.parse(await readFile(join(channelRunArtifact, "manifest.json"), "utf8")) as { status: string; suite: string; caseCount: number };
   assert.equal(channelManifest.suite, "channel_plugin_setup");
   assert.equal(channelManifest.status, "passed");
   assert.ok(channelManifest.caseCount >= 8);
+  const channelOperatorCases = JSON.parse(await readFile(join(channelRunArtifact, "operator-cases.json"), "utf8")) as { id: string; status: string; evidence: { simulations?: { channel: string; ok: boolean }[] } }[];
+  assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_plan_slack" && testCase.status === "passed"));
+  assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_simulations" && testCase.evidence.simulations?.some((simulation) => simulation.channel === "whatsapp" && simulation.ok)));
   const channelCatalog = JSON.parse(await readFile(join(channelRunArtifact, "catalog.json"), "utf8")) as { plugins: { id: string }[]; mcpServers: { id: string }[] };
   assert.ok(channelCatalog.plugins.some((plugin) => plugin.id === "web-frameworks"));
   assert.ok(channelCatalog.mcpServers.some((mcp) => mcp.id === "browser"));
