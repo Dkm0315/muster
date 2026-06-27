@@ -35,6 +35,7 @@ export async function runPackReadinessQa(input: {
   const cases: QaPackReadinessCase[] = [
     caseAllManifestsParse(inspections),
     caseReadinessMetadataVisible(inspections),
+    caseImplementedToolSurfacesVisible(inspections),
     caseNoReleaseReadyWithoutEvidence(inspections),
     caseHighRiskHasSecretsAndPolicy(inspections),
     caseDeclaredEvalsAreVisible(inspections),
@@ -110,6 +111,40 @@ function caseReadinessMetadataVisible(inspections: readonly CapabilityPackInspec
   };
 }
 
+function caseImplementedToolSurfacesVisible(inspections: readonly CapabilityPackInspection[]): QaPackReadinessCase {
+  const missing = inspections
+    .filter((item) => item.manifest && !(item.manifest.implementedTools?.length))
+    .map((item) => item.manifest!.id);
+  const shallow = inspections
+    .filter((item) => item.manifest?.readiness?.level !== "listed")
+    .filter((item) => item.manifest?.readiness?.actionability !== "metadata")
+    .filter((item) => item.manifest && (item.manifest.implementedTools?.length ?? 0) < 1)
+    .map((item) => item.manifest!.id);
+  const channelWithoutGateway = inspections
+    .filter((item) => item.manifest?.kind === "channel")
+    .filter((item) => {
+      const surfaces = item.manifest?.readiness?.surfaces ?? [];
+      return !surfaces.includes("channel") || !surfaces.includes("gateway");
+    })
+    .map((item) => item.manifest!.id);
+  const offenders = [...new Set([...missing, ...shallow, ...channelWithoutGateway])].sort();
+  return {
+    id: "implemented_tool_surfaces_visible",
+    status: offenders.length ? "failed" : "passed",
+    summary: offenders.length
+      ? "some non-metadata packs are missing implemented tool or channel/gateway surface evidence"
+      : "all bundled non-metadata packs declare implemented tools and channel gateway surfaces",
+    evidence: {
+      missingImplementedTools: missing,
+      shallowNonMetadataPacks: shallow,
+      channelWithoutGatewaySurface: channelWithoutGateway,
+      toolCounts: inspections
+        .filter((item) => item.manifest)
+        .map((item) => ({ id: item.manifest!.id, tools: item.manifest!.implementedTools?.length ?? 0 })),
+    },
+  };
+}
+
 function caseNoReleaseReadyWithoutEvidence(inspections: readonly CapabilityPackInspection[]): QaPackReadinessCase {
   const offenders = inspections
     .filter((item) => item.manifest?.readiness?.level === "release_ready")
@@ -163,6 +198,7 @@ function snapshotInspection(item: CapabilityPackInspection): Record<string, unkn
       kind: item.manifest.kind,
       permissions: item.manifest.permissions,
       sandbox: item.manifest.sandbox,
+      implementedTools: item.manifest.implementedTools ?? [],
       readiness: item.manifest.readiness ?? null,
     } : null,
   };
