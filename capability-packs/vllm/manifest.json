@@ -7,15 +7,70 @@
   "slot": "mlops",
   "entrypoint": "src/index.ts",
   "description": "vLLM serving setup, OpenAI-compatible endpoint checks, metrics summaries, and Muster provider guidance based on Hermes's bundled vLLM skill.",
-  "permissions": ["network", "secrets"],
+  "permissions": [
+    "network",
+    "secrets"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["VLLM_API_KEY"],
-  "evals": ["evals/vllm.json"],
+  "secrets": [
+    "VLLM_API_KEY"
+  ],
+  "evals": [
+    "evals/vllm.json"
+  ],
   "implementedTools": [
     "vllm_setup_plan",
     "vllm_server_check",
     "vllm_metrics_summary",
     "vllm_provider_config"
   ],
-  "status": "v0: setup and endpoint verification for existing vLLM servers; server launch remains an explicit terminal or deployment action."
+  "status": "v0: setup and endpoint verification for existing vLLM servers; server launch remains an explicit terminal or deployment action.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://docs.vllm.ai",
+        "https://github.com/vllm-project/vllm",
+        "https://github.com/NousResearch/hermes-agent/blob/main/skills/mlops/inference/vllm/SKILL.md"
+      ],
+      "requiredEnv": [
+        "VLLM_API_KEY"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check vllm",
+      "smokeCommand": "muster capability inspect capability-packs/vllm",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

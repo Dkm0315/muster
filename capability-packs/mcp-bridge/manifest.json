@@ -9,12 +9,56 @@
   "description": "MCP catalog setup guidance, config linting, security review, and install/test workflow planning based on Hermes and OpenClaw MCP patterns.",
   "permissions": [],
   "sandbox": "read_only",
-  "evals": ["evals/mcp-bridge.json"],
+  "evals": [
+    "evals/mcp-bridge.json"
+  ],
   "implementedTools": [
     "mcp_bridge_setup_plan",
     "mcp_bridge_config_lint",
     "mcp_bridge_install_workflow",
     "mcp_bridge_tool_policy"
   ],
-  "status": "v0: setup, lint, and workflow planning only; actual install/test/OAuth runs through Muster's native mcp commands."
+  "status": "v0: setup, lint, and workflow planning only; actual install/test/OAuth runs through Muster's native mcp commands.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check mcp-bridge",
+      "smokeCommand": "muster capability inspect capability-packs/mcp-bridge",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "low",
+      "permissionMode": "allow_when_scoped",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

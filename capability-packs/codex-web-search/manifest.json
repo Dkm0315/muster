@@ -9,12 +9,60 @@
   "description": "Codex-backed web-search setup, readiness, routing, and citation policy workflows.",
   "permissions": [],
   "sandbox": "read_only",
-  "evals": ["evals/codex-web-search.json"],
+  "evals": [
+    "evals/codex-web-search.json"
+  ],
   "implementedTools": [
     "codex_web_search_setup_plan",
     "codex_web_search_readiness",
     "codex_web_research_policy",
     "codex_web_search_fallback_plan"
   ],
-  "status": "v0: web-search routing policy; direct local search remains in web-search pack and external browsing remains explicit."
+  "status": "v0: web-search routing policy; direct local search remains in web-search pack and external browsing remains explicit.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://github.com/openai/codex",
+        "https://docs.parallel.ai/integrations/mcp/search-mcp",
+        "https://www.firecrawl.dev/app/api-keys"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check codex-web-search",
+      "smokeCommand": "muster capability inspect capability-packs/codex-web-search",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "low",
+      "permissionMode": "allow_when_scoped",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

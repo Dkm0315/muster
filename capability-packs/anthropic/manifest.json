@@ -9,12 +9,65 @@
   "description": "Declarative Anthropic/Claude provider setup, readiness, model policy, and latency triage workflows.",
   "permissions": [],
   "sandbox": "read_only",
-  "evals": ["evals/anthropic-provider.json"],
+  "evals": [
+    "evals/anthropic-provider.json"
+  ],
   "implementedTools": [
     "anthropic_provider_setup_plan",
     "anthropic_provider_readiness",
     "anthropic_model_policy",
     "anthropic_latency_triage"
   ],
-  "status": "v0: provider setup and Claude model-routing guidance; Claude Code OAuth remains a separate runtime path."
+  "status": "v0: provider setup and Claude model-routing guidance; Claude Code OAuth remains a separate runtime path.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://console.anthropic.com/settings/keys",
+        "https://docs.anthropic.com/en/api/models"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [
+        [
+          "ANTHROPIC_API_KEY",
+          "ANTHROPIC_TOKEN",
+          "CLAUDE_CODE_OAUTH_TOKEN"
+        ]
+      ],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check anthropic",
+      "smokeCommand": "muster capability inspect capability-packs/anthropic",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "low",
+      "permissionMode": "allow_when_scoped",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

@@ -7,14 +7,61 @@
   "slot": "developer",
   "entrypoint": "src/index.ts",
   "description": "Read-only repository workflow, tool-surface, and command-policy planning for coding, debugging, review, and release work.",
-  "permissions": ["filesystem:read", "git"],
+  "permissions": [
+    "filesystem:read",
+    "git"
+  ],
   "sandbox": "read_only",
-  "evals": ["evals/developer-tools.json"],
+  "evals": [
+    "evals/developer-tools.json"
+  ],
   "implementedTools": [
     "developer_tools_repo_workflow",
     "developer_tools_surface_plan",
     "developer_tools_command_policy",
     "developer_tools_release_check"
   ],
-  "status": "v0: mirrors Hermes-style toolset planning and OpenClaw-style per-run allowlists without granting this pack shell execution."
+  "status": "v0: mirrors Hermes-style toolset planning and OpenClaw-style per-run allowlists without granting this pack shell execution.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check developer-tools",
+      "smokeCommand": "muster capability inspect capability-packs/developer-tools",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "medium",
+      "permissionMode": "ask",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

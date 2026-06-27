@@ -7,15 +7,72 @@
   "slot": "data",
   "entrypoint": "src/index.ts",
   "description": "Jupyter notebook setup, readiness checks, scratch notebook creation, and notebook inspection inspired by Hermes's hamelnb live-kernel workflow.",
-  "permissions": ["filesystem:read", "filesystem:write", "network", "secrets"],
+  "permissions": [
+    "filesystem:read",
+    "filesystem:write",
+    "network",
+    "secrets"
+  ],
   "sandbox": "workspace_write",
-  "secrets": ["JUPYTER_TOKEN"],
-  "evals": ["evals/jupyter.json"],
+  "secrets": [
+    "JUPYTER_TOKEN"
+  ],
+  "evals": [
+    "evals/jupyter.json"
+  ],
   "implementedTools": [
     "jupyter_setup_plan",
     "jupyter_server_check",
     "jupyter_scratch_notebook",
     "jupyter_notebook_summary"
   ],
-  "status": "v0: setup/readiness plus safe notebook file workflows; live kernel execution should use the hamelnb helper or a future bundled websocket executor."
+  "status": "v0: setup/readiness plus safe notebook file workflows; live kernel execution should use the hamelnb helper or a future bundled websocket executor.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://github.com/hamelsmu/hamelnb",
+        "https://github.com/NousResearch/hermes-agent/blob/main/skills/data-science/jupyter-live-kernel/SKILL.md",
+        "https://jupyterlab.readthedocs.io/"
+      ],
+      "requiredEnv": [
+        "JUPYTER_TOKEN"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check jupyter",
+      "smokeCommand": "muster capability inspect capability-packs/jupyter",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

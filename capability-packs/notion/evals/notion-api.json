@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "notion-notion-api",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-notion",
+  "prompt": "Verify the Muster Notion capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "notion capability pack baseline.\nImplemented tools: notion_search, notion_page_get, notion_block_children, notion_data_source_query, notion_create_markdown_page.\nStatus: v0: direct Notion HTTP API tools with no ambient env access; target pages/data sources must be shared with the integration..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "notion",
+    "notion_search",
+    "notion_page_get",
+    "notion_block_children",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

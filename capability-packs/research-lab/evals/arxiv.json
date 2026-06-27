@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "research-lab-arxiv",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-research-lab",
+  "prompt": "Verify the Muster Research Lab capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "research-lab capability pack baseline.\nImplemented tools: arxiv_search.\nStatus: v0: arXiv Atom search with bounded, structured results..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "research-lab",
+    "arxiv_search",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "security-review-security-review",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-security-review",
+  "prompt": "Verify the Muster Security Review capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "security-review capability pack baseline.\nImplemented tools: scan_text_for_risks, summarize_risk_findings.\nStatus: v0: deterministic text scanning for common secret, injection, transport, and unsafe-eval patterns..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "security-review",
+    "scan_text_for_risks",
+    "summarize_risk_findings",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

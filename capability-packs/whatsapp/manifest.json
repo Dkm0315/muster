@@ -7,14 +7,73 @@
   "slot": "channel-whatsapp",
   "entrypoint": "src/index.ts",
   "description": "WhatsApp Cloud API setup, readiness, and webhook debugging helpers for the Muster gateway.",
-  "permissions": ["messages"],
+  "permissions": [
+    "messages"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"],
-  "evals": ["evals/whatsapp.json"],
+  "secrets": [
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_VERIFY_TOKEN",
+    "WHATSAPP_PHONE_NUMBER_ID"
+  ],
+  "evals": [
+    "evals/whatsapp.json"
+  ],
   "implementedTools": [
     "whatsapp_setup_plan",
     "whatsapp_gateway_check",
     "whatsapp_webhook_summary"
   ],
-  "status": "v0: setup and diagnostics for Meta WhatsApp Cloud API webhooks; OpenClaw-style WhatsApp Web socket runtime remains a separate future channel."
+  "status": "v0: setup and diagnostics for Meta WhatsApp Cloud API webhooks; OpenClaw-style WhatsApp Web socket runtime remains a separate future channel.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "experimental",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "gateway",
+      "channel"
+    ],
+    "setup": {
+      "urls": [
+        "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
+        "https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks"
+      ],
+      "requiredEnv": [
+        "WHATSAPP_ACCESS_TOKEN",
+        "WHATSAPP_VERIFY_TOKEN",
+        "WHATSAPP_PHONE_NUMBER_ID"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check whatsapp",
+      "smokeCommand": "muster capability inspect capability-packs/whatsapp",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

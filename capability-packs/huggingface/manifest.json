@@ -7,10 +7,18 @@
   "slot": "mlops",
   "entrypoint": "src/index.ts",
   "description": "Read-mostly Hugging Face Hub tools for model and dataset discovery, repo metadata, and download/auth guidance. Optional token support allows private or gated resources without exposing secrets.",
-  "permissions": ["network", "secrets"],
+  "permissions": [
+    "network",
+    "secrets"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["HF_TOKEN", "HUGGINGFACE_TOKEN"],
-  "evals": ["evals/huggingface-hub.json"],
+  "secrets": [
+    "HF_TOKEN",
+    "HUGGINGFACE_TOKEN"
+  ],
+  "evals": [
+    "evals/huggingface-hub.json"
+  ],
   "implementedTools": [
     "hf_models_search",
     "hf_model_info",
@@ -18,5 +26,53 @@
     "hf_dataset_info",
     "hf_download_guidance"
   ],
-  "status": "v0: read-only Hub API inspection plus download guidance. Upload, repo mutation, jobs, endpoints, and webhook actions are intentionally excluded from the default pack."
+  "status": "v0: read-only Hub API inspection plus download guidance. Upload, repo mutation, jobs, endpoints, and webhook actions are intentionally excluded from the default pack.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://huggingface.co/settings/tokens",
+        "https://hf.co/cli"
+      ],
+      "requiredEnv": [
+        "HF_TOKEN",
+        "HUGGINGFACE_TOKEN"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check huggingface",
+      "smokeCommand": "muster capability inspect capability-packs/huggingface",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

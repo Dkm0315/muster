@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "discord-discord",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-discord",
+  "prompt": "Verify the Muster Discord capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "discord capability pack baseline.\nImplemented tools: discord_setup_plan, discord_gateway_check, discord_interaction_summary.\nStatus: v0: setup and diagnostics for Discord Interactions and gateway replies; broader OpenClaw-style Discord actions remain future channel tools..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "discord",
+    "discord_setup_plan",
+    "discord_gateway_check",
+    "discord_interaction_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

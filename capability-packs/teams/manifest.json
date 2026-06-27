@@ -7,14 +7,69 @@
   "slot": "channel-teams",
   "entrypoint": "src/index.ts",
   "description": "Microsoft Teams setup, readiness, and activity debugging helpers for the Muster gateway.",
-  "permissions": ["messages"],
+  "permissions": [
+    "messages"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["TEAMS_HMAC_SECRET"],
-  "evals": ["evals/teams.json"],
+  "secrets": [
+    "TEAMS_HMAC_SECRET"
+  ],
+  "evals": [
+    "evals/teams.json"
+  ],
   "implementedTools": [
     "teams_setup_plan",
     "teams_gateway_check",
     "teams_activity_summary"
   ],
-  "status": "v0: setup and diagnostics for gateway-backed Teams activity webhooks; production bot registration remains explicit."
+  "status": "v0: setup and diagnostics for gateway-backed Teams activity webhooks; production bot registration remains explicit.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "experimental",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "gateway",
+      "channel"
+    ],
+    "setup": {
+      "urls": [
+        "https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations",
+        "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
+      ],
+      "requiredEnv": [
+        "TEAMS_HMAC_SECRET"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check teams",
+      "smokeCommand": "muster capability inspect capability-packs/teams",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

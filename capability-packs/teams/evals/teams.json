@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "teams-teams",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-teams",
+  "prompt": "Verify the Muster Microsoft Teams capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "teams capability pack baseline.\nImplemented tools: teams_setup_plan, teams_gateway_check, teams_activity_summary.\nStatus: v0: setup and diagnostics for gateway-backed Teams activity webhooks; production bot registration remains explicit..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "teams",
+    "teams_setup_plan",
+    "teams_gateway_check",
+    "teams_activity_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

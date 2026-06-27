@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "anthropic-anthropic-provider",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-anthropic",
+  "prompt": "Verify the Muster Anthropic Provider capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "anthropic capability pack baseline.\nImplemented tools: anthropic_provider_setup_plan, anthropic_provider_readiness, anthropic_model_policy, anthropic_latency_triage.\nStatus: v0: provider setup and Claude model-routing guidance; Claude Code OAuth remains a separate runtime path..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "anthropic",
+    "anthropic_provider_setup_plan",
+    "anthropic_provider_readiness",
+    "anthropic_model_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

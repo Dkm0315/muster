@@ -10,6 +10,7 @@ test("pack readiness QA writes artifact-backed cases", async () => {
   const result = await runPackReadinessQa({ artifactDir, packsDir: join(process.cwd(), "..", "..", "capability-packs") });
 
   assert.equal(result.suite, "pack_readiness");
+  assert.equal(result.status, "passed");
   assert.ok(result.cases.length > 0);
   assert.ok(result.cases.some((item) => item.id === "all_manifests_parse"));
   assert.ok(result.cases.some((item) => item.id === "readiness_metadata_visible"));

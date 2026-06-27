@@ -7,9 +7,14 @@
   "slot": "knowledge",
   "entrypoint": "src/index.ts",
   "description": "Filesystem-first Obsidian vault tools for listing, searching, reading, creating, and appending markdown notes inside one configured vault.",
-  "permissions": ["filesystem:read", "filesystem:write"],
+  "permissions": [
+    "filesystem:read",
+    "filesystem:write"
+  ],
   "sandbox": "workspace_write",
-  "evals": ["evals/obsidian-vault.json"],
+  "evals": [
+    "evals/obsidian-vault.json"
+  ],
   "implementedTools": [
     "obsidian_vault_status",
     "obsidian_notes_list",
@@ -18,5 +23,49 @@
     "obsidian_note_create",
     "obsidian_note_append"
   ],
-  "status": "v0: local vault read/write tools with path traversal protection. Delete, rename, attachment indexing, and non-markdown binary handling are intentionally excluded."
+  "status": "v0: local vault read/write tools with path traversal protection. Delete, rename, attachment indexing, and non-markdown binary handling are intentionally excluded.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://help.obsidian.md/Files+and+folders/Manage+vaults"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check obsidian",
+      "smokeCommand": "muster capability inspect capability-packs/obsidian",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

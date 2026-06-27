@@ -9,12 +9,59 @@
   "description": "Claude Code runtime setup, readiness, print/interactive policy, and session workflows.",
   "permissions": [],
   "sandbox": "read_only",
-  "evals": ["evals/claude-code-runtime.json"],
+  "evals": [
+    "evals/claude-code-runtime.json"
+  ],
   "implementedTools": [
     "claude_code_setup_plan",
     "claude_code_readiness",
     "claude_code_mode_policy",
     "claude_code_session_policy"
   ],
-  "status": "v0: Claude Code orchestration policy; execution remains in Muster's runClaudeCode adapter."
+  "status": "v0: Claude Code orchestration policy; execution remains in Muster's runClaudeCode adapter.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://docs.anthropic.com/en/docs/claude-code/setup",
+        "https://code.claude.com/docs/en/cli-reference"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check claude-code",
+      "smokeCommand": "muster capability inspect capability-packs/claude-code",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "low",
+      "permissionMode": "allow_when_scoped",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

@@ -7,10 +7,70 @@
   "slot": "channel-google-chat",
   "entrypoint": "src/index.ts",
   "description": "Google Chat setup, gateway readiness, and event debugging helpers for using Muster behind a Chat app.",
-  "permissions": ["messages", "secrets"],
+  "permissions": [
+    "messages",
+    "secrets"
+  ],
   "sandbox": "none",
-  "secrets": ["GOOGLE_CHAT_VERIFICATION_TOKEN"],
-  "evals": ["evals/google-chat-channel.json"],
-  "implementedTools": ["google_chat_setup_plan", "google_chat_gateway_check", "google_chat_event_summary"],
-  "status": "v0: setup and diagnostic helpers; live Google Cloud provisioning remains an explicit external setup step."
+  "secrets": [
+    "GOOGLE_CHAT_VERIFICATION_TOKEN"
+  ],
+  "evals": [
+    "evals/google-chat-channel.json"
+  ],
+  "implementedTools": [
+    "google_chat_setup_plan",
+    "google_chat_gateway_check",
+    "google_chat_event_summary"
+  ],
+  "status": "v0: setup and diagnostic helpers; live Google Cloud provisioning remains an explicit external setup step.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "experimental",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "gateway",
+      "channel"
+    ],
+    "setup": {
+      "urls": [
+        "https://console.cloud.google.com/apis/library/chat.googleapis.com",
+        "https://developers.google.com/workspace/chat/quickstart/webhooks"
+      ],
+      "requiredEnv": [
+        "GOOGLE_CHAT_VERIFICATION_TOKEN"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check google-chat",
+      "smokeCommand": "muster capability inspect capability-packs/google-chat",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

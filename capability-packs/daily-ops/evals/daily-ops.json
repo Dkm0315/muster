@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "daily-ops-daily-ops",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-daily-ops",
+  "prompt": "Verify the Muster Daily Ops capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "daily-ops capability pack baseline.\nImplemented tools: daily_brief, prioritize_tasks.\nStatus: v0: pure planning helpers; calendar/email connectors remain MCP/plugin setup work..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "daily-ops",
+    "daily_brief",
+    "prioritize_tasks",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

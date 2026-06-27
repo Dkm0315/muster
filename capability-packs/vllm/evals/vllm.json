@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "vllm-vllm",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-vllm",
+  "prompt": "Verify the Muster vLLM Serving capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "vllm capability pack baseline.\nImplemented tools: vllm_setup_plan, vllm_server_check, vllm_metrics_summary, vllm_provider_config.\nStatus: v0: setup and endpoint verification for existing vLLM servers; server launch remains an explicit terminal or deployment action..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "vllm",
+    "vllm_setup_plan",
+    "vllm_server_check",
+    "vllm_metrics_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

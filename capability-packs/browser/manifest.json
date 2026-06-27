@@ -7,14 +7,62 @@
   "slot": "browser",
   "entrypoint": "src/index.ts",
   "description": "Browser automation setup, readiness, smoke-test, and risk-policy workflows for Playwright/browser MCP.",
-  "permissions": ["browser"],
+  "permissions": [
+    "browser"
+  ],
   "sandbox": "read_only",
-  "evals": ["evals/browser.json"],
+  "evals": [
+    "evals/browser.json"
+  ],
   "implementedTools": [
     "browser_setup_plan",
     "browser_mcp_readiness",
     "browser_task_policy",
     "browser_smoke_plan"
   ],
-  "status": "v0: uses Muster MCP for execution; pack supplies the auditable setup and policy layer."
+  "status": "v0: uses Muster MCP for execution; pack supplies the auditable setup and policy layer.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://github.com/microsoft/playwright-mcp"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check browser",
+      "smokeCommand": "muster capability inspect capability-packs/browser",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "medium",
+      "permissionMode": "ask",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

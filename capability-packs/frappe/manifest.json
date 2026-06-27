@@ -5,10 +5,19 @@
   "version": "0.1.0",
   "kind": "tool",
   "entrypoint": "src/index.ts",
-  "permissions": ["network", "secrets"],
+  "permissions": [
+    "network",
+    "secrets"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["FRAPPE_SITE_URL", "FRAPPE_API_TOKEN"],
-  "evals": ["evals/identity-resolution.json", "evals/permission-scoping.json"],
+  "secrets": [
+    "FRAPPE_SITE_URL",
+    "FRAPPE_API_TOKEN"
+  ],
+  "evals": [
+    "evals/identity-resolution.json",
+    "evals/permission-scoping.json"
+  ],
   "digest": "sha256:b21a04b81e32ef0c94756f557c156a233d92cb1309eb23a3a14077be1732073f",
   "description": "Permission-scoped Frappe/ERPNext tools with federated OAuth identity. Every read and write executes as the paired Frappe user; Frappe remains the only authorization authority. The pack owns Frappe context induction so the main Muster binary stays light: site URL plus API token, or one-time admin login credentials, can discover installed apps/modules and combine live metadata with Frappe, ERPNext, and Frappe Suite docs.",
   "implementedTools": [
@@ -28,5 +37,55 @@
     "frappe_permission_check",
     "frappe_dataset_fetch_for_artifact"
   ],
-  "status": "v0: loads through the capability-pack loader (HC-012). frappe_identity_resolve, frappe_semantic_data_resolve_lite, and frappe_records_create are implemented as pure {fetch, config}-context tools with exact Frappe error passthrough; remaining gateway tools are still planned."
+  "status": "v0: loads through the capability-pack loader (HC-012). frappe_identity_resolve, frappe_semantic_data_resolve_lite, and frappe_records_create are implemented as pure {fetch, config}-context tools with exact Frappe error passthrough; remaining gateway tools are still planned.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "frappe"
+    ],
+    "setup": {
+      "urls": [
+        "https://frappeframework.com/docs/user/en/api/rest",
+        "https://docs.erpnext.com/",
+        "https://frappeframework.com/docs"
+      ],
+      "requiredEnv": [
+        "FRAPPE_SITE_URL",
+        "FRAPPE_API_TOKEN"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check frappe-federated-bridge",
+      "smokeCommand": "muster capability inspect capability-packs/frappe",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

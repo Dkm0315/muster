@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "slack-slack-channel",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-slack",
+  "prompt": "Verify the Muster Slack Channel capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "slack capability pack baseline.\nImplemented tools: slack_setup_plan, slack_gateway_check, slack_event_summary.\nStatus: v0: setup and diagnostic helpers; Slack app creation and OAuth installation stay in Slack..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "slack",
+    "slack_setup_plan",
+    "slack_gateway_check",
+    "slack_event_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

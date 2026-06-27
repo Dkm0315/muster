@@ -7,10 +7,18 @@
   "slot": "productivity",
   "entrypoint": "src/index.ts",
   "description": "Google Workspace REST API tools for Gmail, Calendar, Drive, and Sheets. Uses an explicit OAuth bearer token from the active capability context.",
-  "permissions": ["network", "secrets"],
+  "permissions": [
+    "network",
+    "secrets"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["GOOGLE_WORKSPACE_ACCESS_TOKEN", "GOOGLE_ACCESS_TOKEN"],
-  "evals": ["evals/google-workspace.json"],
+  "secrets": [
+    "GOOGLE_WORKSPACE_ACCESS_TOKEN",
+    "GOOGLE_ACCESS_TOKEN"
+  ],
+  "evals": [
+    "evals/google-workspace.json"
+  ],
   "implementedTools": [
     "google_workspace_profile",
     "gmail_search",
@@ -19,5 +27,56 @@
     "drive_search",
     "sheets_values_get"
   ],
-  "status": "v0: token-scoped read/list helpers for Google Workspace. Mutating Gmail/Calendar/Drive actions remain behind explicit future workflows."
+  "status": "v0: token-scoped read/list helpers for Google Workspace. Mutating Gmail/Calendar/Drive actions remain behind explicit future workflows.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://console.cloud.google.com/apis/credentials",
+        "https://console.cloud.google.com/apis/library",
+        "https://developers.google.com/identity/protocols/oauth2"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [
+        [
+          "GOOGLE_WORKSPACE_ACCESS_TOKEN",
+          "GOOGLE_ACCESS_TOKEN"
+        ]
+      ],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check google-workspace",
+      "smokeCommand": "muster capability inspect capability-packs/google-workspace",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "openai-openai-provider",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-openai",
+  "prompt": "Verify the Muster OpenAI Provider capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "openai capability pack baseline.\nImplemented tools: openai_provider_setup_plan, openai_provider_readiness, openai_model_policy, openai_latency_triage.\nStatus: v0: provider setup and model-routing guidance; live model probes stay explicit future provider checks..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "openai",
+    "openai_provider_setup_plan",
+    "openai_provider_readiness",
+    "openai_model_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

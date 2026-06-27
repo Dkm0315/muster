@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "obsidian-obsidian-vault",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-obsidian",
+  "prompt": "Verify the Muster Obsidian capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "obsidian capability pack baseline.\nImplemented tools: obsidian_vault_status, obsidian_notes_list, obsidian_note_read, obsidian_notes_search, obsidian_note_create, obsidian_note_append.\nStatus: v0: local vault read/write tools with path traversal protection. Delete, rename, attachment indexing, and non-markdown binary handling are intentionally excluded..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "obsidian",
+    "obsidian_vault_status",
+    "obsidian_notes_list",
+    "obsidian_note_read",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

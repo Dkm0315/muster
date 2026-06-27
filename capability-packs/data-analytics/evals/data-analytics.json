@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "data-analytics-data-analytics",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-data-analytics",
+  "prompt": "Verify the Muster Data Analytics capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "data-analytics capability pack baseline.\nImplemented tools: profile_rows, numeric_summary.\nStatus: v0: pure row profiling; database MCPs remain the governed path for live data access..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "data-analytics",
+    "profile_rows",
+    "numeric_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

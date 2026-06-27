@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "google-workspace-google-workspace",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-google-workspace",
+  "prompt": "Verify the Muster Google Workspace capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "google-workspace capability pack baseline.\nImplemented tools: google_workspace_profile, gmail_search, gmail_message_get, calendar_events_list, drive_search, sheets_values_get.\nStatus: v0: token-scoped read/list helpers for Google Workspace. Mutating Gmail/Calendar/Drive actions remain behind explicit future workflows..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "google-workspace",
+    "google_workspace_profile",
+    "gmail_search",
+    "gmail_message_get",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

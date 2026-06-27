@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "artifact-studio-artifact-studio",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-artifact-studio",
+  "prompt": "Verify the Muster Artifact Studio capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "artifact-studio capability pack baseline.\nImplemented tools: markdown_report, rows_to_csv, dashboard_manifest.\nStatus: v0: deterministic artifact builders that return strings/JSON for the caller to save or render..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "artifact-studio",
+    "markdown_report",
+    "rows_to_csv",
+    "dashboard_manifest",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

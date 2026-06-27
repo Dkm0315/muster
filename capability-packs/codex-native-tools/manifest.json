@@ -9,12 +9,58 @@
   "description": "Codex-native tool harness policy for shell, patch, image, docs, approvals, and fast paths.",
   "permissions": [],
   "sandbox": "read_only",
-  "evals": ["evals/codex-native-tools.json"],
+  "evals": [
+    "evals/codex-native-tools.json"
+  ],
   "implementedTools": [
     "codex_native_tool_policy",
     "codex_native_approval_policy",
     "codex_native_fast_path",
     "codex_native_surface_plan"
   ],
-  "status": "v0: policy and routing helpers for harnessing local Codex capabilities through Muster."
+  "status": "v0: policy and routing helpers for harnessing local Codex capabilities through Muster.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "beta",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://github.com/openai/codex"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check codex-native-tools",
+      "smokeCommand": "muster capability inspect capability-packs/codex-native-tools",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "low",
+      "permissionMode": "allow_when_scoped",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

@@ -7,9 +7,13 @@
   "slot": "developer",
   "entrypoint": "src/index.ts",
   "description": "Read-only local, production, and integration workflow helpers for Frappe/ERPNext, React, Vue, and common web frameworks.",
-  "permissions": ["filesystem:read"],
+  "permissions": [
+    "filesystem:read"
+  ],
   "sandbox": "read_only",
-  "evals": ["evals/web-frameworks.json"],
+  "evals": [
+    "evals/web-frameworks.json"
+  ],
   "implementedTools": [
     "web_frameworks_detect",
     "web_frameworks_framework_guide",
@@ -17,5 +21,51 @@
     "web_frameworks_production_check",
     "web_frameworks_workflow_plan"
   ],
-  "status": "v0: repository inspection plus framework-specific local/production/integration workflow planning; live deployments stay explicit future MCP/channel workflows."
+  "status": "v0: repository inspection plus framework-specific local/production/integration workflow planning; live deployments stay explicit future MCP/channel workflows.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://frappeframework.com/docs",
+        "https://react.dev/learn",
+        "https://vuejs.org/guide/introduction.html"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check web-frameworks",
+      "smokeCommand": "muster capability inspect capability-packs/web-frameworks",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "medium",
+      "permissionMode": "ask",
+      "mutationApproval": "never",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

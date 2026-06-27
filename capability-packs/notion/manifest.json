@@ -7,10 +7,76 @@
   "slot": "productivity",
   "entrypoint": "src/index.ts",
   "description": "Notion API tools for workspace search, page retrieval, block inspection, data-source queries, and markdown page creation. Uses explicit token secrets from the active capability context.",
-  "permissions": ["network", "secrets"],
+  "permissions": [
+    "network",
+    "secrets"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["NOTION_API_KEY", "NOTION_API_TOKEN", "NOTION_API_VERSION"],
-  "evals": ["evals/notion-api.json"],
-  "implementedTools": ["notion_search", "notion_page_get", "notion_block_children", "notion_data_source_query", "notion_create_markdown_page"],
-  "status": "v0: direct Notion HTTP API tools with no ambient env access; target pages/data sources must be shared with the integration."
+  "secrets": [
+    "NOTION_API_KEY",
+    "NOTION_API_TOKEN",
+    "NOTION_API_VERSION"
+  ],
+  "evals": [
+    "evals/notion-api.json"
+  ],
+  "implementedTools": [
+    "notion_search",
+    "notion_page_get",
+    "notion_block_children",
+    "notion_data_source_query",
+    "notion_create_markdown_page"
+  ],
+  "status": "v0: direct Notion HTTP API tools with no ambient env access; target pages/data sources must be shared with the integration.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://www.notion.so/my-integrations",
+        "https://developers.notion.com/cli/get-started/overview",
+        "https://mcp.notion.com/mcp"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [
+        [
+          "NOTION_API_KEY",
+          "NOTION_API_TOKEN"
+        ]
+      ],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check notion",
+      "smokeCommand": "muster capability inspect capability-packs/notion",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

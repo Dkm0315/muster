@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "whatsapp-whatsapp",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-whatsapp",
+  "prompt": "Verify the Muster WhatsApp Cloud API capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "whatsapp capability pack baseline.\nImplemented tools: whatsapp_setup_plan, whatsapp_gateway_check, whatsapp_webhook_summary.\nStatus: v0: setup and diagnostics for Meta WhatsApp Cloud API webhooks; OpenClaw-style WhatsApp Web socket runtime remains a separate future channel..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "whatsapp",
+    "whatsapp_setup_plan",
+    "whatsapp_gateway_check",
+    "whatsapp_webhook_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

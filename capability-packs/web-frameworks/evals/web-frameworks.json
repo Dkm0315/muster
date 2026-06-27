@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "web-frameworks-web-frameworks",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-web-frameworks",
+  "prompt": "Verify the Muster Web Frameworks capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "web-frameworks capability pack baseline.\nImplemented tools: web_frameworks_detect, web_frameworks_framework_guide, web_frameworks_local_commands, web_frameworks_production_check, web_frameworks_workflow_plan.\nStatus: v0: repository inspection plus framework-specific local/production/integration workflow planning; live deployments stay explicit future MCP/channel workflows..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "web-frameworks",
+    "web_frameworks_detect",
+    "web_frameworks_framework_guide",
+    "web_frameworks_local_commands",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

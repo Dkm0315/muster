@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "airtable-airtable-api",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-airtable",
+  "prompt": "Verify the Muster Airtable capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "airtable capability pack baseline.\nImplemented tools: airtable_bases_list, airtable_tables_list, airtable_records_list, airtable_record_get, airtable_record_create, airtable_record_update, airtable_records_upsert.\nStatus: v0: direct Airtable REST API tools. Delete remains intentionally excluded; schema inspection before mutation is expected..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "airtable",
+    "airtable_bases_list",
+    "airtable_tables_list",
+    "airtable_records_list",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

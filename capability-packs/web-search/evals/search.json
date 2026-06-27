@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "web-search-search",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-web-search",
+  "prompt": "Verify the Muster Web Search capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "web-search capability pack baseline.\nImplemented tools: duckduckgo_search, public_web_fetch.\nStatus: v0: credential-free retrieval pack with bounded result sizes and private-network host blocking inherited from the runtime contract..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "web-search",
+    "duckduckgo_search",
+    "public_web_fetch",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

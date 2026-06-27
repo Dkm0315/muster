@@ -7,14 +7,71 @@
   "slot": "channel-discord",
   "entrypoint": "src/index.ts",
   "description": "Discord setup, signature readiness, and interaction debugging helpers for the Muster gateway.",
-  "permissions": ["messages"],
+  "permissions": [
+    "messages"
+  ],
   "sandbox": "network_limited",
-  "secrets": ["DISCORD_BOT_TOKEN", "DISCORD_PUBLIC_KEY"],
-  "evals": ["evals/discord.json"],
+  "secrets": [
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_PUBLIC_KEY"
+  ],
+  "evals": [
+    "evals/discord.json"
+  ],
   "implementedTools": [
     "discord_setup_plan",
     "discord_gateway_check",
     "discord_interaction_summary"
   ],
-  "status": "v0: setup and diagnostics for Discord Interactions and gateway replies; broader OpenClaw-style Discord actions remain future channel tools."
+  "status": "v0: setup and diagnostics for Discord Interactions and gateway replies; broader OpenClaw-style Discord actions remain future channel tools.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "experimental",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "gateway",
+      "channel"
+    ],
+    "setup": {
+      "urls": [
+        "https://discord.com/developers/applications",
+        "https://discord.com/developers/docs/interactions/overview"
+      ],
+      "requiredEnv": [
+        "DISCORD_BOT_TOKEN",
+        "DISCORD_PUBLIC_KEY"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check discord",
+      "smokeCommand": "muster capability inspect capability-packs/discord",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

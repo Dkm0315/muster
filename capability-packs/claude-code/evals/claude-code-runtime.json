@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "claude-code-claude-code-runtime",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-claude-code",
+  "prompt": "Verify the Muster Claude Code Runtime capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "claude-code capability pack baseline.\nImplemented tools: claude_code_setup_plan, claude_code_readiness, claude_code_mode_policy, claude_code_session_policy.\nStatus: v0: Claude Code orchestration policy; execution remains in Muster's runClaudeCode adapter..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "claude-code",
+    "claude_code_setup_plan",
+    "claude_code_readiness",
+    "claude_code_mode_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

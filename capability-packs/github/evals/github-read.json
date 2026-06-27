@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "github-github-read",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-github",
+  "prompt": "Verify the Muster GitHub capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "github capability pack baseline.\nImplemented tools: github_repo_summary, github_issue_search, github_pull_request_list.\nStatus: v0: read-only GitHub API tools with token redaction by construction; write actions remain delegated to explicit MCP/CLI workflows..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "github",
+    "github_repo_summary",
+    "github_issue_search",
+    "github_pull_request_list",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

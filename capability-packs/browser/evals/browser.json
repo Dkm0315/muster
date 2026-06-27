@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "browser-browser",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-browser",
+  "prompt": "Verify the Muster Browser capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "browser capability pack baseline.\nImplemented tools: browser_setup_plan, browser_mcp_readiness, browser_task_policy, browser_smoke_plan.\nStatus: v0: uses Muster MCP for execution; pack supplies the auditable setup and policy layer..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "browser",
+    "browser_setup_plan",
+    "browser_mcp_readiness",
+    "browser_task_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

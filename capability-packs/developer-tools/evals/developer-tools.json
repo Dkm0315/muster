@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "developer-tools-developer-tools",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-developer-tools",
+  "prompt": "Verify the Muster Developer Tools capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "developer-tools capability pack baseline.\nImplemented tools: developer_tools_repo_workflow, developer_tools_surface_plan, developer_tools_command_policy, developer_tools_release_check.\nStatus: v0: mirrors Hermes-style toolset planning and OpenClaw-style per-run allowlists without granting this pack shell execution..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "developer-tools",
+    "developer_tools_repo_workflow",
+    "developer_tools_surface_plan",
+    "developer_tools_command_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

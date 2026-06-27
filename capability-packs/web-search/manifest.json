@@ -7,9 +7,61 @@
   "slot": "search",
   "entrypoint": "src/index.ts",
   "description": "Keyless public web search and fetch tools for cited retrieval. Parallel and Firecrawl MCPs remain optional upgrades for richer search/scrape providers.",
-  "permissions": ["network"],
+  "permissions": [
+    "network"
+  ],
   "sandbox": "network_limited",
-  "evals": ["evals/search.json"],
-  "implementedTools": ["duckduckgo_search", "public_web_fetch"],
-  "status": "v0: credential-free retrieval pack with bounded result sizes and private-network host blocking inherited from the runtime contract."
+  "evals": [
+    "evals/search.json"
+  ],
+  "implementedTools": [
+    "duckduckgo_search",
+    "public_web_fetch"
+  ],
+  "status": "v0: credential-free retrieval pack with bounded result sizes and private-network host blocking inherited from the runtime contract.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [
+        "https://docs.parallel.ai/integrations/mcp/search-mcp",
+        "https://www.firecrawl.dev/app/api-keys"
+      ],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check web-search",
+      "smokeCommand": "muster capability inspect capability-packs/web-search",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "medium",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

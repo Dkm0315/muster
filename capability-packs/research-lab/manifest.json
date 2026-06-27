@@ -7,9 +7,57 @@
   "slot": "research",
   "entrypoint": "src/index.ts",
   "description": "Research helpers for paper discovery and source-backed summaries. Starts with credential-free arXiv search; richer web providers can be attached through MCP.",
-  "permissions": ["network"],
+  "permissions": [
+    "network"
+  ],
   "sandbox": "network_limited",
-  "evals": ["evals/arxiv.json"],
-  "implementedTools": ["arxiv_search"],
-  "status": "v0: arXiv Atom search with bounded, structured results."
+  "evals": [
+    "evals/arxiv.json"
+  ],
+  "implementedTools": [
+    "arxiv_search"
+  ],
+  "status": "v0: arXiv Atom search with bounded, structured results.",
+  "readiness": {
+    "level": "verified",
+    "status": "beta",
+    "actionability": "local_tool",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli"
+    ],
+    "setup": {
+      "urls": [],
+      "requiredEnv": [],
+      "requiredAnyEnv": [],
+      "credentialStorage": "none"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check research-lab",
+      "smokeCommand": "muster capability inspect capability-packs/research-lab",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": false
+    },
+    "safety": {
+      "risk": "medium",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

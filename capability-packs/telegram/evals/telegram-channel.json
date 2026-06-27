@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "telegram-telegram-channel",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-telegram",
+  "prompt": "Verify the Muster Telegram Channel capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "telegram capability pack baseline.\nImplemented tools: telegram_setup_plan, telegram_gateway_check, telegram_update_summary.\nStatus: v0: setup and diagnostic helpers; live Telegram delivery may be regionally unavailable..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "telegram",
+    "telegram_setup_plan",
+    "telegram_gateway_check",
+    "telegram_update_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

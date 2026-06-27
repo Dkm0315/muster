@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "huggingface-huggingface-hub",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-huggingface",
+  "prompt": "Verify the Muster Hugging Face capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "huggingface capability pack baseline.\nImplemented tools: hf_models_search, hf_model_info, hf_datasets_search, hf_dataset_info, hf_download_guidance.\nStatus: v0: read-only Hub API inspection plus download guidance. Upload, repo mutation, jobs, endpoints, and webhook actions are intentionally excluded from the default pack..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "huggingface",
+    "hf_models_search",
+    "hf_model_info",
+    "hf_datasets_search",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

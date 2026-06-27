@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-codex-runtime",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-codex",
+  "prompt": "Verify the Muster Codex Runtime capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "codex capability pack baseline.\nImplemented tools: codex_runtime_setup_plan, codex_runtime_readiness, codex_session_policy, codex_runtime_latency_triage.\nStatus: v0: Codex runtime orchestration policy; execution remains in Muster's runCodex adapter..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "codex",
+    "codex_runtime_setup_plan",
+    "codex_runtime_readiness",
+    "codex_session_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

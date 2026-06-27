@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-web-search-codex-web-search",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-codex-web-search",
+  "prompt": "Verify the Muster Codex Web Search capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "codex-web-search capability pack baseline.\nImplemented tools: codex_web_search_setup_plan, codex_web_search_readiness, codex_web_research_policy, codex_web_search_fallback_plan.\nStatus: v0: web-search routing policy; direct local search remains in web-search pack and external browsing remains explicit..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "codex-web-search",
+    "codex_web_search_setup_plan",
+    "codex_web_search_readiness",
+    "codex_web_research_policy",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

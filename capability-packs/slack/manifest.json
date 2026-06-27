@@ -7,10 +7,72 @@
   "slot": "channel-slack",
   "entrypoint": "src/index.ts",
   "description": "Slack app setup, signing-secret readiness, and event debugging helpers for using Muster in Slack.",
-  "permissions": ["messages", "secrets"],
+  "permissions": [
+    "messages",
+    "secrets"
+  ],
   "sandbox": "none",
-  "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
-  "evals": ["evals/slack-channel.json"],
-  "implementedTools": ["slack_setup_plan", "slack_gateway_check", "slack_event_summary"],
-  "status": "v0: setup and diagnostic helpers; Slack app creation and OAuth installation stay in Slack."
+  "secrets": [
+    "SLACK_BOT_TOKEN",
+    "SLACK_SIGNING_SECRET"
+  ],
+  "evals": [
+    "evals/slack-channel.json"
+  ],
+  "implementedTools": [
+    "slack_setup_plan",
+    "slack_gateway_check",
+    "slack_event_summary"
+  ],
+  "status": "v0: setup and diagnostic helpers; Slack app creation and OAuth installation stay in Slack.",
+  "readiness": {
+    "level": "setup_plan",
+    "status": "experimental",
+    "actionability": "setup_plan",
+    "owner": "muster-core",
+    "surfaces": [
+      "cli",
+      "gateway",
+      "channel"
+    ],
+    "setup": {
+      "urls": [
+        "https://api.slack.com/apps",
+        "https://api.slack.com/apis/connections/events-api"
+      ],
+      "requiredEnv": [
+        "SLACK_BOT_TOKEN",
+        "SLACK_SIGNING_SECRET"
+      ],
+      "requiredAnyEnv": [],
+      "credentialStorage": "env"
+    },
+    "diagnostics": {
+      "doctorCommand": "muster plugins check slack",
+      "smokeCommand": "muster capability inspect capability-packs/slack",
+      "latencyBudgetMs": 1000,
+      "requiresLiveCredentials": true
+    },
+    "safety": {
+      "risk": "high",
+      "permissionMode": "ask",
+      "mutationApproval": "required",
+      "resultCapBytes": 65536,
+      "secretRedaction": true
+    },
+    "evidence": {
+      "unitTests": [
+        "packages/core/test/capability-load.test.ts",
+        "packages/core/test/capability.test.ts"
+      ],
+      "qaSuites": [
+        "pack_readiness"
+      ],
+      "liveArtifacts": [],
+      "docs": [
+        "README.md",
+        "docs/RELEASE_TRAIN.md"
+      ]
+    }
+  }
 }

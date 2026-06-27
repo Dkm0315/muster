@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "google-chat-google-chat-channel",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-google-chat",
+  "prompt": "Verify the Muster Google Chat Channel capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "google-chat capability pack baseline.\nImplemented tools: google_chat_setup_plan, google_chat_gateway_check, google_chat_event_summary.\nStatus: v0: setup and diagnostic helpers; live Google Cloud provisioning remains an explicit external setup step..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "google-chat",
+    "google_chat_setup_plan",
+    "google_chat_gateway_check",
+    "google_chat_event_summary",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

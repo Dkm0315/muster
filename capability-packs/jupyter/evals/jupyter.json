@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "jupyter-jupyter",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-jupyter",
+  "prompt": "Verify the Muster Jupyter Live Kernel capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "jupyter capability pack baseline.\nImplemented tools: jupyter_setup_plan, jupyter_server_check, jupyter_scratch_notebook, jupyter_notebook_summary.\nStatus: v0: setup/readiness plus safe notebook file workflows; live kernel execution should use the hamelnb helper or a future bundled websocket executor..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "jupyter",
+    "jupyter_setup_plan",
+    "jupyter_server_check",
+    "jupyter_scratch_notebook",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}

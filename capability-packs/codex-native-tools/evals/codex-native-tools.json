@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-native-tools-codex-native-tools",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "sourceEpisodeId": "capability-pack-codex-native-tools",
+  "prompt": "Verify the Muster Codex Native Tools capability pack baseline contract.",
+  "taskKind": "architecture",
+  "recordedResponseText": "codex-native-tools capability pack baseline.\nImplemented tools: codex_native_tool_policy, codex_native_approval_policy, codex_native_fast_path, codex_native_surface_plan.\nStatus: v0: policy and routing helpers for harnessing local Codex capabilities through Muster..\nSafety: secret redaction is required and no raw credentials should be printed.",
+  "expectedContains": [
+    "codex-native-tools",
+    "codex_native_tool_policy",
+    "codex_native_approval_policy",
+    "codex_native_fast_path",
+    "secret redaction"
+  ],
+  "forbiddenContains": [
+    "sk-",
+    "xoxb-",
+    "ghp_",
+    "Bearer ",
+    "private key"
+  ],
+  "evidenceLabels": [
+    "capability-manifest",
+    "pack-readiness"
+  ]
+}
