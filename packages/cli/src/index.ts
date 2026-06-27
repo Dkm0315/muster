@@ -366,8 +366,8 @@ Usage:
   muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
-  muster channels list | status [channel] | setup <channel> [--public-url URL] [secret env flags]
-  muster integrations [list|guide]         # layman setup guide for chat apps, plugins, and MCPs
+  muster channels list | status [channel] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
+  muster integrations [list|guide|status]  # layman setup guide for chat apps, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
   muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path]
@@ -5908,6 +5908,12 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     for (const spec of CHANNEL_SETUP_SPECS) printChannelStatus(spec, config);
     return;
   }
+  if (action === "doctor" && channel) {
+    const spec = requireChannelSpec(channel);
+    const config = await loadGatewayConfig();
+    await printChannelDoctor(spec, config, { live: commandArgs.includes("--live") });
+    return;
+  }
   if (action === "setup" && channel) {
     const spec = requireChannelSpec(channel);
     const config = await loadOrInitGatewayConfig();
@@ -5919,7 +5925,7 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     printChannelSetup(spec, updated, commandArgs);
     return;
   }
-  throw new Error("Usage: muster channels list | status [channel] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
+  throw new Error("Usage: muster channels list | status [channel] | doctor <telegram|slack|gchat|discord|whatsapp|teams|web> [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
 }
 
 function printChannelCatalog(): void {
@@ -5940,6 +5946,57 @@ function printChannelStatus(spec: ChannelSetupSpec, config: GatewayConfig): void
   if (spec.id === "whatsapp") console.log(`  access_token=${configured(Boolean(config.whatsapp?.accessToken))} verify_token=${configured(Boolean(config.whatsapp?.verifyToken))} phone_number_id=${configured(Boolean(config.whatsapp?.phoneNumberId))}`);
   if (spec.id === "teams") console.log(`  hmac_secret=${configured(Boolean(config.teams?.hmacSecret))}`);
   if (spec.id === "web") console.log(`  bearer_token=${configured(Boolean(config.token))}`);
+}
+
+async function printChannelDoctor(
+  spec: ChannelSetupSpec,
+  config: GatewayConfig,
+  options: { readonly live?: boolean } = {},
+): Promise<void> {
+  const ready = channelReady(spec.id, config);
+  const checks: Array<{ name: string; status: "passed" | "needs_setup" | "warning"; detail: string }> = [];
+  checks.push({ name: "gateway_config", status: config.token ? "passed" : "needs_setup", detail: config.token ? "gateway bearer token exists" : "run muster gateway init" });
+  checks.push({ name: "channel_config", status: ready ? "passed" : "needs_setup", detail: ready ? `${spec.id} has required local credentials` : `run muster channels setup ${spec.id}` });
+  if (spec.route) checks.push({ name: "webhook_route", status: "passed", detail: spec.route });
+  if (spec.id === "telegram") {
+    checks.push({
+      name: "webhook_auth",
+      status: config.telegram?.secretToken ? "passed" : "warning",
+      detail: config.telegram?.secretToken
+        ? "Telegram secret-token header is configured"
+        : "configure --secret-token-env for public webhooks; bearer-only is acceptable for private/local tests",
+    });
+    if (options.live) checks.push(await telegramLiveDoctor(config.telegram?.botToken));
+    else checks.push({ name: "telegram_live", status: "warning", detail: "not run; add --live to call getMe without printing the token" });
+  } else if (options.live) {
+    checks.push({ name: "live_check", status: "warning", detail: "live doctor is currently implemented for telegram only" });
+  }
+  const failed = checks.filter((check) => check.status === "needs_setup").length;
+  const warnings = checks.filter((check) => check.status === "warning").length;
+  const status = failed ? "needs_setup" : warnings ? "warning" : "ready";
+  console.log(`channel_doctor=${spec.id} status=${status}`);
+  for (const check of checks) console.log(`check=${check.name} status=${check.status} detail="${check.detail.replace(/"/g, "'")}"`);
+  const next = failed
+    ? `muster channels setup ${spec.id}`
+    : warnings && spec.id === "telegram" && !options.live
+      ? "muster channels doctor telegram --live"
+      : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`;
+  console.log(`next=${next}`);
+}
+
+async function telegramLiveDoctor(botToken: string | undefined): Promise<{ name: string; status: "passed" | "needs_setup" | "warning"; detail: string }> {
+  if (!botToken) return { name: "telegram_live", status: "needs_setup", detail: "TELEGRAM_BOT_TOKEN is not configured" };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, { signal: AbortSignal.timeout(8000) });
+    const body = await response.json().catch(() => ({})) as { ok?: boolean; result?: { username?: string; id?: number }; description?: string };
+    if (!response.ok || body.ok === false) {
+      return { name: "telegram_live", status: "warning", detail: `Bot API returned HTTP ${response.status}${body.description ? `: ${body.description}` : ""}` };
+    }
+    const username = body.result?.username ? `@${body.result.username}` : `id:${body.result?.id ?? "unknown"}`;
+    return { name: "telegram_live", status: "passed", detail: `Bot API reachable as ${username}` };
+  } catch (error) {
+    return { name: "telegram_live", status: "warning", detail: `Bot API check failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
 }
 
 function printChannelSetup(spec: ChannelSetupSpec, config: GatewayConfig, args: readonly string[]): void {
@@ -6058,10 +6115,78 @@ function configured(value: boolean): string {
   return value ? "configured" : "missing";
 }
 
+async function printIntegrationReadiness(): Promise<void> {
+  const config = await loadConfig().catch(() => undefined);
+  const gateway = await loadGatewayConfig().catch(() => undefined);
+  const enabledPlugins = new Set(
+    Object.entries(config?.plugins?.entries ?? {})
+      .filter(([, entry]) => entry.enabled !== false)
+      .map(([id]) => id),
+  );
+  const configuredMcp = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
+  const channelRows = CHANNEL_SETUP_SPECS
+    .filter((spec) => spec.id !== "web")
+    .map((spec) => ({ id: spec.id, ready: gateway ? channelReady(spec.id, gateway) : false, next: `muster channels setup ${spec.id}` }));
+  const paPlugins = ["daily-ops", "google-workspace", "notion", "web-search", "research-lab", "artifact-studio", "security-review"];
+  const pluginRows = paPlugins.flatMap((id) => {
+    const plugin = listBuiltinPlugins().find((entry) => entry.id === id);
+    if (!plugin) return [];
+    const missing = missingSetupEnv(plugin.setup);
+    return [{ id: plugin.id, enabled: enabledPlugins.has(plugin.id), missing, risk: plugin.risk }];
+  });
+  const mcpRows = ["google-drive", "notion", "parallel-search", "browser"].flatMap((id) => {
+    const mcp = listBuiltinMcpServers().find((entry) => entry.id === id);
+    if (!mcp) return [];
+    return [{ id: mcp.id, configured: configuredMcp.has(mcp.id), missing: missingMcpEnv(mcp), auth: mcp.auth ?? "none" }];
+  });
+  const readyChannels = channelRows.filter((row) => row.ready).length;
+  const enabledUsefulPlugins = pluginRows.filter((row) => row.enabled).length;
+  const configuredUsefulMcps = mcpRows.filter((row) => row.configured).length;
+  const score = Math.min(100, Math.round(
+    20
+    + Math.min(2, readyChannels) * 12
+    + enabledUsefulPlugins * 7
+    + configuredUsefulMcps * 8
+    + (config ? 10 : 0)
+    + (gateway ? 8 : 0),
+  ));
+  const stage = score >= 80 ? "ready" : score >= 50 ? "usable" : "setup_needed";
+  console.log(`integration_status=${stage} score=${score}`);
+  console.log(`profile=${config ? "configured" : "missing"} gateway=${gateway ? "configured" : "missing"} memory=scoped_sqlite_fts`);
+  console.log("channels_optional");
+  for (const row of channelRows) console.log(`  ${row.id}\t${row.ready ? "ready" : "needs_setup"}\t${row.ready ? "muster gateway start" : row.next}`);
+  console.log("daily_life_packs");
+  for (const row of pluginRows) {
+    const status = row.enabled ? "enabled" : row.missing.length ? `needs_env:${row.missing.join("|")}` : "available";
+    const riskFlag = row.risk === "high" ? " --allow-high-risk" : "";
+    console.log(`  ${row.id}\t${status}\tmuster plugins ${row.enabled ? "setup" : "enable"} ${row.id}${riskFlag}`);
+  }
+  console.log("mcp_connectors");
+  for (const row of mcpRows) {
+    const status = row.configured ? "configured" : row.missing.length ? `needs_env:${row.missing.join("|")}` : row.auth === "oauth" ? "needs_oauth" : "installable";
+    const auth = row.auth === "oauth" && row.configured ? `; muster mcp oauth setup ${row.id}` : "";
+    console.log(`  ${row.id}\t${status}\tmuster mcp install ${row.id}${auth}`);
+  }
+  console.log("suggested_path");
+  const steps: string[] = [];
+  if (!gateway) steps.push("muster gateway init");
+  steps.push(!readyChannels ? "muster channels setup telegram" : "channel ready; add another surface only when you need it");
+  const firstPlugin = pluginRows.find((row) => !row.enabled);
+  if (firstPlugin) steps.push(`muster plugins enable ${firstPlugin.id}${firstPlugin.risk === "high" ? " --allow-high-risk" : ""}`);
+  const firstMcp = mcpRows.find((row) => !row.configured);
+  if (firstMcp) steps.push(`muster mcp install ${firstMcp.id}`);
+  steps.forEach((step, index) => console.log(`  ${index + 1}. ${step}`));
+  console.log("guardrails=draft_first_for_channels, scoped_memory, explicit_mcp_auth, no_secret_echo");
+}
+
 async function integrationsCommand(args: string[]): Promise<void> {
   const action = args[0] ?? "list";
   if (action !== "list" && action !== "guide" && action !== "status") {
     throw new Error("Usage: muster integrations [list|guide|status]");
+  }
+  if (action === "status") {
+    await printIntegrationReadiness();
+    return;
   }
   const config = await loadConfig().catch(() => undefined);
   const gateway = await loadGatewayConfig().catch(() => undefined);

@@ -1,24 +1,35 @@
-# Muster — the AI agent harness you can audit
+# Muster
 
-**Open-source agent runtime with a real terminal chat UI, token-waste ledger, leak-proof scoped memory, eval-gated learning, MCP/plugin induction, and integrity verification. Works with Codex, Claude Code, Claude, OpenAI-compatible providers, vLLM, and 100+ discoverable integration surfaces. TypeScript, MIT, self-hosted.**
+**Muster is an open-source governed agent harness for production AI systems.**
 
-> Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
+Agents that run for more than a demo need boundaries: they should not leak memory, waste tokens, or learn new behavior without tests.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node >=24](https://img.shields.io/badge/node-%3E%3D24-5FA04E.svg)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg)](tsconfig.base.json)
+[![Package](https://img.shields.io/npm/v/@musterhq/cli?label=%40musterhq%2Fcli)](https://www.npmjs.com/package/@musterhq/cli)
+
+**Quick links:** [Website](https://themuster.dev) · [Docs](https://themuster.dev/docs.html) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/SDLC_KANBAN.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Dkm0315/muster/issues)
 
 ```bash
-pnpm dlx @musterhq/cli
+pnpm --package=@musterhq/cli dlx muster demo
 ```
 
-Run `muster` to start the interactive chat surface. First run opens onboarding; after setup, it opens a named chat with slash commands, `@agent` routing, provider/model pickers, memory controls, plugin/MCP setup, and a token ledger.
-
-For a deterministic no-model tour:
+The demo is deterministic and does not need a model key. For the real interactive chat:
 
 ```bash
-pnpm dlx @musterhq/cli demo
+pnpm --package=@musterhq/cli dlx muster
 ```
 
-## See it work — `muster demo`
+That opens the terminal chat surface. First run opens onboarding; after setup it opens a named chat with slash commands, `@agent` routing, provider/model pickers, memory controls, plugin/MCP setup, and the token ledger.
 
-One command provisions a throwaway workspace and a local model service, then runs the full governed pipeline: scoped-memory recall → token ledger → integrity check.
+## 20-Second Demo
+
+![Muster terminal demo](docs/assets/muster-terminal-demo.gif)
+
+A prompt enters the harness, scoped memory is recalled, the run completes, tokens are recorded, and integrity can be checked from the terminal.
+
+Today you can run the same path locally:
 
 ```text
 muster demo — provisioned an isolated workspace and a live stub model service.
@@ -32,10 +43,6 @@ run            model                        in       out      est  cost$    wast
 287bde9c-eb19- demo/demo-model              38       17       ~    -        -       -
 653b434a-0924- demo/demo-model              7        18       ~    -        -       -
 
-totals by model              runs   in         out        cost$      waste-runs
---------------------------------------------------------------------------------
-demo/demo-model              2      45         35         -          0
-
 integrity check at 2026-06-12: OK
 store      lines    corrupt
 episodes   2        0
@@ -43,188 +50,266 @@ memory     3        0
 tokens     2        0
 ```
 
-## Proof, not promises — `muster benchmark`
+## Proof: Token Waste Index
 
-The **Token Waste Index** measures what Muster's immutable-transcript renderer and never-wedge compactor actually save versus a naive replay-everything harness. Deterministic — no model calls, fully reproducible.
+`muster benchmark` compares Muster against naive replay-everything context rendering. It is deterministic and makes no model calls.
 
-```text
-scenario                          turns  naive    muster   reduction  replay-overhead
---------------------------------------------------------------------------------------
-codebase-refactor-20              21     82.6k    40.7k    50.7%      90.5%
-incident-triage-30                31     140.4k   56.2k    59.9%      93.6%
-erp-data-audit-40                 41     197.8k   72.4k    63.4%      95.1%
-research-synthesis-25             26     156.8k   64.6k    58.8%      92.3%
-long-support-thread-50            51     268.8k   93.8k    65.1%      96.1%
---------------------------------------------------------------------------------------
-AGGREGATE                         170    846.4k   327.9k   61.3%      94.2%
-```
+| Scenario set | Turns | Naive tokens | Muster tokens | Reduction |
+|---|---:|---:|---:|---:|
+| Aggregate benchmark | 170 | 875.8k | 355.2k | 59.4% |
 
-**~61% fewer tokens on long agent sessions**, and the saving grows with session length. Full methodology + table: [benchmark/RESULTS.md](benchmark/RESULTS.md).
+Full methodology: [benchmark/RESULTS.md](benchmark/RESULTS.md)
 
-## Features
+## Why Muster Exists
 
-| | |
+Most agents fail after the demo.
+
+Long-running agents start clean, then accumulate hidden state:
+
+- context grows until every turn replays too much history
+- memory becomes unsafe when user, tenant, workspace, and session boundaries blur
+- token usage disappears into provider logs instead of a local ledger
+- "learning" becomes risky when feedback promotes behavior without evals
+- automation becomes brittle when tools, MCP servers, browser actions, and app writes have no shared policy envelope
+
+Muster exists to keep those controls outside the model provider.
+
+## What Muster Does
+
+| Problem | Muster control |
 |---|---|
-| 💬 **Interactive terminal chat** | `muster` opens a TUI with slash commands, `@agent` routing, history, named sessions, provider/model pickers, and warm Codex fast mode. |
-| 🪙 **Token ledger** | Every run recorded; replay-waste flagged with the exact ratio. `muster tokens` |
-| 🔒 **Indexed scoped memory** | Tenant / workspace / user / role / session lanes backed by SQLite/FTS. Cross-user leakage is a failing test, not a hope. |
-| 🎓 **Eval-gated skills** | Skills promote only after an eval suite converges — no self-certified learning. |
-| 🛡️ **Integrity verify** | Corruption, duplicate runs, silent model drift, stale-narrative poisoning. `muster verify` |
-| ♻️ **Never-wedge compactor** | A session can always take a turn — no compaction deadlock. |
-| 🔁 **Recursive self-test** | `muster evolve` runs real tasks, adjudicates against evidence, converges. |
-| 🌊 **Flow engine** | Tool/agent/gate steps, preflight, durable runs, replay/diff, `flow loop --cron`. |
-| 📡 **One gateway, many chat apps** | Slack · Discord · Telegram · WhatsApp · Google Chat · Teams + a zero-dep web client, with setup packs and readiness checks. |
-| 🔌 **MCP client + OAuth setup** | Per-server isolation, circuit breakers, capped results, PKCE/OAuth helpers, curated install policies. |
-| 🧩 **31 in-repo capability packs** | Frappe/ERPNext, browser, web search, GitHub, Google Workspace, Notion, Jupyter, vLLM, Codex, Claude Code, channels, and more. |
-| 🧰 **116-entry integration catalog** | Source-backed Hermes/OpenClaw-inspired catalog with honest `setup_plan` vs executable-pack actionability. |
-| 💓 **Pulse scheduler** | Heartbeat that feels alive at ~5% of the token cost — zero-LLM preflight + daily budget. |
-| 👥 **Pull-based subagents** | Durable run store, exactly-once results, no zombie processes. |
+| Memory can leak across users or projects | **Scoped memory** with tenant, workspace, user, role, and session lanes, backed by SQLite/FTS retrieval and leakage tests. |
+| Token cost becomes invisible | **Token ledger** records every run, estimates or records usage, and flags replay waste. |
+| Tools run without boundaries | **Governed execution** routes tools, flows, subagents, browser work, and channels through explicit config, policy, and evidence. |
+| Agents "learn" from vibes | **Eval-gated learning** turns feedback into replayable fixtures before behavior is promoted. |
+| Integrations sprawl | **Capability packs** bundle typed tools, declared secrets, permissions, and setup guidance. |
+| MCP servers are useful but risky | **MCP/plugin support** adds stdio/http servers with include/exclude policy, result caps, circuit breakers, and OAuth/PKCE helpers. |
+| Browser and web apps need audit trails | **Browser and web-app automation** can be routed through the same harness and gateway surfaces. |
+| ERP systems need domain context | **Frappe/ERPNext support** ships as a capability pack with permission-scoped tools and docs/live-context setup. |
+| Provider choice should stay flexible | **Multi-provider LLM support** covers cloud APIs, open-source/self-hosted servers, aggregators, OpenAI-compatible endpoints, Gemini, Groq, Cerebras, Mistral, DeepSeek, Kimi, Qwen, OpenRouter, Together, Fireworks, LM Studio, vLLM, SGLang, Pi, Codex CLI, and Claude Code CLI. |
 
-## Implementation status — v0.1.6
+## Quick Start
 
-This is where Muster stands today from an implementation point of view:
+### Prerequisites
 
-| Area | Current state |
-|---|---|
-| CLI/TUI | Implemented. `muster` opens the chat UI after onboarding, with slash-command completion, `@agent` completion, history navigation, named sessions, provider/model/runtime pickers, speed mode, status, token, plugin, skill, MCP, and memory commands. |
-| Provider/runtime path | Implemented for Codex CLI, Claude Code CLI, Pi, and OpenAI-compatible HTTP providers. Codex app-server warm-session reuse is supported; `fast` mode keeps the warm native session but skips recall, ambient skill scoring, and memory writes for quick turns. |
-| Memory | Implemented. Scoped memory is indexed through SQLite/FTS with tenant/workspace/user/session lanes, receipt reporting, graph-linked expansion for Frappe-style contexts, latency probes, rebuild/doctor commands, and leakage tests. |
-| Token/cost | Implemented. Per-run ledger, cost estimates where pricing is known, replay-waste detection, session mode/id tracking, skill attribution, and token tables. |
-| Plugins/skills | Implemented base system. 31 executable capability packs are in-repo; 116 catalog entries are discoverable with actionability levels so setup-plan entries do not pretend to be fully wired tools. |
-| MCP | Implemented client, stdio/http registration, include/exclude policy, result caps, circuit breakers, OAuth/PKCE setup/import, and curated install catalog. |
-| Frappe/ERPNext | Implemented as a capability pack with docs/live-context setup, module/doc resources, Frappe tools, generic graph-retrieval eval fixtures, and web-framework checks. |
-| Onboarding | Implemented in CLI and prototype web preview. First run can guide purpose, style, provider, integrations, channels, memory policy, and profiles. |
-| Gateway/channels | Implemented framework and channel setup packs. Production hardening still depends on each real provider credential/webhook setup. |
-| Dashboard/web UI | Basic status/export/start surfaces exist. Full desktop app is not done. |
-| Release state | `v0.1.6` is published as the latest GitHub release with changelog notes. |
+- Node.js 24 or newer
+- `pnpm` 10.x for repository development
+- Optional: a configured provider key or local agent CLI for live model calls
 
-Near-term gaps are clear: deeper real-provider end-to-end tests for every channel/MCP pack, stronger provider/model resolver parity with Hermes, more polished desktop/dashboard surfaces, and more live latency baselines across Codex/Claude/provider-direct paths.
-
-## Everyday commands
-<img width="3288" height="1740" alt="image" src="https://github.com/user-attachments/assets/8186bd41-3e18-4511-8566-d756c195d57f" />
-
+### Try without a model key
 
 ```bash
-muster                                      # interactive chat; first run opens onboarding
-muster onboard                              # rerun guided setup
-muster provider presets                     # browse cloud/CLI/self-hosted provider presets
-muster provider add anthropic               # or openai / xai / kimi / deepseek / groq / openrouter / vllm
-muster runtime use-provider native codex    # switch runtime/provider mapping
-muster run "where do we deploy?"              # governed run: memory recall + ledger + evidence
-muster chat --session work "summarize this repo"
-muster latency "Say hi in one sentence" --runs 3 --runtime codex --model gpt-5.5
-muster tokens                                 # per-run cost table, replay-waste flags
-muster verify                                 # store integrity
-muster sessions search "leave balance"        # FTS search across past sessions
-muster plugins catalog                        # 116 discoverable integration entries
-muster plugins setup provider-perplexity       # setup URLs, env vars, next actions
-muster capability load capability-packs/frappe --allow-high-risk
-muster mcp catalog                            # curated MCP setup catalog
-muster mcp install github                     # install a curated MCP entry when configured
-muster plugins context frappe setup --site https://example.com --user Administrator
-muster evolve evolve-suites/core-capabilities.json   # recursive self-test
-muster pulse add "0 9 * * 1-5" --kind task --prompt "summarize open work"
-muster benchmark                              # the Token Waste Index, live
+pnpm --package=@musterhq/cli dlx muster demo
+pnpm --package=@musterhq/cli dlx muster benchmark
 ```
 
-Everything critical renders in the terminal. The dashboard is optional.
+`muster demo` uses a stub model service and an isolated workspace. `muster benchmark` is deterministic and makes no model calls.
 
-## Observability — OpenTelemetry
-
-Opt in with `MUSTER_TRACE=1`. When it's unset there is zero overhead: `startSpan` returns `null`, nothing is allocated, and no file is touched.
-
-Spans follow the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) — `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens` / `output_tokens` — and are written as JSONL to `.muster/traces.jsonl`.
+### Install from source
 
 ```bash
-MUSTER_TRACE=1 muster run "where do we deploy?"   # record spans for the run
-muster traces                                     # plain-text trace table
-muster traces <traceId>                           # one trace as a span tree
+git clone https://github.com/Dkm0315/muster.git
+cd muster
+pnpm install
+pnpm build
+pnpm hc demo
 ```
 
-To ship spans to any OTLP/HTTP collector — **Jaeger**, **Grafana Tempo**, **Honeycomb**, or anything that speaks OTLP — set `MUSTER_OTLP_ENDPOINT`; each span is best-effort `POST`ed to `<endpoint>/v1/traces` alongside the local JSONL.
+### Start a workspace
 
 ```bash
-MUSTER_TRACE=1 MUSTER_OTLP_ENDPOINT=http://localhost:4318 muster run "audit last deploy"
+muster                 # interactive TUI; first run opens onboarding
+muster onboard         # rerun guided setup
+muster doctor --fix    # repair/check local config
+muster status          # one-screen status
 ```
 
-Zero dependencies — no OTel SDK, just Node builtins — and zero overhead when disabled.
+### Add a provider
+
+Use presets when possible:
+
+```bash
+muster provider presets
+muster provider add openai
+muster runtime use-provider native openai
+```
+
+Common environment variables:
+
+```bash
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+GEMINI_API_KEY=...
+GROQ_API_KEY=...
+OPENROUTER_API_KEY=...
+MISTRAL_API_KEY=...
+DEEPSEEK_API_KEY=...
+TOGETHER_API_KEY=...
+```
+
+For self-hosted or compatible endpoints:
+
+```bash
+muster provider add-openai-compatible private http://localhost:8000/v1 served-model
+muster runtime use-provider native private
+```
+
+### Smallest working commands
+
+```bash
+muster run "Say hi in one sentence"
+muster tokens
+muster memory add --summary "uat deploy target is uat-erp.example.com" --scope user:me --provenance manual
+muster memory search --scope user:me --query "deploy target"
+muster verify
+```
 
 ## Architecture
 
-```
-terminal / gateway / channel
-        │
-        ▼
-  router + profile + provider resolver
-        │
-        ├── stable instructions ───────────────┐
-        ├── volatile recall / skill context ──►│ runtime
-        │                                      ├─ Codex CLI / app-server
-        │                                      ├─ Claude Code CLI
-        │                                      ├─ Pi SDK / CLI
-        │                                      └─ OpenAI-compatible HTTP providers
-        ▼
-  scoped memory lanes ── SQLite/FTS ── receipts / graph expansion
-        │
-        ▼
-  episode store ── token ledger ── goal-loop ledger ── eval fixtures
-        │                 │             │
-        └──── muster verify ◄───────────┴──── muster evolve / retrieval evals
+Muster is a TypeScript monorepo. The CLI is the main entry point; the core package owns governance, memory, providers, packs, flows, ledgers, and evals; the gateway and surface packages expose web/chat entry points.
+
+```mermaid
+flowchart TD
+  User[Terminal / Gateway / Channel] --> CLI[packages/cli]
+  CLI --> Router[router + profile + provider resolver]
+  Router --> Runtime[provider family: cloud APIs / open-source servers / aggregators / CLI-auth runtimes]
+  Router --> Tools[tool registry + MCP client + capability packs]
+  Tools --> Packs[capability-packs/*]
+  Tools --> MCP[MCP stdio/http servers]
+  Router --> Memory[scoped memory lanes]
+  Memory --> FTS[SQLite / FTS index]
+  Router --> Ledger[episode store + token ledger]
+  Ledger --> Verify[muster verify]
+  Ledger --> Evals[eval fixtures + evolve suites]
+  Gateway[packages/gateway] --> Router
+  Surface[packages/surface] --> Gateway
 ```
 
-Muster uses native agent CLIs where they are strongest, and keeps governance outside the provider: scoped memory, token accounting, evidence, eval gates, MCP policy, and integrity verification remain Muster-owned.
+Key directories:
 
-## How it compares
+- `packages/cli` — terminal chat, setup, commands, TUI, QA harnesses
+- `packages/core` — run loop, memory, providers, MCP, capability packs, flows, ledgers, evals
+- `packages/gateway` — HTTP gateway and channel/webhook adapters
+- `packages/surface` — zero-dependency web client surface
+- `capability-packs` — bundled packs such as Frappe/ERPNext, browser, web search, providers, channels
+- `docs` — architecture, flow engine, setup/migration, retrieval, parity notes
+- `website` — static Vite site for [themuster.dev](https://themuster.dev)
 
-| | Muster | OpenClaw | Hermes | crewAI |
-|---|---|---|---|---|
-| Token ledger + waste detection | ✅ | ❌ | ❌ | ❌ |
-| Scoped memory (leak = CI failure) | ✅ | partial | ❌ (single MEMORY.md) | ❌ |
-| Eval-gated learning | ✅ | ❌ | ❌ (promotes on use) | ❌ |
-| Governed fallback (evidence, never silent) | ✅ | ❌ ([#65646](https://github.com/openclaw/openclaw/issues/65646)) | ❌ | ❌ |
-| Session integrity verification | ✅ | ❌ ([#75235](https://github.com/openclaw/openclaw/issues/75235)) | ❌ ([#5563](https://github.com/NousResearch/hermes-agent/issues/5563)) | ❌ |
-| Channels & web embeds (one governed envelope) | ✅ Slack, Discord, Telegram, WhatsApp, GChat, Teams, web apps | ✅ 20+ bespoke | ✅ | ❌ |
-| Interactive terminal with provider/model pickers | ✅ | partial | ✅ | ❌ |
-| MCP/OAuth setup workflows | ✅ | partial | ✅ | ❌ |
-| Maturity / ecosystem | v0 | huge | large | large |
+Muster uses provider APIs, OpenAI-compatible servers, aggregators, self-hosted open-source inference, and native agent CLIs where useful, but keeps governance outside the provider: scoped memory, token accounting, evidence, eval gates, MCP policy, and integrity verification remain Muster-owned.
 
-Honest table: OpenClaw and Hermes still have broader battle-tested ecosystems. Muster's current edge is governance, auditability, scoped memory, token accounting, and a growing integration induction layer.
+## Real-World Use Cases
 
-## Use cases
+- **Frappe / ERPNext operator workflows**: build scoped context from Frappe/ERPNext docs, installed apps, DocTypes, fields, workflows, and records before acting through permission-scoped tools.
+- **Browser automation**: route browser-capable work through explicit setup, screenshots/evidence, and approval-aware tool boundaries.
+- **Enterprise web-app automation**: use the gateway and web surface to connect app events to governed runs.
+- **Governed long-running agents**: keep sessions, memory, token spend, and learning visible over days or weeks.
+- **MCP-based capability extension**: attach MCP servers with per-server policy, result caps, OAuth setup, and failure isolation.
 
-- **AI agents for business systems**: the Frappe/ERPNext capability pack ships permission-scoped tools where every action executes as the real user — see [`capability-packs/frappe/`](capability-packs/frappe/FRAPPE_SURFACE_SPEC.md). Built from a production deployment serving thousands of employees.
-- **Cost-controlled agent fleets**: per-profile ledgers, per-flow budgets, waste alerts.
-- **Regulated / BFSI / air-gapped**: local models (vLLM, SGLang), no cloud required, full audit trail.
-- **Agent CI**: `muster evolve` as a pipeline gate — your agent's behavior is regression-tested like code.
+## Comparison
 
-## Keywords
+Muster is not trying to replace every agent framework. It is the governance layer for agents that need to run with memory, tools, and accountability.
 
-AI agent framework · LLM agent harness · agent memory · token cost tracking · agent observability · eval-driven development · agentic workflows · Claude agent SDK · OpenAI agents · self-hosted AI agent · AI governance · agent audit trail · ERPNext AI · Frappe AI assistant · multi-provider LLM routing
+| Category | What they optimize for | Where Muster fits |
+|---|---|---|
+| Generic agent frameworks such as AutoGen or CrewAI | agent roles, collaboration patterns, task decomposition | Muster focuses on run governance: memory scope, token ledger, eval gates, capability policy, and integrity checks. |
+| Workflow graph tools such as LangGraph | explicit graph/state machines for agent workflows | Muster includes flows, but its wedge is the harness around runs: scoped memory, provider routing, MCP policy, token accounting, and eval-backed learning. |
+| Coding agents such as Codex or Claude Code | high-quality coding interaction with native tools | Muster can route through these CLIs when you want subscription-auth coding workflows, while keeping local ledgers, sessions, provider policy, and capability boundaries. They are optional routes, not the whole harness. |
+| OpenClaw/Hermes-inspired systems | broad agent surfaces, adapters, skills, and operational UX | Muster is inspired by their breadth and UX patterns, but is narrower and more explicit about governance. Not every inspired catalog entry is a fully wired runtime adapter. |
 
-## Maturity — v0.1, feature-complete core
+OpenClaw and Hermes have broader mature ecosystems. Muster's current edge is auditability: scoped memory, token visibility, eval-gated learning, MCP policy, and an integration induction layer that marks setup plans differently from executable packs.
 
-Muster is **v0.1**: the governed core is feature-complete and test-covered, the public API may still shift before 1.0. (For reference, the largest open agent frameworks still version in the v0.x / date-based range — v0.x here means "pre-1.0 stability," not "incomplete.")
+## Implementation Status
 
-Mapped against the mid-2026 production bar for agent harnesses:
+Muster is pre-1.0. Core governance paths are implemented and tested; public APIs and integration surfaces may still change.
 
-| Production-bar capability | Muster |
+| Area | Current state |
 |---|---|
-| MCP client | ✅ per-server isolation, OAuth/PKCE helpers, circuit breakers, capped results |
-| Eval-gated learning | ✅ skills promote only through a converged suite |
-| Per-run cost / token tracking | ✅ token ledger with replay-waste detection |
-| Layered, deterministic permissions | ✅ scoped-memory lanes + hook bus, leak = failing test |
-| Memory: working / episodic / scoped | ✅ scoped lanes + SQLite/FTS indexes + retrieval evals |
-| Strategic (not reactive) compaction | ✅ immutable transcript renderer + never-wedge compactor |
-| One protocol for CLI / desktop / web | ✅ JSON-RPC gateway with `ledger.tick` live cost |
-| OpenTelemetry tracing | ✅ GenAI-semconv spans, JSONL + OTLP/HTTP export, opt-in `MUSTER_TRACE=1` |
-| Desktop apps | planned |
+| CLI/TUI | Implemented. `muster` opens the chat UI after onboarding with slash-command completion, `@agent` completion, history, named sessions, provider/model/runtime pickers, token, plugin, skill, MCP, and memory commands. |
+| Provider/runtime path | Implemented for direct APIs, OpenAI-compatible providers, aggregators, local/self-hosted servers, Pi, Codex CLI, and Claude Code CLI. Presets include OpenAI, Anthropic, Gemini, xAI, Kimi, DeepSeek, Mistral, Qwen, Zhipu, Perplexity, Groq, Cerebras, OpenRouter, Together, Fireworks, LM Studio, vLLM, and SGLang. |
+| Memory | Implemented. Scoped memory uses SQLite/FTS with receipt reporting, graph-linked expansion, latency probes, rebuild/doctor commands, and leakage tests. |
+| Token/cost | Implemented. Per-run ledger, cost estimates where pricing is known, replay-waste detection, session mode/id tracking, and skill attribution. |
+| Plugins/skills | Implemented base system. In-repo capability packs are executable; broader catalog entries are marked by actionability. |
+| MCP | Implemented client, stdio/http registration, include/exclude policy, result caps, circuit breakers, OAuth/PKCE setup/import, and curated install catalog. |
+| Frappe/ERPNext | Implemented as a capability pack with docs/live-context setup, module/doc resources, Frappe tools, generic graph-retrieval eval fixtures, and web-framework checks. |
+| Gateway/channels | Framework and setup packs exist for Telegram, Slack, Discord, WhatsApp, Google Chat, Teams, and web. Production hardening depends on real provider credentials and webhook setup. |
+| Dashboard/web UI | Basic status/export/start surfaces exist. Full desktop app is not done. |
 
-**Claude Fable 5 ready:** the Anthropic preset defaults to `claude-fable-5` (1M context, adaptive thinking via `effort`). The token ledger and scoped tool exposure align with Fable 5's deferred-tool-loading and task-budget direction. First-class `stop_reason: "refusal"` handling is on the roadmap.
+## Roadmap
 
-**Independence:** Muster is operator-governed and MIT — no foundation, no single-vendor entanglement. You run it, you audit it.
+The detailed working board lives in [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md). The public roadmap is:
 
-Next: real-provider channel hardening, richer desktop/dashboard surfaces, more end-to-end MCP OAuth packs, and continued latency parity work against Hermes/Codex/Claude live paths. See [docs/SDLC_KANBAN.md](docs/SDLC_KANBAN.md), [docs/OPENCLAW_PARITY_CHECKLIST.md](docs/OPENCLAW_PARITY_CHECKLIST.md), and [docs/RETRIEVAL_GOAL_LOOP_DESIGN.md](docs/RETRIEVAL_GOAL_LOOP_DESIGN.md).
+### Now
+
+- harden TUI and setup workflows with PTY tests
+- expand real-provider latency tests
+- tighten Telegram/channel setup and live diagnostics
+- improve README, website, examples, and demos
+
+### Next
+
+- deeper MCP auth failure tests and setup workflows
+- Frappe/ERPNext hybrid graph retrieval for installed apps, modules, DocTypes, and docs
+- more browser automation examples with evidence capture
+- stronger provider/model picker workflows and latency hints
+- more capability-pack eval suites
+
+### Later
+
+- richer dashboard/desktop surfaces
+- community capability-pack registry
+- more channel adapters and live round-trip QA
+- hosted demo assets, videos, and example repos
+
+## Contributing
+
+Contributions are welcome. Start small and keep changes testable.
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm hc demo
+```
+
+Good contribution areas:
+
+- documentation and examples
+- demo GIF/video and screenshots
+- Frappe/ERPNext packs, eval fixtures, and retrieval tests
+- provider adapters and latency benchmarks
+- MCP setup workflows and auth failure tests
+- browser automation examples
+- TUI interaction tests
+- capability-pack manifests and safety checks
+
+Look for [`good first issue`](https://github.com/Dkm0315/muster/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) and [`help wanted`](https://github.com/Dkm0315/muster/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22). For larger work, open an issue first so the design can be reviewed before code.
+
+## FAQ
+
+### Is Muster another agent framework?
+
+Not exactly. Muster is a governed harness around agents. It can route to agent CLIs, OpenAI-compatible providers, MCP servers, capability packs, and gateway surfaces while keeping memory, tokens, learning, and tool policy auditable.
+
+### How is it different from LangGraph, CrewAI, or AutoGen?
+
+Those projects focus on building agent workflows and collaboration patterns. Muster focuses on what happens around long-running agents: scoped memory, token visibility, eval-gated learning, capability boundaries, and integrity checks.
+
+### Why governed agents?
+
+Because production agents accumulate state. Without governance, memory leaks, token waste, silent fallback, and untested learning become operational risks.
+
+### Does it work with Frappe/ERPNext?
+
+Yes. The Frappe/ERPNext capability pack exists in `capability-packs/frappe` and supports permission-scoped tools plus docs/live-context setup. Deeper hybrid graph retrieval is on the roadmap.
+
+### Does it support MCP?
+
+Yes. Muster supports stdio and HTTP MCP servers, include/exclude policy, result caps, circuit breakers, OAuth/PKCE setup, and a curated install catalog.
+
+### Can I use different LLM providers?
+
+Yes. Muster is provider-family agnostic. It supports direct cloud APIs, Gemini-compatible routes, OpenAI-compatible HTTP providers, aggregators, open-source/self-hosted inference servers, Pi, Codex CLI, and Claude Code CLI. Use `muster provider presets` to see built-ins and `muster provider add-openai-compatible` for any custom endpoint.
 
 ## License
 
-MIT. Open source, community-driven. Contributions welcome — start with `good first issue`.
+MIT. Open source, community-driven.

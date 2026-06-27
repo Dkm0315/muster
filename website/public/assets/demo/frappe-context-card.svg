@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">Muster Frappe and ERPNext context card</title>
+  <desc id="desc">A card showing Muster context induction for Frappe and ERPNext apps.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="675">
+      <stop offset="0" stop-color="#F8F5FF"/>
+      <stop offset="0.55" stop-color="#ECFEFF"/>
+      <stop offset="1" stop-color="#F8F7F2"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" rx="42" fill="url(#bg)"/>
+  <text x="72" y="104" fill="#0F172A" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="56" font-weight="850">Frappe / ERPNext context, as a pack</text>
+  <text x="76" y="150" fill="#475569" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="25" font-weight="550">The main binary stays light. The plugin builds context from docs, installed apps,</text>
+  <text x="76" y="184" fill="#475569" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="25" font-weight="550">modules, DocTypes, fields, workflows, records, and permissions.</text>
+  <g transform="translate(76 214)">
+    <rect width="486" height="338" rx="28" fill="#0F172A"/>
+    <text x="34" y="58" fill="#67E8F9" font-family="JetBrains Mono, Menlo, monospace" font-size="20">$ cd frappe-bench4</text>
+    <text x="34" y="104" fill="#E2E8F0" font-family="JetBrains Mono, Menlo, monospace" font-size="20">apps.txt</text>
+    <text x="34" y="148" fill="#A78BFA" font-family="JetBrains Mono, Menlo, monospace" font-size="20">frappe · erpnext · hrms · helpdesk</text>
+    <text x="34" y="190" fill="#A78BFA" font-family="JetBrains Mono, Menlo, monospace" font-size="20">drive · lms · payments · telephony</text>
+    <text x="34" y="232" fill="#A78BFA" font-family="JetBrains Mono, Menlo, monospace" font-size="20">custom apps + workflows</text>
+    <text x="34" y="288" fill="#34D399" font-family="JetBrains Mono, Menlo, monospace" font-size="20">→ scoped graph retrieval</text>
+  </g>
+  <g transform="translate(626 214)">
+    <rect width="498" height="338" rx="28" fill="#FFFFFF" fill-opacity="0.66" stroke="#CBD5E1"/>
+    <text x="36" y="62" fill="#0F172A" font-family="Hanken Grotesk, Inter, Arial, sans-serif" font-size="31" font-weight="800">What the pack can index</text>
+    <g font-family="JetBrains Mono, Menlo, monospace" font-size="20" fill="#334155">
+      <text x="38" y="118">• installed apps and modules</text>
+      <text x="38" y="160">• DocTypes, DocFields, Custom Fields</text>
+      <text x="38" y="202">• role permissions and workflows</text>
+      <text x="38" y="244">• reports, scripts, docs, records</text>
+    </g>
+    <rect x="36" y="278" width="282" height="42" rx="21" fill="url(#pill)"/>
+    <text x="58" y="306" fill="#FFFFFF" font-family="JetBrains Mono, Menlo, monospace" font-size="18">permission-scoped</text>
+  </g>
+</svg>
