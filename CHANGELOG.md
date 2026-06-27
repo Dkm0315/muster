@@ -15,6 +15,12 @@ semantic versioning.
   deterministic draft generation, structural verification, optional app-server
   polish, approval-gated publish/share steps, and goal-loop passes for
   design/build/verify/polish/deliver/learn cycles.
+- Added `muster artifacts plan` and `muster artifacts create` so users can see
+  the gated workflow and create local DOCX/XLSX/PPTX/PDF artifacts without
+  knowing the underlying capability-pack tool names.
+- Added chat capability checks and richer slash-picker matching so prompts or
+  commands mentioning skills, plugins, MCPs, channels, or Office artifact terms
+  surface concrete setup/status guidance instead of silently relying on memory.
 - Added guide pages for agent harness basics, MCP token visibility, Frappe AI
   with DocType-aware retrieval, and governed memory for long-running agents.
 - Added launch and backlink playbook with Search Console checks, GitHub/npm

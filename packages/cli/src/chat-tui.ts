@@ -589,10 +589,12 @@ function pickerMatchRank(option: PickerOption, lowerFragment: string): number {
   if (!lowerFragment) return 0;
   const value = option.value.toLowerCase();
   const label = option.label?.toLowerCase() ?? "";
+  const description = option.description?.toLowerCase() ?? "";
   if (value.startsWith(lowerFragment)) return 0;
   if (label.startsWith(lowerFragment)) return 1;
   if (value.includes(lowerFragment)) return 2;
   if (label.includes(lowerFragment)) return 3;
+  if (description.includes(lowerFragment)) return 4;
   return Number.POSITIVE_INFINITY;
 }
 

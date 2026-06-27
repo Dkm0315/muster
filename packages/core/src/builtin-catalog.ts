@@ -74,6 +74,20 @@ export interface BuiltinIntegrationSetup {
   readonly notes?: readonly string[];
 }
 
+export type BuiltinCapabilityMentionKind = "skill" | "plugin" | "mcp";
+
+export interface BuiltinCapabilityMention {
+  readonly kind: BuiltinCapabilityMentionKind;
+  readonly id: string;
+  readonly category: string;
+  readonly risk: BuiltinRisk;
+  readonly source: BuiltinCatalogSource;
+  readonly description: string;
+  readonly matched: string;
+  readonly confidence: "exact" | "alias" | "keyword";
+  readonly actionability?: BuiltinActionability;
+}
+
 const HERMES_SKILLS: readonly BuiltinSkillCatalogEntry[] = [
   skill("plan", "software-development", "hermes", "Plan mode: inspect context, write an implementation plan, do not execute.", "low", ["planning"]),
   skill("systematic-debugging", "software-development", "hermes", "Debug in phases: reproduce, isolate, explain root cause, then patch.", "low", ["debugging", "quality"]),
@@ -317,7 +331,7 @@ const BUILTIN_PLUGINS: readonly BuiltinPluginCatalogEntry[] = [
   plugin("obsidian", "knowledge", "hermes", "Local Obsidian vault listing, search, read, create, and append workflows.", "medium", "knowledge", "capability-packs/obsidian", undefined, setup({ setupUrls: ["https://help.obsidian.md/Files+and+folders/Manage+vaults"], notes: ["Set OBSIDIAN_VAULT_PATH or pass vaultPath to target a specific vault. If unset, Muster follows Hermes's fallback: ~/Documents/Obsidian Vault.", "All note paths are resolved inside the configured vault; traversal and non-markdown writes are refused."] })),
   plugin("developer-tools", "developer", "muster", "Bundled development workflows for shell, git, tests, code review, debugging, and API checks.", "medium", "developer", "capability-packs/developer-tools", undefined, setup({ mcpServers: ["git", "filesystem", "browser", "sqlite"], defaultMcpServers: ["git"], notes: ["The bundled pack mirrors Hermes-style development toolset planning and OpenClaw-style per-run allowlists without executing shell itself.", "Filesystem MCP is high-risk and stays opt-in; Git MCP is configured by default.", "Use browser MCP for screenshot-backed frontend QA and sqlite MCP for local app state inspection when needed."] })),
   plugin("web-frameworks", "developer", "muster", "Read-only framework detection plus local, production, and integration workflows for Frappe/ERPNext, React, Vue, and common web stacks.", "medium", "developer", "capability-packs/web-frameworks", undefined, setup({ setupUrls: ["https://frappeframework.com/docs", "https://react.dev/learn", "https://vuejs.org/guide/introduction.html"], notes: ["Detects local framework markers, suggests commands from actual repository scripts, and builds a stack-aware runbook before falling back to conventions.", "Production checks are read-only and look for build/start scripts, Frappe bench files, HTTPS URLs, lockfiles, CI, env templates, and deployment descriptors.", "Workflow guidance links frontend apps to web/browser MCP setup and Frappe/ERPNext apps to the permission-scoped Frappe bridge."] })),
-  plugin("artifact-studio", "artifacts", "muster", "DOCX, XLSX, PPTX, PDF, report, CSV, dashboard, and gated Office artifact workflows.", "medium", "artifacts", "capability-packs/artifact-studio", undefined, setup({ notes: ["Local markdown, CSV, dashboard-manifest, DOCX, XLSX, PPTX, and simple PDF builders are enabled.", "Office workflows include intake, capability inspection, deterministic draft, structural verification, optional app-server polish, approval-gated publish, and eval-backed learning.", "For polished document, spreadsheet, presentation, or PDF output that needs render/visual QA, route through an active Codex or Claude app-server session only when that host exposes the relevant artifact skill."] })),
+  plugin("artifact-studio", "artifacts", "muster", "DOCX, XLSX, PPTX, PDF, report, CSV, dashboard, and gated Office artifact workflows.", "medium", "artifacts", "capability-packs/artifact-studio", ["documents", "document", "docx", "office", "excel", "xlsx", "spreadsheet", "powerpoint", "ppt", "pptx", "presentation", "pdf", "artifact", "artifacts"], setup({ notes: ["Local markdown, CSV, dashboard-manifest, DOCX, XLSX, PPTX, and simple PDF builders are enabled.", "Office workflows include intake, capability inspection, deterministic draft, structural verification, optional app-server polish, approval-gated publish, and eval-backed learning.", "For polished document, spreadsheet, presentation, or PDF output that needs render/visual QA, route through an active Codex or Claude app-server session only when that host exposes the relevant artifact skill."] })),
   plugin("daily-ops", "productivity", "muster", "Daily brief, task planning, notes, email/calendar style handoff, and lightweight personal ops.", "medium", "productivity", "capability-packs/daily-ops", undefined, setup({ mcpServers: ["google-drive", "notion"], notes: ["Local daily brief and task prioritization work without credentials; calendar/email/workspace connectors need auth-backed MCPs or apps."] })),
   plugin("data-analytics", "data", "muster", "Data inspection, charting, SQL review, dashboards, and metric diagnostics.", "high", "data", "capability-packs/data-analytics", undefined, setup({ mcpServers: ["postgres", "sqlite"], defaultMcpServers: ["sqlite"], requiresEnv: ["DATABASE_URL"], notes: ["Local row profiling works without credentials; Postgres MCP needs DATABASE_URL."] })),
   plugin("security-review", "security", "muster", "Secret scanning, dependency review, permission review, and release-risk checks.", "medium", "security", "capability-packs/security-review", undefined, setup({ notes: ["Rule-based local text scanning is enabled. Dependency/SBOM scanners can be attached later as MCPs or shell-governed tools."] })),
@@ -352,6 +366,72 @@ export function listBuiltinPlugins(): readonly BuiltinPluginCatalogEntry[] {
 
 export function listBuiltinMcpServers(): readonly BuiltinMcpCatalogEntry[] {
   return BUILTIN_MCP_SERVERS;
+}
+
+export function resolveBuiltinCapabilityMentions(
+  text: string,
+  options: { readonly limit?: number } = {},
+): readonly BuiltinCapabilityMention[] {
+  const normalized = normalizeMentionText(text);
+  if (!normalized) return [];
+  const hits: Array<BuiltinCapabilityMention & { readonly score: number }> = [];
+  const add = (mention: BuiltinCapabilityMention, score: number): void => {
+    const existing = hits.find((hit) => hit.kind === mention.kind && hit.id === mention.id);
+    if (existing && existing.score >= score) return;
+    if (existing) hits.splice(hits.indexOf(existing), 1);
+    hits.push({ ...mention, score });
+  };
+
+  for (const entry of listBuiltinPlugins()) {
+    const match = matchEntry(normalized, [entry.id, ...(entry.aliases ?? [])], [entry.category, ...pluginKeywords(entry)]);
+    if (!match) continue;
+    add({
+      kind: "plugin",
+      id: entry.id,
+      category: entry.category,
+      risk: entry.risk,
+      source: entry.source,
+      description: entry.description,
+      matched: match.value,
+      confidence: match.confidence,
+      actionability: entry.actionability,
+    }, match.score + (normalized.includes("plugin") || normalized.includes("integration") ? 2 : 0));
+  }
+
+  for (const entry of listBuiltinSkills()) {
+    const match = matchEntry(normalized, [entry.id], [entry.category, entry.description, ...entry.tags]);
+    if (!match) continue;
+    add({
+      kind: "skill",
+      id: entry.id,
+      category: entry.category,
+      risk: entry.risk,
+      source: entry.source,
+      description: entry.description,
+      matched: match.value,
+      confidence: match.confidence,
+    }, match.score + (normalized.includes("skill") ? 2 : 0));
+  }
+
+  for (const entry of listBuiltinMcpServers()) {
+    const match = matchEntry(normalized, [entry.id], [entry.category, entry.description, ...(entry.defaultTools ?? [])]);
+    if (!match) continue;
+    add({
+      kind: "mcp",
+      id: entry.id,
+      category: entry.category,
+      risk: entry.risk,
+      source: entry.source,
+      description: entry.description,
+      matched: match.value,
+      confidence: match.confidence,
+    }, match.score + (normalized.includes("mcp") || normalized.includes("server") ? 2 : 0));
+  }
+
+  return hits
+    .sort((left, right) => right.score - left.score || kindOrder(left.kind) - kindOrder(right.kind) || left.id.localeCompare(right.id))
+    .slice(0, Math.max(1, options.limit ?? 6))
+    .map(({ score: _score, ...mention }) => mention);
 }
 
 export async function enableBuiltinSkill(id: string, cwd = process.cwd()): Promise<BuiltinSkillCatalogEntry> {
@@ -454,7 +534,7 @@ export async function disableBuiltinPlugin(id: string, cwd = process.cwd()): Pro
 }
 
 function findBuiltinSkill(id: string): BuiltinSkillCatalogEntry {
-  const entry = HERMES_SKILLS.find((candidate) => candidate.id === id);
+  const entry = listBuiltinSkills().find((candidate) => candidate.id === id);
   if (!entry) throw new Error(`Unknown built-in skill "${id}". Run muster skills catalog.`);
   return entry;
 }
@@ -529,6 +609,125 @@ function mcp(
 function setup(value: BuiltinIntegrationSetup): BuiltinIntegrationSetup {
   return value;
 }
+
+function normalizeMentionText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_/]+/g, "-")
+    .replace(/[^a-z0-9@.+#-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchEntry(
+  normalizedText: string,
+  directTerms: readonly string[],
+  keywordTerms: readonly string[],
+): { readonly value: string; readonly confidence: BuiltinCapabilityMention["confidence"]; readonly score: number } | undefined {
+  for (const term of directTerms.map(normalizeMentionText).filter(Boolean)) {
+    if (containsMentionTerm(normalizedText, term)) return { value: term, confidence: "exact", score: 10 + term.length / 100 };
+    const loose = term.replace(/-/g, " ");
+    if (loose !== term && containsMentionTerm(normalizedText, loose)) return { value: loose, confidence: "alias", score: 8 + loose.length / 100 };
+  }
+  for (const term of keywordTerms.flatMap(extractMentionKeywords)) {
+    if (containsMentionTerm(normalizedText, term)) return { value: term, confidence: "keyword", score: 4 + term.length / 100 };
+  }
+  return undefined;
+}
+
+function containsMentionTerm(text: string, term: string): boolean {
+  if (term.length < 3) return false;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\ /g, "[ -]");
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, "i").test(text);
+}
+
+function extractMentionKeywords(value: string): string[] {
+  const normalized = normalizeMentionText(value);
+  const words = normalized.split(" ").filter((word) => word.length >= 4 && !COMMON_MENTION_WORDS.has(word));
+  const phrases: string[] = [];
+  for (let index = 0; index < words.length - 1; index += 1) {
+    phrases.push(`${words[index]} ${words[index + 1]}`);
+  }
+  return [...new Set([...words.filter((word) => IMPORTANT_MENTION_WORDS.has(word)), ...phrases.filter((phrase) => phrase.length <= 32)])];
+}
+
+function pluginKeywords(entry: BuiltinPluginCatalogEntry): string[] {
+  return [
+    entry.description,
+    ...(entry.setup?.channels ?? []),
+    ...(entry.setup?.mcpServers ?? []),
+    ...(entry.setup?.defaultMcpServers ?? []),
+  ];
+}
+
+function kindOrder(kind: BuiltinCapabilityMentionKind): number {
+  if (kind === "plugin") return 0;
+  if (kind === "mcp") return 1;
+  return 2;
+}
+
+const IMPORTANT_MENTION_WORDS = new Set([
+  "airtable",
+  "browser",
+  "calendar",
+  "discord",
+  "docx",
+  "document",
+  "documents",
+  "drive",
+  "excel",
+  "frappe",
+  "github",
+  "gmail",
+  "google",
+  "notion",
+  "pdf",
+  "ppt",
+  "pptx",
+  "presentation",
+  "slack",
+  "spreadsheet",
+  "teams",
+  "telegram",
+  "whatsapp",
+  "xlsx",
+]);
+
+const COMMON_MENTION_WORDS = new Set([
+  "with",
+  "from",
+  "this",
+  "that",
+  "when",
+  "then",
+  "through",
+  "using",
+  "setup",
+  "set",
+  "agent",
+  "agents",
+  "workflow",
+  "workflows",
+  "support",
+  "supports",
+  "local",
+  "safe",
+  "risk",
+  "high",
+  "medium",
+  "source",
+  "muster",
+  "hermes",
+  "openclaw",
+  "plugin",
+  "plugins",
+  "skill",
+  "skills",
+  "server",
+  "servers",
+  "tools",
+  "tool",
+]);
 
 function repoRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");

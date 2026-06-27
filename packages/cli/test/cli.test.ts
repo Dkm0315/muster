@@ -32,6 +32,8 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster qa scorecard/);
   assert.match(stdout, /muster qa record/);
   assert.match(stdout, /muster capability inspect/);
+  assert.match(stdout, /muster artifacts plan/);
+  assert.match(stdout, /muster artifacts create/);
   assert.match(stdout, /muster plugins list/);
   assert.match(stdout, /muster plugins .*context frappe/);
   assert.match(stdout, /muster mcp list/);
@@ -153,6 +155,12 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
 
   const pluginCompletion = await runCli(["chat", "--complete", "/plugins not"], cwd);
   assert.match(pluginCompletion.stdout, /notion/);
+
+  const pluginAliasCompletion = await runCli(["chat", "--complete", "/plugins pdf"], cwd);
+  assert.match(pluginAliasCompletion.stdout, /artifact-studio/);
+
+  const optionalSkillCompletion = await runCli(["chat", "--complete", "/skills advers"], cwd);
+  assert.match(optionalSkillCompletion.stdout, /adversarial-ux-test/);
 
   const mcpCompletion = await runCli(["chat", "--complete", "/mcp par"], cwd);
   assert.match(mcpCompletion.stdout, /parallel-search/);
@@ -1604,6 +1612,26 @@ test("CLI capability load honors configured plugin deny policy", async () => {
 
   assert.equal(result.code, 1);
   assert.match(result.stderr, /denied by plugins\.deny/);
+});
+
+test("CLI artifacts command plans gated workflows and creates local files", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-artifacts-"));
+
+  const plan = await runCli(["artifacts", "plan", "--format", "pptx", "--destination", "google-drive", "--polished", "--host-skills", "documents,presentations", "--mcp", "google-drive"], cwd);
+  assert.match(plan.stdout, /format=pptx/);
+  assert.match(plan.stdout, /mode=local-draft-plus-app-server-polish/);
+  assert.match(plan.stdout, /office_tool_integrations|local_builders/);
+  assert.match(plan.stdout, /presentations formats=pptx,google-slides available=true/);
+  assert.match(plan.stdout, /publish tool=- risk=approval/);
+  assert.match(plan.stdout, /goal_passes:/);
+
+  const created = await runCli(["artifacts", "create", "--format", "docx", "--title", "Muster Board Brief", "--summary", "Scoped artifact output.", "--out", "out/brief.docx"], cwd);
+  assert.match(created.stdout, /artifact=.*out\/brief\.docx/);
+  assert.match(created.stdout, /format=docx/);
+  assert.match(created.stdout, /verification=structural package checks/);
+  const bytes = await readFile(join(cwd, "out", "brief.docx"));
+  assert.ok(bytes.subarray(0, 2).equals(Buffer.from("PK")));
+  assert.match(bytes.toString("utf8"), /Muster Board Brief/);
 });
 
 test("CLI skills index renders pinned skill digests", async () => {

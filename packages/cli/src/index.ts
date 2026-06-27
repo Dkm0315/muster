@@ -67,8 +67,10 @@ import {
   probeMemorySearchLatency,
   rebuildMemoryIndex,
   listBuiltinMcpServers,
+  resolveBuiltinCapabilityMentions,
   type BuiltinMcpCatalogEntry,
   type BuiltinMcpInstallSpec,
+  type BuiltinCapabilityMention,
   type BuiltinPluginCatalogEntry,
   mcpOAuthStatus,
   removeMcpOAuthToken,
@@ -149,7 +151,14 @@ import {
   verifyIntegrity,
   renderIntegrityReport,
   connectMcpServers,
-  clearCodexAppServerSessions
+  clearCodexAppServerSessions,
+  artifact_goal_passes,
+  docx_document,
+  office_artifact_workflow,
+  office_tool_integrations,
+  pdf_document,
+  pptx_presentation,
+  xlsx_workbook
 } from "@musterhq/core";
 import {
   approvePairing,
@@ -235,6 +244,9 @@ async function main(): Promise<void> {
       return;
     case "capability":
       await capability(args);
+      return;
+    case "artifacts":
+      await artifactsCommand(args);
       return;
     case "plugins":
       await pluginsCommand(args);
@@ -366,6 +378,8 @@ Usage:
   muster eval retrieval <path-or-dir> [--min-recall 1] [--min-mrr 1] [--max-leakage-rate 0] [--max-stale-hit-rate 0] [--max-p95-ms 50] [--artifact-dir DIR]
   muster capability inspect <path>
   muster capability load <path> [--allow-high-risk]
+  muster artifacts plan --format docx|xlsx|pptx|pdf [--destination local|google-drive|microsoft-365] [--polished]
+  muster artifacts create --format docx|xlsx|pptx|pdf --title "..." [--summary "..."] [--out path]
   muster plugins list | catalog | setup <id> | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
@@ -590,7 +604,7 @@ const CHAT_SKILL_OPTIONS = listBuiltinSkills().map((skill) => ({
 const CHAT_PLUGIN_OPTIONS = listBuiltinPlugins().map((plugin) => ({
   value: plugin.id,
   label: plugin.id,
-  description: `${plugin.category} · ${plugin.actionability} · ${plugin.source} · risk ${plugin.risk}`,
+  description: `${plugin.category} · ${plugin.actionability} · ${plugin.source} · risk ${plugin.risk}${plugin.aliases?.length ? ` · ${plugin.aliases.join(", ")}` : ""} · ${plugin.description}`,
 }));
 const CHAT_MCP_OPTIONS = listBuiltinMcpServers().map((server) => ({
   value: server.id,
@@ -1362,6 +1376,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   const prompt = routed ? routed.prompt : text;
   const agentId = routed?.agentId;
   const config = await loadConfig();
+  await printMentionedCapabilityChecks(prompt, config);
   const started = Date.now();
   const stopWorking = state.statusSink ? startTuiWorkingStatus(state.statusSink, agentId, started) : startWorkingStatus(agentId, started);
   let outcome: RunOutcome;
@@ -1438,6 +1453,48 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
   const match = text.match(/^@([a-zA-Z0-9_.:-]+)\s+([\s\S]+)$/);
   if (!match) return undefined;
   return { agentId: match[1], prompt: match[2].trim() };
+}
+
+async function printMentionedCapabilityChecks(prompt: string, config: Awaited<ReturnType<typeof loadConfig>>): Promise<void> {
+  const mentions = resolveBuiltinCapabilityMentions(prompt, { limit: 5 });
+  if (!mentions.length) return;
+  const lines: string[] = [];
+  for (const mention of mentions) {
+    lines.push(await formatMentionedCapabilityCheck(mention, config));
+  }
+  printChatPanel("Capability Check", [
+    color("Muster noticed capability names in your prompt and checked setup before routing.", "dim"),
+    ...lines,
+    color("Use /plugins, /skills, or /mcp to select, enable, install, test, or inspect one explicitly.", "dim"),
+  ]);
+}
+
+async function formatMentionedCapabilityCheck(
+  mention: BuiltinCapabilityMention,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): Promise<string> {
+  const label = `${mention.kind}:${mention.id}`.padEnd(30);
+  if (mention.kind === "skill") {
+    const installed = await listSkills().catch(() => []);
+    const active = installed.some((skill) => skill.name === mention.id && skill.status === "active");
+    return `${color(label, "accent")} ${active ? color("active", "green") : color("available", "yellow")} risk=${mention.risk} matched=${mention.matched} next="/skills ${mention.id}"`;
+  }
+  if (mention.kind === "plugin") {
+    const plugin = listBuiltinPlugins().find((entry) => entry.id === mention.id || entry.aliases?.includes(mention.id));
+    const enabled = config.plugins?.entries?.[mention.id]?.enabled !== false && (
+      config.plugins?.entries?.[mention.id] !== undefined || config.plugins?.allow?.includes(mention.id)
+    );
+    const missing = missingSetupEnv(plugin?.setup);
+    const next = enabled
+      ? `"/plugins check ${mention.id}"`
+      : `"/plugins ${mention.id}${mention.risk === "high" ? " --allow-high-risk" : ""}"`;
+    return `${color(label, "accent")} ${enabled ? color("enabled", "green") : color("available", "yellow")} action=${mention.actionability ?? "-"} risk=${mention.risk}${missing.length ? ` missing=${missing.join(",")}` : ""} next=${next}`;
+  }
+  const configured = Boolean(config.tools?.mcp?.servers?.[safeConfigKey(mention.id)]);
+  const entry = listBuiltinMcpServers().find((server) => server.id === mention.id);
+  const missing = missingMcpEnv(entry);
+  const status = configured ? color("configured", "green") : missing.length ? color("needs_env", "yellow") : color("installable", "yellow");
+  return `${color(label, "accent")} ${status} risk=${mention.risk}${missing.length ? ` missing=${missing.join(",")}` : ""} next="/mcp ${configured ? `test ${mention.id}` : mention.id}"`;
 }
 
 function printAssistantResponse(outcome: RunOutcome): void {
@@ -2687,10 +2744,12 @@ function pickerMatchRank(option: PickerOption, lowerFragment: string): number {
   if (!lowerFragment) return 0;
   const value = option.value.toLowerCase();
   const label = option.label?.toLowerCase() ?? "";
+  const description = option.description?.toLowerCase() ?? "";
   if (value.startsWith(lowerFragment)) return 0;
   if (label.startsWith(lowerFragment)) return 1;
   if (value.includes(lowerFragment)) return 2;
   if (label.includes(lowerFragment)) return 3;
+  if (description.includes(lowerFragment)) return 4;
   return Number.POSITIVE_INFINITY;
 }
 
@@ -3052,6 +3111,97 @@ async function capability(args: string[]): Promise<void> {
     for (const warning of report.warnings) console.log(`- ${warning}`);
   }
   if (report.status === "blocked") process.exitCode = 1;
+}
+
+type CliArtifactResult = {
+  filename: string;
+  mimeType: string;
+  format: "docx" | "xlsx" | "pptx" | "pdf";
+  bytes: number;
+  base64: string;
+};
+
+function artifactFormats(): string {
+  return "docx|xlsx|pptx|pdf";
+}
+
+function artifactOutputPath(args: string[], artifact: CliArtifactResult): string {
+  const requested = readFlag(args, "--out");
+  if (requested) {
+    const target = resolve(process.cwd(), requested);
+    if (requested.endsWith("/") || requested.endsWith("\\")) return join(target, artifact.filename);
+    return target;
+  }
+  return resolve(process.cwd(), artifact.filename);
+}
+
+function artifactArgs(args: string[]): Record<string, unknown> {
+  const title = readFlag(args, "--title") ?? "Muster Artifact";
+  const summary = readFlag(args, "--summary") ?? "Generated by Muster Artifact Studio.";
+  const filename = readFlag(args, "--filename");
+  return {
+    title,
+    summary,
+    filename,
+    sections: [{ heading: "Summary", content: summary }],
+    slides: [{ title, bullets: summary.split(/\n+/).filter(Boolean) }],
+    rows: [{ title, summary }],
+    sheetName: readFlag(args, "--sheet") ?? "Artifact",
+  };
+}
+
+async function artifactsCommand(args: string[]): Promise<void> {
+  const action = args[0];
+  if (action === "plan") {
+    const format = readFlag(args, "--format") ?? "docx";
+    const destination = readFlag(args, "--destination") ?? "local";
+    if (!artifactFormats().split("|").includes(format)) throw new Error(`--format must be one of ${artifactFormats()}.`);
+    const hostSkills = readCsvFlag(args, "--host-skills") ?? [];
+    const mcpServers = readCsvFlag(args, "--mcp") ?? [];
+    const integrations = await office_tool_integrations({ hostCapabilities: { skills: hostSkills, mcpServers } });
+    const workflow = await office_artifact_workflow({ format, destination, polished: args.includes("--polished") });
+    const passes = await artifact_goal_passes({ goal: `create ${format} artifact`, strictness: "release" });
+    console.log(`format=${format}`);
+    console.log(`destination=${destination}`);
+    console.log(`mode=${workflow.mode}`);
+    console.log("local_builders:");
+    for (const item of integrations.local as Array<{ id: string; formats: string[]; available: boolean }>) {
+      console.log(`- ${item.id} formats=${item.formats.join(",")} available=${item.available}`);
+    }
+    console.log("app_server_skills:");
+    for (const item of integrations.appServerSkills as Array<{ id: string; formats: string[]; available: boolean }>) {
+      console.log(`- ${item.id} formats=${item.formats.join(",")} available=${item.available}`);
+    }
+    console.log("workflow_steps:");
+    for (const step of workflow.steps as Array<{ id: string; tool?: string; risk: string; gate?: string }>) {
+      console.log(`- ${step.id} tool=${step.tool ?? "-"} risk=${step.risk}${step.gate ? ` gate=${step.gate}` : ""}`);
+    }
+    console.log("goal_passes:");
+    for (const pass of passes.passes as Array<{ id: string; owner: string }>) console.log(`- ${pass.id} owner=${pass.owner}`);
+    return;
+  }
+  if (action === "create") {
+    const format = readFlag(args, "--format");
+    if (!format || !artifactFormats().split("|").includes(format)) throw new Error(`Usage: muster artifacts create --format ${artifactFormats()} --title "..." [--summary "..."] [--out path]`);
+    const input = artifactArgs(args);
+    const artifact = format === "docx"
+      ? await docx_document(input)
+      : format === "xlsx"
+        ? await xlsx_workbook(input)
+        : format === "pptx"
+          ? await pptx_presentation(input)
+          : await pdf_document(input);
+    const outPath = artifactOutputPath(args, artifact);
+    await mkdir(dirname(outPath), { recursive: true });
+    await writeFile(outPath, Buffer.from(artifact.base64, "base64"));
+    console.log(`artifact=${outPath}`);
+    console.log(`format=${artifact.format}`);
+    console.log(`mime=${artifact.mimeType}`);
+    console.log(`bytes=${artifact.bytes}`);
+    console.log("verification=structural package checks are covered by artifact-studio tests; use app-server skills for render/visual QA.");
+    return;
+  }
+  throw new Error(`Usage: muster artifacts plan --format ${artifactFormats()} [--destination local|google-drive|microsoft-365] [--polished] | muster artifacts create --format ${artifactFormats()} --title "..." [--summary "..."] [--out path]`);
 }
 
 async function pluginsCommand(args: string[]): Promise<void> {

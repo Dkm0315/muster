@@ -1,4 +1,5 @@
 export * from "./agent-rules.js";
+export * from "./artifacts.js";
 export * from "./benchmark.js";
 export * from "./builtin-catalog.js";
 export * from "./capability.js";
