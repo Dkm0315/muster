@@ -1936,6 +1936,18 @@ test("CLI context graph exports graph JSON from episode and scoped memory ledger
 
 test("CLI memory add and search preserve scoped isolation", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-memory-"));
+  const missingScope = await runCliAllowFailure(["memory", "add", "--summary", "Unscoped memory should be refused.", "--provenance", "cli-test"], cwd);
+  assert.equal(missingScope.code, 1);
+  assert.match(missingScope.stdout, /memory_add status=blocked reason=scope_required/);
+  assert.match(missingScope.stdout, /prevent cross-user, cross-tenant, or cross-session recall leaks/);
+  assert.match(missingScope.stdout, /--scope user:me/);
+
+  const missingProvenance = await runCliAllowFailure(["memory", "add", "--summary", "Unexplained memory should be refused.", "--scope", "user:dhairya"], cwd);
+  assert.equal(missingProvenance.code, 1);
+  assert.match(missingProvenance.stdout, /memory_add status=blocked reason=provenance_required/);
+  assert.match(missingProvenance.stdout, /future recall can explain where the fact came from/);
+  assert.match(missingProvenance.stdout, /--provenance manual/);
+
   const added = await runCli(
     [
       "memory",

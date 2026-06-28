@@ -4904,7 +4904,23 @@ async function memory(args: string[]): Promise<void> {
     const summary = readFlag(args, "--summary");
     if (!summary) throw new Error('Usage: muster memory add --summary "..." --scope user:me --provenance manual');
     const scopes = readFlags(args, "--scope").map(parseMemoryScope);
+    if (!scopes.length) {
+      console.log("memory_add status=blocked reason=scope_required");
+      console.log("why=memory must be scoped to prevent cross-user, cross-tenant, or cross-session recall leaks");
+      console.log("examples=--scope user:me | --scope tenant:acme --scope user:dhairya | --scope session:<name>");
+      console.log("next=muster memory add --summary \"...\" --scope user:me --provenance manual");
+      process.exitCode = 1;
+      return;
+    }
     const provenance = readFlags(args, "--provenance");
+    if (!provenance.length) {
+      console.log("memory_add status=blocked reason=provenance_required");
+      console.log("why=memory needs provenance so future recall can explain where the fact came from");
+      console.log("examples=--provenance manual | --provenance conversation:<session> | --provenance import:<source>");
+      console.log("next=muster memory add --summary \"...\" --scope user:me --provenance manual");
+      process.exitCode = 1;
+      return;
+    }
     const confidenceRaw = readFlag(args, "--confidence");
     const object = await addMemory({
       kind: readFlag(args, "--kind"),
