@@ -7390,6 +7390,10 @@ function configured(value: boolean): string {
 async function printIntegrationReadiness(): Promise<void> {
   const config = await loadConfig().catch(() => undefined);
   const gateway = await loadGatewayConfig().catch(() => undefined);
+  const allPlugins = listBuiltinPlugins();
+  const allMcps = listBuiltinMcpServers();
+  const builtinSkillCount = listBuiltinSkills().length;
+  const installedSkills = await listSkills().catch(() => []);
   const enabledPlugins = new Set(
     Object.entries(config?.plugins?.entries ?? {})
       .filter(([, entry]) => entry.enabled !== false)
@@ -7411,6 +7415,22 @@ async function printIntegrationReadiness(): Promise<void> {
     if (!mcp) return [];
     return [{ id: mcp.id, configured: configuredMcp.has(mcp.id), missing: missingMcpEnv(mcp), auth: mcp.auth ?? "none" }];
   });
+  const allPluginRows = allPlugins.map((plugin) => ({
+    id: plugin.id,
+    enabled: enabledPlugins.has(plugin.id),
+    missing: missingSetupEnv(plugin.setup),
+    actionability: plugin.actionability,
+    risk: plugin.risk,
+    pack: Boolean(plugin.packPath),
+  }));
+  const allMcpRows = allMcps.map((mcp) => ({
+    id: mcp.id,
+    configured: configuredMcp.has(mcp.id),
+    missing: missingMcpEnv(mcp),
+    auth: mcp.auth ?? "none",
+    installable: Boolean(mcp.install),
+    risk: mcp.risk,
+  }));
   const readyChannels = channelRows.filter((row) => row.ready).length;
   const enabledUsefulPlugins = pluginRows.filter((row) => row.enabled).length;
   const configuredUsefulMcps = mcpRows.filter((row) => row.configured).length;
@@ -7425,6 +7445,19 @@ async function printIntegrationReadiness(): Promise<void> {
   const stage = score >= 80 ? "ready" : score >= 50 ? "usable" : "setup_needed";
   console.log(`integration_status=${stage} score=${score}`);
   console.log(`profile=${config ? "configured" : "missing"} gateway=${gateway ? "configured" : "missing"} memory=scoped_sqlite_fts`);
+  console.log(`catalog_coverage channels=${channelRows.length} plugins=${allPlugins.length} mcps=${allMcps.length} skills=${builtinSkillCount}`);
+  console.log(`readiness_matrix channels_ready=${readyChannels}/${channelRows.length} plugins_enabled=${allPluginRows.filter((row) => row.enabled).length}/${allPluginRows.length} plugin_env_satisfied=${allPluginRows.filter((row) => !row.missing.length).length}/${allPluginRows.length} plugin_packs=${allPluginRows.filter((row) => row.pack).length} setup_plan_only=${allPluginRows.filter((row) => row.actionability === "setup_plan").length}`);
+  console.log(`mcp_matrix configured=${allMcpRows.filter((row) => row.configured).length}/${allMcpRows.length} installable=${allMcpRows.filter((row) => row.installable && !row.missing.length).length} needs_env=${allMcpRows.filter((row) => row.missing.length).length} needs_oauth=${allMcpRows.filter((row) => row.auth === "oauth" && !row.configured).length} skills_enabled=${installedSkills.filter((skill) => skill.status === "active").length}/${builtinSkillCount}`);
+  const pluginBlockers = allPluginRows.filter((row) => row.missing.length).slice(0, 5);
+  const mcpBlockers = allMcpRows.filter((row) => row.missing.length || (row.auth === "oauth" && !row.configured)).slice(0, 5);
+  if (pluginBlockers.length || mcpBlockers.length) {
+    console.log("top_blockers");
+    for (const row of pluginBlockers) console.log(`  plugin=${row.id} missing=${row.missing.join("|")} risk=${row.risk} next="muster plugins setup ${row.id}"`);
+    for (const row of mcpBlockers) {
+      const reason = row.missing.length ? `missing=${row.missing.join("|")}` : "oauth=not_configured";
+      console.log(`  mcp=${row.id} ${reason} risk=${row.risk} next="muster mcp ${row.installable && !row.missing.length ? "install" : "check"} ${row.id}"`);
+    }
+  }
   console.log("channels_optional");
   for (const row of channelRows) console.log(`  ${row.id}\t${row.ready ? "ready" : "needs_setup"}\t${row.ready ? "muster gateway start" : row.next}`);
   console.log("daily_life_packs");

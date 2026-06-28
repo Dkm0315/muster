@@ -1459,6 +1459,12 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const integrationStatus = await runCli(["integrations", "status"], cwd);
   assert.match(integrationStatus.stdout, /integration_status=/);
   assert.match(integrationStatus.stdout, /profile=configured gateway=configured memory=scoped_sqlite_fts/);
+  assert.match(integrationStatus.stdout, /catalog_coverage channels=\d+ plugins=\d+ mcps=\d+ skills=\d+/);
+  assert.match(integrationStatus.stdout, /readiness_matrix channels_ready=\d+\/\d+ plugins_enabled=\d+\/\d+ plugin_env_satisfied=\d+\/\d+ plugin_packs=\d+ setup_plan_only=\d+/);
+  assert.match(integrationStatus.stdout, /mcp_matrix configured=\d+\/\d+ installable=\d+ needs_env=\d+ needs_oauth=\d+ skills_enabled=\d+\/\d+/);
+  assert.match(integrationStatus.stdout, /top_blockers/);
+  assert.match(integrationStatus.stdout, /plugin=github missing=GITHUB_PERSONAL_ACCESS_TOKEN/);
+  assert.match(integrationStatus.stdout, /mcp=github missing=GITHUB_PERSONAL_ACCESS_TOKEN\|GITHUB_TOKEN/);
   assert.match(integrationStatus.stdout, /channels_optional/);
   assert.match(integrationStatus.stdout, /telegram\tready\tmuster gateway start/);
   assert.match(integrationStatus.stdout, /gchat\tneeds_setup\tmuster channels setup gchat/);
