@@ -152,6 +152,7 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(commands.stdout, /\/scope <kind:id/);
   assert.match(commands.stdout, /\/tokens \[limit\]/);
   assert.match(commands.stdout, /\/capabilities \[query\]/);
+  assert.match(commands.stdout, /\/integrations \[id\]/);
 
   const commandCompletion = await runCli(["chat", "--complete", "/sta"], cwd);
   assert.match(commandCompletion.stdout, /\/status/);
@@ -186,6 +187,15 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const capabilityAliasCompletion = await runCli(["chat", "--complete", "/caps pdf"], cwd);
   assert.match(capabilityAliasCompletion.stdout, /artifact-studio/);
 
+  const integrationCommandCompletion = await runCli(["chat", "--complete", "/inte"], cwd);
+  assert.match(integrationCommandCompletion.stdout, /\/integrations/);
+
+  const integrationCompletion = await runCli(["chat", "--complete", "/integrations tel"], cwd);
+  assert.match(integrationCompletion.stdout, /telegram/);
+
+  const integrationWorkflowCompletion = await runCli(["chat", "--complete", "/integrations workflow par"], cwd);
+  assert.match(integrationWorkflowCompletion.stdout, /parallel-search/);
+
   const optionalSkillCompletion = await runCli(["chat", "--complete", "/skills advers"], cwd);
   assert.match(optionalSkillCompletion.stdout, /adversarial-ux-test/);
 
@@ -203,6 +213,16 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatHttpMcp.stdout, /configured/);
   assert.match(chatHttpMcp.stdout, /product transport=http auth=oauth/);
   assert.match(chatHttpMcp.stdout, /No provider cache token was copied/);
+
+  const chatIntegrations = await runCli(["chat", "/integrations"], cwd);
+  assert.match(chatIntegrations.stdout, /Integrations/);
+  assert.match(chatIntegrations.stdout, /Workflow/);
+  assert.match(chatIntegrations.stdout, /\/integrations <id>/);
+
+  const chatTelegramIntegration = await runCli(["chat", "/integrations telegram"], cwd);
+  assert.match(chatTelegramIntegration.stdout, /integration_workflow=telegram kind=channel/);
+  assert.match(chatTelegramIntegration.stdout, /steps=pick -> explain impact -> authenticate\/setup -> verify -> enable gateway -> run local sample/);
+  assert.match(chatTelegramIntegration.stdout, /guardrails=no_secret_echo, scoped_memory, token_ledger/);
   assert.doesNotMatch(chatHttpMcp.stdout, /client_secret/i);
 
   const mcpStatus = await runCli(["mcp", "status", "product"], cwd);
