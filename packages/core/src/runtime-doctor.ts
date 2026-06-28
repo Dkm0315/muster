@@ -99,6 +99,8 @@ const REQUIRED_QA_CASES: Readonly<Record<RequiredQaSuiteId, readonly string[]>> 
     "setup_guidance_google-workspace",
     "setup_guidance_telegram",
     "setup_guidance_slack",
+    "integration_action_completion",
+    "integration_action_next_steps",
     "high_risk_refusal",
     "enable_disable_policy",
     "mcp_install_guidance",
