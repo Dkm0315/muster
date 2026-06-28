@@ -198,7 +198,7 @@ function viewSurfaces(main: HTMLElement, theater: HTMLElement): void {
   });
   main.append(grid);
 
-  main.append(toolBlock("start the gateway", "muster gateway init\nmuster gateway start --port 7460\nmuster pairing list | approve <code>", { open: true }));
+  main.append(toolBlock("start the gateway", "muster gateway status\nmuster gateway init\nmuster gateway status\nmuster gateway start --port 7460\nmuster pairing list | approve <code>", { open: true }));
 
   theater.replaceChildren(
     el("p", "theater-head", "envelope"),
