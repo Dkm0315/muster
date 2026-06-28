@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { listBuiltinPlugins } from "./builtin-catalog.js";
 import {
   runRetrievalEvalPathWithArtifacts,
   seedRepresentativeRetrievalEvalPack,
@@ -13,8 +14,14 @@ export interface QaMemoryRetrievalSpeedResult {
   readonly status: RuntimeDoctorStatus;
   readonly artifactDir: string;
   readonly manifestPath: string;
+  readonly casesPath: string;
   readonly retrievalManifestPath: string;
   readonly probePath: string;
+  readonly cases: readonly {
+    readonly id: string;
+    readonly status: RuntimeDoctorStatus;
+    readonly summary: string;
+  }[];
   readonly summary: string;
   readonly retrieval: RetrievalEvalArtifactResult;
   readonly probe: MemoryLatencyProbeResult;
@@ -54,12 +61,14 @@ export async function runMemoryRetrievalSpeedQa(input: {
     match: "any",
   }, runCwd);
   const memoryStatus = await inspectMemoryStore(runCwd);
+  const externalMemoryPolicy = caseExternalMemoryPolicy();
   const status: RuntimeDoctorStatus =
     retrieval.suite.status === "passed"
     && probe.recalledCount > 0
     && probe.p95Ms <= maxP95Ms
     && memoryStatus.index.readable
     && memoryStatus.index.initialized
+    && externalMemoryPolicy.status === "passed"
       ? "passed"
       : "failed";
   const summary = status === "passed"
@@ -84,6 +93,7 @@ export async function runMemoryRetrievalSpeedQa(input: {
       status: memoryStatus.index.readable && memoryStatus.index.initialized ? "passed" : "failed",
       summary: `backend=${memoryStatus.index.backend ?? "unknown"} readable=${memoryStatus.index.readable} initialized=${memoryStatus.index.initialized}`,
     },
+    externalMemoryPolicy,
   ] as const;
   await writeFile(probePath, `${JSON.stringify({ probe, memoryStatus }, null, 2)}\n`, "utf8");
   await writeFile(casesPath, `${cases.map((item) => JSON.stringify(item)).join("\n")}\n`, "utf8");
@@ -120,10 +130,48 @@ export async function runMemoryRetrievalSpeedQa(input: {
     status,
     artifactDir,
     manifestPath,
+    casesPath,
     retrievalManifestPath: retrieval.manifestPath,
     probePath,
+    cases,
     summary,
     retrieval,
     probe,
+  };
+}
+
+function caseExternalMemoryPolicy(): {
+  readonly id: "external_memory_policy";
+  readonly status: RuntimeDoctorStatus;
+  readonly summary: string;
+  readonly evidence: Record<string, unknown>;
+} {
+  const providers = listBuiltinPlugins().filter((plugin) => plugin.category === "memory" || plugin.slot === "memory-provider");
+  const missing = providers.filter((plugin) => {
+    const notes = (plugin.setup?.notes ?? []).join(" ").toLowerCase();
+    return plugin.risk !== "high"
+      || plugin.actionability !== "setup_plan"
+      || !plugin.setup?.setupUrls?.length
+      || !(notes.includes("scoped") || notes.includes("scope"))
+      || !(notes.includes("sync") || notes.includes("external") || notes.includes("local"));
+  }).map((plugin) => plugin.id);
+  const status: RuntimeDoctorStatus = providers.length && !missing.length ? "passed" : "failed";
+  return {
+    id: "external_memory_policy",
+    status,
+    summary: status === "passed"
+      ? `${providers.length} external memory provider entries are high-risk setup plans with scoped/local-memory guardrails`
+      : "external memory provider catalog entries are missing setup-plan or scoped/local-memory guardrails",
+    evidence: {
+      providerCount: providers.length,
+      missing,
+      providers: providers.map((plugin) => ({
+        id: plugin.id,
+        risk: plugin.risk,
+        actionability: plugin.actionability,
+        setupUrls: plugin.setup?.setupUrls ?? [],
+        notes: plugin.setup?.notes ?? [],
+      })),
+    },
   };
 }

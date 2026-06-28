@@ -7,6 +7,38 @@ semantic versioning.
 ## [Unreleased]
 
 ### Added
+- Added governed first-party flow tool execution so saved flows can run audited
+  core tools, while shell execution remains opt-in behind `--toolset full` and
+  explicit command allowlists.
+- Added session-continuity metadata for searchable chat history so resumed
+  sessions expose the active backend, latest session id, and recall path instead
+  of hiding continuity state.
+- Added integration readiness summaries covering catalog coverage, channel
+  setup, plugin enablement, MCP configuration, top blockers, and daily-life pack
+  next steps.
+- Added all-channel doctor output for Telegram, Slack, Google Chat, Discord,
+  WhatsApp, Teams, and web embed operators with missing setup, auth mode, reply
+  mode, guardrails, and next commands.
+- Added `muster gateway status` and cold-start channel status guidance so users
+  can inspect gateway/channel readiness without initializing or exposing bearer
+  tokens.
+- Added personal-agent dashboard readiness lines so `muster dashboard status`
+  shows packs, channels, MCPs, memory health, token ledger state, sessions, and
+  concrete next setup commands.
+- Added Artifact Studio builders for DOCX, XLSX, PPTX, and simple PDF outputs,
+  plus app-server handoff planning for higher-fidelity document, spreadsheet,
+  presentation, and PDF workflows when a Codex or Claude host exposes those
+  artifact skills.
+- Added gated Office artifact workflows with tool integration discovery,
+  deterministic draft generation, structural verification, optional app-server
+  polish, approval-gated publish/share steps, and goal-loop passes for
+  design/build/verify/polish/deliver/learn cycles.
+- Added `muster artifacts plan` and `muster artifacts create` so users can see
+  the gated workflow and create local DOCX/XLSX/PPTX/PDF artifacts without
+  knowing the underlying capability-pack tool names.
+- Added chat capability checks and richer slash-picker matching so prompts or
+  commands mentioning skills, plugins, MCPs, channels, or Office artifact terms
+  surface concrete setup/status guidance instead of silently relying on memory.
 - Added guide pages for agent harness basics, MCP token visibility, Frappe AI
   with DocType-aware retrieval, and governed memory for long-running agents.
 - Added launch and backlink playbook with Search Console checks, GitHub/npm
@@ -14,6 +46,9 @@ semantic versioning.
   Forum, and Reddit drafts.
 
 ### Changed
+- Tightened release/demo evidence around integrations: the dashboard now gives a
+  compact cockpit view, while `muster integrations status` remains the deeper
+  readiness matrix for catalog and setup blockers.
 - Updated homepage SEO metadata and exact-query language around "Muster agent
   harness", governed agent harness, MCP agent harness, Frappe / ERPNext agent
   harness, and production AI agents.

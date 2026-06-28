@@ -28,8 +28,10 @@ export interface MusterAutocompleteOptions {
   readonly runtimes?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly clouds?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly speeds?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
+  readonly capabilities?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly skills?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly plugins?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
+  readonly pluginReuseProviders?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly mcpServers?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly agents: () => readonly string[] | Promise<readonly string[]>;
 }
@@ -44,8 +46,10 @@ export type MusterCompletionKind =
   | "runtime"
   | "cloud"
   | "speed"
+  | "capability"
   | "skill"
   | "plugin"
+  | "plugin-reuse-provider"
   | "mcp"
   | "agent";
 
@@ -516,8 +520,10 @@ function slashCompletionContext(trimmed: string):
   | { kind: "runtime"; fragment: string; prefix: string }
   | { kind: "cloud"; fragment: string; prefix: string }
   | { kind: "speed"; fragment: string; prefix: string }
+  | { kind: "capability"; fragment: string; prefix: string }
   | { kind: "skill"; fragment: string; prefix: string }
   | { kind: "plugin"; fragment: string; prefix: string }
+  | { kind: "plugin-reuse-provider"; fragment: string; prefix: string }
   | { kind: "mcp"; fragment: string; prefix: string }
   | undefined {
   switch (trimmed.toLowerCase()) {
@@ -537,6 +543,10 @@ function slashCompletionContext(trimmed: string):
       return { kind: "cloud", fragment: "", prefix: trimmed };
     case "/speed":
       return { kind: "speed", fragment: "", prefix: trimmed };
+    case "/capability":
+    case "/capabilities":
+    case "/caps":
+      return { kind: "capability", fragment: "", prefix: trimmed };
     case "/skill":
     case "/skills":
       return { kind: "skill", fragment: "", prefix: trimmed };
@@ -563,8 +573,12 @@ function slashCompletionContext(trimmed: string):
   if (cloudMatch) return { kind: "cloud", fragment: cloudMatch[1] ?? "", prefix: trimmed };
   const speedMatch = trimmed.match(/^\/speed\s+([^\s]*)$/i);
   if (speedMatch) return { kind: "speed", fragment: speedMatch[1] ?? "", prefix: trimmed };
+  const capabilityMatch = trimmed.match(/^\/(?:capabilities|capability|caps)\s+([^\s]*)$/i);
+  if (capabilityMatch) return { kind: "capability", fragment: capabilityMatch[1] ?? "", prefix: trimmed };
   const skillMatch = trimmed.match(/^\/skills?\s+([^\s]*)$/i);
   if (skillMatch) return { kind: "skill", fragment: skillMatch[1] ?? "", prefix: trimmed };
+  const pluginReuseMatch = trimmed.match(/^\/plugins?\s+reuse(?:\s+([^\s]*))?$/i);
+  if (pluginReuseMatch) return { kind: "plugin-reuse-provider", fragment: pluginReuseMatch[1] ?? "", prefix: trimmed };
   const pluginMatch = trimmed.match(/^\/plugins?\s+([^\s]*)$/i);
   if (pluginMatch) return { kind: "plugin", fragment: pluginMatch[1] ?? "", prefix: trimmed };
   const mcpMatch = trimmed.match(/^\/mcp\s+([^\s]*)$/i);
@@ -589,10 +603,12 @@ function pickerMatchRank(option: PickerOption, lowerFragment: string): number {
   if (!lowerFragment) return 0;
   const value = option.value.toLowerCase();
   const label = option.label?.toLowerCase() ?? "";
+  const description = option.description?.toLowerCase() ?? "";
   if (value.startsWith(lowerFragment)) return 0;
   if (label.startsWith(lowerFragment)) return 1;
   if (value.includes(lowerFragment)) return 2;
   if (label.includes(lowerFragment)) return 3;
+  if (description.includes(lowerFragment)) return 4;
   return Number.POSITIVE_INFINITY;
 }
 
@@ -628,10 +644,20 @@ function createCallbackCompletionCatalog(options: MusterAutocompleteOptions): Mu
           return filterPickerOptions(await options.clouds?.() ?? [], request.fragment);
         case "speed":
           return filterPickerOptions(await options.speeds?.() ?? [], request.fragment);
+        case "capability": {
+          const capabilities = await options.capabilities?.();
+          return filterPickerOptions(capabilities ?? [
+            ...((await options.skills?.()) ?? []),
+            ...((await options.plugins?.()) ?? []),
+            ...((await options.mcpServers?.()) ?? []),
+          ], request.fragment);
+        }
         case "skill":
           return filterPickerOptions(await options.skills?.() ?? [], request.fragment);
         case "plugin":
           return filterPickerOptions(await options.plugins?.() ?? [], request.fragment);
+        case "plugin-reuse-provider":
+          return filterPickerOptions(await options.pluginReuseProviders?.() ?? [], request.fragment);
         case "mcp":
           return filterPickerOptions(await options.mcpServers?.() ?? [], request.fragment);
         case "agent": {
@@ -670,6 +696,10 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
       return `/cloud ${item.value}`;
     case "/speed":
       return `/speed ${item.value}`;
+    case "/capability":
+    case "/capabilities":
+    case "/caps":
+      return `/capabilities ${item.value}`;
     case "/skill":
     case "/skills":
       return `/skills ${item.value}`;
@@ -689,7 +719,9 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
   if (/^\/runtime\s+/i.test(trimmed)) return `/runtime ${item.value}`;
   if (/^\/cloud\s+/i.test(trimmed)) return `/cloud ${item.value}`;
   if (/^\/speed\s+/i.test(trimmed)) return `/speed ${item.value}`;
+  if (/^\/(?:capabilities|capability|caps)\s+/i.test(trimmed)) return `/capabilities ${item.value}`;
   if (/^\/skills?\s+/i.test(trimmed)) return `/skills ${item.value}`;
+  if (/^\/plugins?\s+reuse(?:\s+.*)?$/i.test(trimmed)) return `/plugins reuse ${item.value}`;
   if (/^\/plugins?\s+/i.test(trimmed)) return `/plugins ${item.value}`;
   if (/^\/mcp\s+/i.test(trimmed)) return `/mcp ${item.value}`;
   return item.value;

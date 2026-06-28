@@ -22,6 +22,7 @@ import {
   listBuiltinPlugins,
   enableBuiltinSkill,
   ensureDefaultConfig,
+  resolveBuiltinCapabilityMentions,
 } from "../src/index.js";
 import type { EvolveReport } from "../src/index.js";
 
@@ -71,6 +72,31 @@ test("enabling a high-risk built-in skill writes a guarded Muster-authored profi
   assert.match(skill.body, /Ask for confirmation before using credentials/);
 });
 
+test("optional built-in skills are not completion-only catalog ghosts", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-optional-builtin-skill-"));
+  await ensureDefaultConfig(cwd);
+  const entry = await enableBuiltinSkill("adversarial-ux-test", cwd);
+  const skill = await viewSkill(entry.id, cwd);
+
+  assert.equal(entry.source, "hermes");
+  assert.equal(skill.name, "adversarial-ux-test");
+  assert.equal(skill.status, "active");
+  assert.match(skill.body, /not a verbatim upstream copy/);
+});
+
+test("prompt capability mentions resolve to concrete skills, plugins, and MCPs", () => {
+  const office = resolveBuiltinCapabilityMentions("Use the artifact plugin to create a PPTX and PDF, then save it to Google Drive.");
+  assert.ok(office.some((mention) => mention.kind === "plugin" && mention.id === "artifact-studio"), "artifact-studio plugin should be detected from PPTX/PDF");
+  assert.ok(office.some((mention) => mention.kind === "mcp" && mention.id === "google-drive"), "google-drive MCP should be detected");
+
+  const channel = resolveBuiltinCapabilityMentions("Set up the Telegram plugin and Slack channel for this assistant.");
+  assert.ok(channel.some((mention) => mention.kind === "plugin" && mention.id === "telegram"), "telegram plugin should be detected");
+  assert.ok(channel.some((mention) => mention.kind === "plugin" && mention.id === "slack"), "slack plugin should be detected");
+
+  const skill = resolveBuiltinCapabilityMentions("Use the adversarial UX test skill to break the CLI.");
+  assert.ok(skill.some((mention) => mention.kind === "skill" && mention.id === "adversarial-ux-test"), "optional skill should be detected");
+});
+
 test("built-in plugin catalog declares honest actionability levels", () => {
   const plugins = listBuiltinPlugins();
   const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]));
@@ -83,11 +109,11 @@ test("built-in plugin catalog declares honest actionability levels", () => {
   assert.equal(byId.get("browserbase")?.actionability, "setup_plan");
   assert.equal(byId.get("memory-mem0")?.actionability, "setup_plan");
   assert.equal(byId.get("langfuse")?.actionability, "setup_plan");
-  assert.equal(byId.get("matrix")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("matrix")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-gemini")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-groq")?.actionability, "setup_plan");
   assert.equal(byId.get("provider-perplexity")?.actionability, "setup_plan");
-  assert.equal(byId.get("signal")?.actionability, "runtime_adapter");
+  assert.equal(byId.get("signal")?.actionability, "setup_plan");
   assert.equal(byId.get("document-extract")?.actionability, "setup_plan");
   assert.equal(byId.get("qa-lab")?.actionability, "setup_plan");
   assert.equal(byId.get("active-memory")?.actionability, "setup_plan");
@@ -95,7 +121,8 @@ test("built-in plugin catalog declares honest actionability levels", () => {
   for (const plugin of plugins) {
     assert.ok(plugin.actionability, `plugin ${plugin.id} must declare actionability`);
     if (plugin.setup?.channels?.length) {
-      assert.equal(plugin.actionability, "runtime_adapter", `channel plugin ${plugin.id} must not overclaim end-to-end induction`);
+      const expected = plugin.packPath ? "runtime_adapter" : "setup_plan";
+      assert.equal(plugin.actionability, expected, `channel plugin ${plugin.id} must distinguish bundled adapters from setup-only guides`);
     }
     if (plugin.actionability === "mcp_installable") {
       assert.ok(plugin.setup?.mcpServers?.length || plugin.setup?.defaultMcpServers?.length, `mcp_installable plugin ${plugin.id} needs MCP setup metadata`);
