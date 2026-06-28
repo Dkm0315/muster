@@ -50,11 +50,24 @@ test("CLI help exposes terminal and pi surfaces", async () => {
 
 test("gateway init redacts bearer token unless explicitly requested", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-gateway-"));
+  const coldStatus = await runCli(["gateway", "status"], cwd);
+  assert.match(coldStatus.stdout, /gateway_status=missing/);
+  assert.match(coldStatus.stdout, /token=missing/);
+  assert.match(coldStatus.stdout, /channels_ready=0\/7/);
+  assert.match(coldStatus.stdout, /next="muster gateway init"/);
+
   const redacted = await runCli(["gateway", "init"], cwd);
 
   assert.match(redacted.stdout, /gateway_config=.*\.muster\/gateway\.json/);
   assert.match(redacted.stdout, /token=<redacted>/);
   assert.doesNotMatch(redacted.stdout, /token=[0-9a-f]{48}/);
+
+  const initializedStatus = await runCli(["gateway", "status"], cwd);
+  assert.match(initializedStatus.stdout, /gateway_status=configured/);
+  assert.match(initializedStatus.stdout, /token=configured/);
+  assert.match(initializedStatus.stdout, /channels_ready=1\/7/);
+  assert.match(initializedStatus.stdout, /next="muster gateway start --port 7460"/);
+  assert.doesNotMatch(initializedStatus.stdout, /token=[0-9a-f]{48}/);
 
   const shown = await runCli(["gateway", "init", "--show-token"], cwd);
   assert.match(shown.stdout, /gateway_config=.*already exists/);

@@ -171,6 +171,7 @@ import {
   DEFAULT_GATEWAY_PORT,
   discordInteractionToInbound,
   gchatEventToSurfaceMessage,
+  gatewayConfigPath,
   initGatewayConfig,
   loadGatewayConfig,
   loadPairings,
@@ -6960,6 +6961,25 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     console.log(`next: muster gateway start --port ${result.config.port ?? DEFAULT_GATEWAY_PORT}`);
     return;
   }
+  if (action === "status") {
+    const gateway = await loadGatewayConfig().then(
+      (config) => ({ config, initialized: true }),
+      () => ({ config: emptyGatewayConfig(), initialized: false }),
+    );
+    const readyChannels = gateway.initialized
+      ? CHANNEL_SETUP_SPECS.filter((spec) => channelReady(spec.id, gateway.config)).length
+      : 0;
+    const next = gateway.initialized
+      ? `muster gateway start --port ${gateway.config.port ?? DEFAULT_GATEWAY_PORT}`
+      : "muster gateway init";
+    console.log(`gateway_status=${gateway.initialized ? "configured" : "missing"}`);
+    console.log(`gateway_config=${gatewayConfigPath()}`);
+    console.log(`token=${gateway.initialized && gateway.config.token ? "configured" : "missing"}`);
+    console.log(`port=${gateway.config.port ?? DEFAULT_GATEWAY_PORT}`);
+    console.log(`channels_ready=${readyChannels}/${CHANNEL_SETUP_SPECS.length}`);
+    console.log(`next=${JSON.stringify(next)}`);
+    return;
+  }
   if (action === "start") {
     const gateway = await loadGatewayConfig();
     const config = await loadConfig();
@@ -6980,7 +7000,7 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     await pollTelegram({ config, gateway, cwd: process.cwd(), signal: controller.signal, log: (line) => console.log(line) });
     return;
   }
-  throw new Error("Usage: muster gateway <init|start [--port 7460]|poll>");
+  throw new Error("Usage: muster gateway <init|status|start [--port 7460]|poll>");
 }
 
 type ChannelId = "telegram" | "slack" | "gchat" | "discord" | "whatsapp" | "teams" | "web";
