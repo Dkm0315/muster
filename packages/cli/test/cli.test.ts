@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
+import { openSessionStore } from "@musterhq/core";
 
 const execFileAsync = promisify(execFile);
 const cliPath = resolve(import.meta.dirname, "..", "src", "index.ts");
@@ -227,6 +228,48 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const completedBare = await runCliAllowFailure([], cwd);
   assert.equal(completedBare.code, 1);
   assert.match(completedBare.stderr, /Interactive chat requires a TTY/);
+});
+
+test("CLI sessions expose continuity metadata for audit and recall", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-sessions-audit-"));
+  const store = openSessionStore(cwd);
+  const session = store.createSession({ channel: "telegram", peer: "alice", title: "Deploy planning" });
+  try {
+    for (let index = 0; index < 35; index += 1) {
+      store.appendMessage(
+        session.id,
+        index % 2 === 0 ? "user" : "assistant",
+        `deployment pipeline checkpoint ${index} with scoped memory continuity`,
+      );
+    }
+    store.addUsage(session.id, 1200, 300, 0.0123);
+  } finally {
+    store.close();
+  }
+
+  const recent = await runCli(["sessions", "recent", "--limit", "5"], cwd);
+  assert.match(recent.stdout, /session_backend=sqlite-/);
+  assert.match(recent.stdout, /sessions=1/);
+  assert.match(recent.stdout, new RegExp(`session=${session.id}`));
+  assert.match(recent.stdout, /title="Deploy planning"/);
+  assert.match(recent.stdout, /channel=telegram peer=alice/);
+  assert.match(recent.stdout, /tokens_in=1200 tokens_out=300 cost_usd=0\.0123/);
+  assert.match(recent.stdout, new RegExp(`next="muster sessions show ${session.id}"`));
+
+  const shown = await runCli(["sessions", "show", session.id], cwd);
+  assert.match(shown.stdout, /session_backend=sqlite-/);
+  assert.match(shown.stdout, new RegExp(`session=${session.id}`));
+  assert.match(shown.stdout, /active_messages=35 omitted=5/);
+  assert.match(shown.stdout, /tokens_in=1200 tokens_out=300 cost_usd=0\.0123/);
+  assert.match(shown.stdout, /system\s+… 5 messages omitted …/);
+
+  const searched = await runCli(["sessions", "search", "deployment", "--limit", "5"], cwd);
+  assert.match(searched.stdout, /session_backend=sqlite-/);
+  assert.match(searched.stdout, /query="deployment" hits=1/);
+  assert.match(searched.stdout, new RegExp(`session=${session.id}`));
+  assert.match(searched.stdout, /message=\d+ window=\d+/);
+  assert.match(searched.stdout, /snippet=".*deployment.*"/);
+  assert.match(searched.stdout, new RegExp(`next="muster sessions show ${session.id}"`));
 });
 
 test("CLI memory search can explain retrieval receipts", async () => {

@@ -7542,16 +7542,22 @@ async function sessionsCommand(commandArgs: string[]): Promise<void> {
       if (!query) throw new Error('Usage: muster sessions search "query" [--limit N]');
       const result = store.search({ query, limit: readNumberFlag(rest, "--limit") });
       if (result.shape !== "discover") return;
+      console.log(`session_backend=${store.backend}`);
+      console.log(`query=${JSON.stringify(query)} hits=${result.hits.length}`);
       if (!result.hits.length) { console.log("No matching sessions."); return; }
       for (const hit of result.hits) {
-        console.log(`${hit.sessionId}  ${hit.title || "(untitled)"}\n  ${hit.snippet}`);
+        console.log(`session=${hit.sessionId} title=${JSON.stringify(hit.title || "(untitled)")} message=${hit.messageId} window=${hit.window.length} next=${JSON.stringify(`muster sessions show ${hit.sessionId}`)}`);
+        console.log(`snippet=${JSON.stringify(hit.snippet)}`);
       }
       return;
     }
     if (action === "show" && rest[0]) {
       const result = store.search({ sessionId: rest[0] });
       if (result.shape !== "read") return;
-      console.log(`${result.session.title || "(untitled)"}  [${result.session.channel}/${result.session.peer}]  in=${result.session.tokensIn} out=${result.session.tokensOut}`);
+      const activeMessages = result.head.length + result.tail.length + result.omitted;
+      console.log(`session_backend=${store.backend}`);
+      console.log(`session=${result.session.id} title=${JSON.stringify(result.session.title || "(untitled)")} channel=${result.session.channel} peer=${result.session.peer}`);
+      console.log(`tokens_in=${result.session.tokensIn} tokens_out=${result.session.tokensOut} cost_usd=${result.session.costUsd.toFixed(4)} active_messages=${activeMessages} omitted=${result.omitted}`);
       for (const message of [...result.head, ...(result.omitted ? [{ role: "system", content: `… ${result.omitted} messages omitted …` } as { role: string; content: string }] : []), ...result.tail]) {
         console.log(`  ${message.role.padEnd(9)} ${message.content.slice(0, 100)}`);
       }
@@ -7560,8 +7566,10 @@ async function sessionsCommand(commandArgs: string[]): Promise<void> {
     if (action === "recent" || action === undefined) {
       const result = store.search({ limit: readNumberFlag(rest, "--limit") ?? 15 });
       if (result.shape !== "browse") return;
+      console.log(`session_backend=${store.backend}`);
+      console.log(`sessions=${result.sessions.length}`);
       for (const session of result.sessions) {
-        console.log(`${session.id}  ${session.createdAt.slice(0, 16)}  ${session.title || "(untitled)"}  [${session.channel}/${session.peer}]`);
+        console.log(`session=${session.id} created=${session.createdAt.slice(0, 16)} title=${JSON.stringify(session.title || "(untitled)")} channel=${session.channel} peer=${session.peer} tokens_in=${session.tokensIn} tokens_out=${session.tokensOut} cost_usd=${session.costUsd.toFixed(4)} next=${JSON.stringify(`muster sessions show ${session.id}`)}`);
       }
       return;
     }
