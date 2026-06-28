@@ -398,7 +398,7 @@ Usage:
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
-  muster integrations [list|guide|status]  # layman setup guide for chat apps, plugins, and MCPs
+  muster integrations [list|guide|status|workflow <id>]  # guided setup for channels, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
   muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] [--strict-release]
@@ -7680,11 +7680,17 @@ async function printIntegrationReadiness(): Promise<void> {
 
 async function integrationsCommand(args: string[]): Promise<void> {
   const action = args[0] ?? "list";
-  if (action !== "list" && action !== "guide" && action !== "status") {
-    throw new Error("Usage: muster integrations [list|guide|status]");
+  if (action !== "list" && action !== "guide" && action !== "status" && action !== "workflow") {
+    throw new Error("Usage: muster integrations [list|guide|status|workflow <plugin|mcp|channel>]");
   }
   if (action === "status") {
     await printIntegrationReadiness();
+    return;
+  }
+  if (action === "workflow") {
+    const target = args[1];
+    if (!target) throw new Error("Usage: muster integrations workflow <plugin|mcp|channel>");
+    await printIntegrationWorkflow(target);
     return;
   }
   const config = await loadConfig().catch(() => undefined);
@@ -7731,6 +7737,101 @@ async function integrationsCommand(args: string[]): Promise<void> {
   console.log("2. muster channels setup gchat --public-url https://your-domain.example");
   console.log("3. muster plugins enable web-search");
   console.log("4. muster mcp install parallel-search");
+}
+
+async function printIntegrationWorkflow(target: string): Promise<void> {
+  const channel = findChannelSpec(target);
+  if (channel) {
+    await printChannelIntegrationWorkflow(channel);
+    return;
+  }
+  const plugin = listBuiltinPlugins().find((entry) => entry.id === target || entry.aliases?.includes(target));
+  if (plugin) {
+    await printPluginIntegrationWorkflow(plugin);
+    return;
+  }
+  const mcp = findBuiltinMcpEntry(target);
+  if (mcp) {
+    await printMcpIntegrationWorkflow(mcp);
+    return;
+  }
+  throw new Error(`Unknown integration "${target}". Run: muster integrations`);
+}
+
+async function printChannelIntegrationWorkflow(spec: ChannelSetupSpec): Promise<void> {
+  const gateway = await loadGatewayConfig().catch(() => ({ port: DEFAULT_GATEWAY_PORT }) as GatewayConfig);
+  const ready = channelReady(spec.id, gateway);
+  const missing = channelMissingSetup(spec.id, gateway);
+  console.log(`integration_workflow=${spec.id} kind=channel ready=${ready}`);
+  console.log(`impact=turns ${spec.label} messages into governed Muster runs with scoped memory, policy gates, token ledger, and draft/send controls`);
+  console.log(`auth=${channelAuthMode(spec.id)} missing=${missing.length ? missing.join(",") : "-"}`);
+  console.log(`setup=muster channels setup ${spec.id}`);
+  console.log(`verify=muster channels doctor ${spec.id}${spec.id === "telegram" ? " --live" : ""}`);
+  console.log(`enable=${ready ? `muster gateway start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels setup ${spec.id}`}`);
+  console.log(`sample=muster channels simulate ${spec.id} --message "hello from ${spec.id}"`);
+  console.log(`failure_behavior=${ready ? "doctor reports warnings without printing secrets" : "blocked until required setup is present; local simulation still works"}`);
+  for (const url of spec.setupUrls) console.log(`setup_url=${url}`);
+  console.log("steps=pick -> explain impact -> authenticate/setup -> verify -> enable gateway -> run local sample");
+  console.log("guardrails=no_secret_echo, scoped_memory, token_ledger, approval_required_for_mutations");
+}
+
+async function printPluginIntegrationWorkflow(plugin: BuiltinPluginCatalogEntry): Promise<void> {
+  const config = await loadConfig().catch(() => undefined);
+  const enabled = Boolean(config?.plugins?.entries?.[plugin.id] && config.plugins?.entries?.[plugin.id]?.enabled !== false);
+  const missing = missingSetupEnv(plugin.setup);
+  const riskFlag = plugin.risk === "high" ? " --allow-high-risk" : "";
+  const firstChannel = plugin.setup?.channels?.[0];
+  const firstMcp = plugin.setup?.defaultMcpServers?.[0] ?? plugin.setup?.mcpServers?.[0];
+  const sample = firstChannel
+    ? `muster channels simulate ${firstChannel} --message "hello from ${plugin.id}"`
+    : firstMcp
+      ? `muster mcp check ${firstMcp}`
+      : plugin.packPath
+        ? `muster plugins check ${plugin.id}`
+        : `muster plugins setup ${plugin.id}`;
+  console.log(`integration_workflow=${plugin.id} kind=plugin enabled=${enabled}`);
+  console.log(`impact=${plugin.description}`);
+  console.log(`risk=${plugin.risk} action=${plugin.actionability} source=${plugin.source}`);
+  console.log(`readiness=${plugin.packPath ? `pack:${plugin.packPath}` : plugin.actionability === "setup_plan" ? "setup_plan_only" : "policy_or_external_setup"}`);
+  console.log(`auth=${missing.length ? `missing_env:${missing.join(",")}` : "no_missing_env_detected"}`);
+  console.log(`setup=muster plugins setup ${plugin.id}`);
+  console.log(`verify=muster plugins check ${plugin.id}`);
+  console.log(`enable=muster plugins enable ${plugin.id}${riskFlag}`);
+  if (firstChannel) console.log(`related_channel=muster channels setup ${firstChannel}`);
+  if (firstMcp) console.log(`related_mcp=muster mcp ${missingMcpEnv(findBuiltinMcpEntry(firstMcp)).length ? "check" : "install"} ${firstMcp}`);
+  console.log(`sample=${sample}`);
+  console.log(`failure_behavior=${missing.length ? "setup/check reports missing env and does not enable credentials implicitly" : "check/setup reports readiness, warnings, or setup-only status before execution"}`);
+  for (const url of plugin.setup?.setupUrls ?? []) console.log(`setup_url=${url}`);
+  console.log("steps=pick -> explain impact -> authenticate/setup -> verify -> enable policy -> run sample");
+  console.log("guardrails=high_risk_requires_allow_flag, no_secret_echo, scoped_memory, token_ledger, explicit_provider_or_mcp_auth");
+}
+
+async function printMcpIntegrationWorkflow(entry: BuiltinMcpCatalogEntry): Promise<void> {
+  const config = await loadConfig().catch(() => undefined);
+  const configured = Boolean(config?.tools?.mcp?.servers?.[entry.id]);
+  const missing = missingMcpEnv(entry);
+  const installable = Boolean(entry.install && !missing.length && mcpConfigFromCatalogEntry(entry));
+  const authStep = entry.auth === "oauth"
+    ? configured
+      ? `muster mcp oauth setup ${entry.id}`
+      : `muster mcp install ${entry.id} && muster mcp oauth setup ${entry.id}`
+    : missing.length
+      ? `export ${missing[0].split("|")[0]}=...`
+      : "no interactive auth required";
+  console.log(`integration_workflow=${entry.id} kind=mcp configured=${configured}`);
+  console.log(`impact=${entry.description}`);
+  console.log(`risk=${entry.risk} auth=${entry.auth ?? "none"} category=${entry.category}`);
+  console.log(`readiness=${configured ? "configured" : missing.length ? "needs_env" : installable ? "installable" : "manual_setup"}`);
+  console.log(`authenticate=${authStep}`);
+  console.log(`setup=${configured ? `muster mcp status ${entry.id}` : installable ? `muster mcp install ${entry.id}` : entry.commandHint}`);
+  console.log(`verify=${configured ? `muster mcp test ${entry.id}` : `muster mcp check ${entry.id}`}`);
+  console.log(`enable=${configured ? "already_configured" : installable ? `muster mcp install ${entry.id}` : entry.commandHint}`);
+  console.log(`sample=${configured ? `muster mcp test ${entry.id}` : `muster mcp check ${entry.id}`}`);
+  console.log(`failure_behavior=${missing.length ? "blocked until required env is present; no token is printed" : "failed server startup is isolated to this MCP and shown by test/check"}`);
+  if (entry.defaultTools?.length) console.log(`default_tools=${entry.defaultTools.join(",")}`);
+  for (const url of entry.setupUrls ?? []) console.log(`setup_url=${url}`);
+  console.log("steps=pick -> explain impact -> authenticate/setup -> verify -> enable -> run sample");
+  console.log("guardrails=explicit_auth, tool_allowlists, scoped_memory, token_ledger, isolated_mcp_failures");
 }
 
 async function pairingCommand(commandArgs: string[]): Promise<void> {

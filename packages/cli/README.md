@@ -8,6 +8,10 @@
 pnpm --package=@musterhq/cli dlx muster demo
 ```
 
+![Muster terminal launch demo](https://raw.githubusercontent.com/Dkm0315/muster/main/docs/assets/muster-terminal-launch-demo.gif)
+
+[Watch the MP4 launch demo](https://github.com/Dkm0315/muster/blob/main/docs/assets/muster-terminal-launch-demo.mp4)
+
 ## See it work — `muster demo`
 
 One command provisions a throwaway workspace and a local model service, then runs the full governed pipeline: scoped-memory recall → token ledger → integrity check.
