@@ -43,6 +43,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster channels list/);
   assert.match(stdout, /muster gateway status/);
   assert.match(stdout, /muster integrations/);
+  assert.match(stdout, /workflow <id>/);
   assert.match(stdout, /muster memory add/);
   assert.match(stdout, /muster latency "prompt"/);
   assert.match(stdout, /muster eval seed/);
@@ -1537,6 +1538,41 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(integrationStatus.stdout, /gchat\tneeds_setup\tmuster channels setup gchat/);
   assert.match(integrationStatus.stdout, /1\. channel ready; add another surface only when you need it/);
   assert.match(integrationStatus.stdout, /guardrails=draft_first_for_channels, scoped_memory, explicit_mcp_auth, no_secret_echo/);
+
+  const telegramWorkflow = await runCli(["integrations", "workflow", "telegram"], cwd);
+  assert.match(telegramWorkflow.stdout, /integration_workflow=telegram kind=channel ready=true/);
+  assert.match(telegramWorkflow.stdout, /impact=turns Telegram Bot messages into governed Muster runs/);
+  assert.match(telegramWorkflow.stdout, /auth=secret-token-header-recommended missing=-/);
+  assert.match(telegramWorkflow.stdout, /verify=muster channels doctor telegram --live/);
+  assert.match(telegramWorkflow.stdout, /sample=muster channels simulate telegram --message "hello from telegram"/);
+  assert.match(telegramWorkflow.stdout, /steps=pick -> explain impact -> authenticate\/setup -> verify -> enable gateway -> run local sample/);
+  assert.match(telegramWorkflow.stdout, /guardrails=no_secret_echo, scoped_memory, token_ledger, approval_required_for_mutations/);
+  assert.doesNotMatch(telegramWorkflow.stdout, /123456:telegram-secret-token|telegram-webhook-secret/);
+
+  const gchatWorkflow = await runCli(["integrations", "workflow", "gchat"], cwd);
+  assert.match(gchatWorkflow.stdout, /integration_workflow=gchat kind=channel ready=false/);
+  assert.match(gchatWorkflow.stdout, /auth=verification-token-optional missing=gchat section/);
+  assert.match(gchatWorkflow.stdout, /failure_behavior=blocked until required setup is present; local simulation still works/);
+
+  const githubPluginWorkflow = await runCli(["integrations", "workflow", "github"], cwd);
+  assert.match(githubPluginWorkflow.stdout, /integration_workflow=github kind=plugin enabled=false/);
+  assert.match(githubPluginWorkflow.stdout, /risk=medium action=mcp_installable source=hermes/);
+  assert.match(githubPluginWorkflow.stdout, /auth=missing_env:GITHUB_PERSONAL_ACCESS_TOKEN/);
+  assert.match(githubPluginWorkflow.stdout, /related_mcp=muster mcp check github/);
+  assert.match(githubPluginWorkflow.stdout, /sample=muster mcp check github/);
+  assert.match(githubPluginWorkflow.stdout, /guardrails=high_risk_requires_allow_flag, no_secret_echo, scoped_memory, token_ledger, explicit_provider_or_mcp_auth/);
+
+  const parallelMcpWorkflow = await runCli(["integrations", "workflow", "parallel-search"], cwd);
+  assert.match(parallelMcpWorkflow.stdout, /integration_workflow=parallel-search kind=mcp configured=false/);
+  assert.match(parallelMcpWorkflow.stdout, /readiness=installable/);
+  assert.match(parallelMcpWorkflow.stdout, /setup=muster mcp install parallel-search/);
+  assert.match(parallelMcpWorkflow.stdout, /sample=muster mcp check parallel-search/);
+  assert.match(parallelMcpWorkflow.stdout, /steps=pick -> explain impact -> authenticate\/setup -> verify -> enable -> run sample/);
+
+  await assert.rejects(
+    () => runCli(["integrations", "workflow", "not-a-real-integration"], cwd),
+    /Unknown integration "not-a-real-integration"/,
+  );
 
   const defaultMcp = await runCli(["mcp", "list"], cwd);
   assert.match(defaultMcp.stdout, /git\tstdio npx -y @modelcontextprotocol\/server-git/);
