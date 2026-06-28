@@ -103,7 +103,7 @@ The single most important parity target. Run the user's OWN provider at native p
 - [ ] Multi-account per channel (`accountId`, `channels.<ch>.defaultAccount`) — muster: **MISSING ⬜** — `packages/gateway/src/envelope.ts` + adapter config — effort M
 - [ ] Per-channel `textChunkLimit` + streaming config keys — muster: **PARTIAL 🟡** — `packages/gateway/src/streaming.ts` (chunking exists; expose per-channel config) — effort S
 - [ ] Channel health monitor (`healthMonitor.enabled`, stale-event/restart thresholds) — muster: **MISSING ⬜** — `packages/gateway/src/server.ts` health loop — effort M
-- [ ] Channel CLI (`channels login --channel --account`, `channels status --probe`) — muster: **MISSING ⬜** — `packages/cli` channels command — effort M
+- [ ] Channel CLI (`channels login --channel --account`, `channels status --probe`) — muster: **PARTIAL 🟡** — `muster channels list/status/plan/simulate/doctor/setup` + `muster gateway status/init/start/poll`; remaining gap is account-login UX and live probe naming parity — effort M
 - [ ] Remaining transports to reach 24+ (Signal/iMessage/IRC/Matrix/Feishu/LINE/Mattermost/Nextcloud/Nostr/Synology/Tlon/Twitch/QQ/WeChat/SMS/Voice/WebChat/Zalo/…) — muster: **MISSING ⬜** — `packages/gateway/src/adapters/*` — effort XL
 - [ ] Channel-specific features (group mention activation, iMessage tapbacks/effects, voice notes, ambient room events, Telegram markdown-image→media) — muster: **PARTIAL 🟡** — `packages/gateway/src/adapters/*` (Telegram media ✅; rest per-channel) — effort L
 

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
+import { openSessionStore } from "@musterhq/core";
 
 const execFileAsync = promisify(execFile);
 const cliPath = resolve(import.meta.dirname, "..", "src", "index.ts");
@@ -40,6 +41,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster mcp list/);
   assert.match(stdout, /muster dashboard status/);
   assert.match(stdout, /muster channels list/);
+  assert.match(stdout, /muster gateway status/);
   assert.match(stdout, /muster integrations/);
   assert.match(stdout, /muster memory add/);
   assert.match(stdout, /muster latency "prompt"/);
@@ -49,11 +51,24 @@ test("CLI help exposes terminal and pi surfaces", async () => {
 
 test("gateway init redacts bearer token unless explicitly requested", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-gateway-"));
+  const coldStatus = await runCli(["gateway", "status"], cwd);
+  assert.match(coldStatus.stdout, /gateway_status=missing/);
+  assert.match(coldStatus.stdout, /token=missing/);
+  assert.match(coldStatus.stdout, /channels_ready=0\/7/);
+  assert.match(coldStatus.stdout, /next="muster gateway init"/);
+
   const redacted = await runCli(["gateway", "init"], cwd);
 
   assert.match(redacted.stdout, /gateway_config=.*\.muster\/gateway\.json/);
   assert.match(redacted.stdout, /token=<redacted>/);
   assert.doesNotMatch(redacted.stdout, /token=[0-9a-f]{48}/);
+
+  const initializedStatus = await runCli(["gateway", "status"], cwd);
+  assert.match(initializedStatus.stdout, /gateway_status=configured/);
+  assert.match(initializedStatus.stdout, /token=configured/);
+  assert.match(initializedStatus.stdout, /channels_ready=1\/7/);
+  assert.match(initializedStatus.stdout, /next="muster gateway start --port 7460"/);
+  assert.doesNotMatch(initializedStatus.stdout, /token=[0-9a-f]{48}/);
 
   const shown = await runCli(["gateway", "init", "--show-token"], cwd);
   assert.match(shown.stdout, /gateway_config=.*already exists/);
@@ -227,6 +242,48 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const completedBare = await runCliAllowFailure([], cwd);
   assert.equal(completedBare.code, 1);
   assert.match(completedBare.stderr, /Interactive chat requires a TTY/);
+});
+
+test("CLI sessions expose continuity metadata for audit and recall", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-sessions-audit-"));
+  const store = openSessionStore(cwd);
+  const session = store.createSession({ channel: "telegram", peer: "alice", title: "Deploy planning" });
+  try {
+    for (let index = 0; index < 35; index += 1) {
+      store.appendMessage(
+        session.id,
+        index % 2 === 0 ? "user" : "assistant",
+        `deployment pipeline checkpoint ${index} with scoped memory continuity`,
+      );
+    }
+    store.addUsage(session.id, 1200, 300, 0.0123);
+  } finally {
+    store.close();
+  }
+
+  const recent = await runCli(["sessions", "recent", "--limit", "5"], cwd);
+  assert.match(recent.stdout, /session_backend=sqlite-/);
+  assert.match(recent.stdout, /sessions=1/);
+  assert.match(recent.stdout, new RegExp(`session=${session.id}`));
+  assert.match(recent.stdout, /title="Deploy planning"/);
+  assert.match(recent.stdout, /channel=telegram peer=alice/);
+  assert.match(recent.stdout, /tokens_in=1200 tokens_out=300 cost_usd=0\.0123/);
+  assert.match(recent.stdout, new RegExp(`next="muster sessions show ${session.id}"`));
+
+  const shown = await runCli(["sessions", "show", session.id], cwd);
+  assert.match(shown.stdout, /session_backend=sqlite-/);
+  assert.match(shown.stdout, new RegExp(`session=${session.id}`));
+  assert.match(shown.stdout, /active_messages=35 omitted=5/);
+  assert.match(shown.stdout, /tokens_in=1200 tokens_out=300 cost_usd=0\.0123/);
+  assert.match(shown.stdout, /system\s+… 5 messages omitted …/);
+
+  const searched = await runCli(["sessions", "search", "deployment", "--limit", "5"], cwd);
+  assert.match(searched.stdout, /session_backend=sqlite-/);
+  assert.match(searched.stdout, /query="deployment" hits=1/);
+  assert.match(searched.stdout, new RegExp(`session=${session.id}`));
+  assert.match(searched.stdout, /message=\d+ window=\d+/);
+  assert.match(searched.stdout, /snippet=".*deployment.*"/);
+  assert.match(searched.stdout, new RegExp(`next="muster sessions show ${session.id}"`));
 });
 
 test("CLI memory search can explain retrieval receipts", async () => {
@@ -720,11 +777,16 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(plugins.stdout, /No plugin policy configured/);
 
   const skillCatalog = await runCli(["skills", "catalog"], cwd);
-  assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes/);
-  assert.match(skillCatalog.stdout, /browser-control\s+openclaw/);
+  assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes\s+software-development\s+risk=low\s+invoke=prompt requires=- tags=debugging,quality/);
+  assert.match(skillCatalog.stdout, /browser-control\s+openclaw\s+web\s+risk=high\s+invoke=prompt requires=- tags=browser,automation/);
 
   const enabledSkill = await runCli(["skills", "enable", "systematic-debugging"], cwd);
   assert.match(enabledSkill.stdout, /enabled skill=systematic-debugging/);
+  assert.match(enabledSkill.stdout, /category=software-development invocation=user-invocable dispatch=prompt/);
+  assert.match(enabledSkill.stdout, /tags=debugging,quality/);
+  assert.match(enabledSkill.stdout, /requires=-/);
+  assert.match(enabledSkill.stdout, /guardrail=check prerequisites first/);
+  assert.match(enabledSkill.stdout, /next="muster skills view systematic-debugging"/);
 
   const listedSkills = await runCli(["skills", "list"], cwd);
   assert.match(listedSkills.stdout, /active\s+systematic-debugging/);
@@ -979,6 +1041,8 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const vllmCheck = await runCli(["plugins", "check", "vllm"], cwd);
   assert.match(vllmCheck.stdout, /plugin=vllm source=hermes risk=medium enabled=false/);
   assert.match(vllmCheck.stdout, /pack=capability-packs\/vllm status=ready tools=4/);
+  assert.match(vllmCheck.stdout, /pack_readiness=level:verified status:beta action:local_tool surfaces:cli/);
+  assert.match(vllmCheck.stdout, /pack_tools=vllm_setup_plan,vllm_server_check,vllm_metrics_summary,vllm_provider_config/);
   assert.match(vllmCheck.stdout, /plugin_env=ready/);
 
   const enabledVllmPlugin = await runCli(["plugins", "enable", "vllm"], cwd);
@@ -1007,6 +1071,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const developerToolsSetup = await runCli(["plugins", "setup", "developer-tools"], cwd);
   assert.match(developerToolsSetup.stdout, /plugin=developer-tools source=muster risk=medium/);
+  assert.match(developerToolsSetup.stdout, /pack=capability-packs\/developer-tools status=ready tools=4/);
+  assert.match(developerToolsSetup.stdout, /pack_readiness=level:verified status:beta action:local_tool surfaces:cli/);
+  assert.match(developerToolsSetup.stdout, /pack_tools=developer_tools_repo_workflow,developer_tools_surface_plan,developer_tools_command_policy,developer_tools_release_check/);
   assert.match(developerToolsSetup.stdout, /mcp=git status=installable/);
   assert.match(developerToolsSetup.stdout, /mcp=filesystem status=installable/);
   assert.match(developerToolsSetup.stdout, /Hermes-style development toolset planning/);
@@ -1308,6 +1375,13 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const dashboard = await runCli(["dashboard", "status"], cwd);
   assert.match(dashboard.stdout, /profile=default/);
   assert.match(dashboard.stdout, /configured=true/);
+  assert.match(dashboard.stdout, /personal_agent packs_enabled=\d+\/6 channels_ready=\d+\/7 mcps_configured=\d+\/4/);
+  assert.match(dashboard.stdout, /memory=backend=.* jsonl_objects=\d+ index_objects=\d+ scopes=\d+ fresh=/);
+  assert.match(dashboard.stdout, /token_ledger=records=\d+ today_in=\d+ today_out=\d+ today_cost_usd=\d+\.\d{4}/);
+  assert.match(dashboard.stdout, /sessions=backend=sqlite-(fts5|like) recent=\d+ latest=/);
+  assert.match(dashboard.stdout, /next_personal_pack="muster plugins enable daily-ops"/);
+  assert.match(dashboard.stdout, /next_channel="muster gateway init"/);
+  assert.match(dashboard.stdout, /next_mcp="muster mcp install google-drive"/);
   assert.match(dashboard.stdout, /start=muster dashboard start --port 7461/);
 
   const channelCatalog = await runCli(["channels", "list"], cwd);
@@ -1315,8 +1389,33 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(channelCatalog.stdout, /slack\t--bot-token-env,--signing-secret-env\tmuster channels setup slack/);
   assert.match(channelCatalog.stdout, /gchat\t--verification-token-env\tmuster channels setup gchat/);
 
+  const coldChannelStatus = await runCli(["channels", "status"], cwd);
+  assert.match(coldChannelStatus.stdout, /gateway_config=missing next="muster gateway init"/);
+  assert.match(coldChannelStatus.stdout, /channel=telegram ready=false/);
+  assert.match(coldChannelStatus.stdout, /channel=web ready=false/);
+
+  const coldTelegramStatus = await runCli(["channels", "status", "telegram"], cwd);
+  assert.match(coldTelegramStatus.stdout, /gateway_config=missing next="muster gateway init"/);
+  assert.match(coldTelegramStatus.stdout, /channel=telegram ready=false/);
+
+  const coldChannelDoctor = await runCli(["channels", "doctor"], cwd);
+  assert.match(coldChannelDoctor.stdout, /channel_doctor=all status=needs_setup ready=0\/7/);
+  assert.match(coldChannelDoctor.stdout, /gateway_config=missing/);
+  assert.match(coldChannelDoctor.stdout, /operator_matrix/);
+  assert.match(coldChannelDoctor.stdout, /channel=web status=needs_setup missing=gateway\.token .* next="muster gateway init"/);
+  assert.match(coldChannelDoctor.stdout, /next=muster gateway init/);
+
   const gatewayInitForChannels = await runCli(["gateway", "init"], cwd);
   assert.match(gatewayInitForChannels.stdout, /gateway_config=/);
+
+  const channelDoctorBeforeSetup = await runCli(["channels", "doctor"], cwd);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel_doctor=all status=needs_setup ready=1\/7/);
+  assert.match(channelDoctorBeforeSetup.stdout, /gateway_config=configured/);
+  assert.match(channelDoctorBeforeSetup.stdout, /operator_matrix/);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel=telegram status=needs_setup missing=telegram\.botToken/);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel=web status=ready missing=-/);
+  assert.match(channelDoctorBeforeSetup.stdout, /guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger/);
+  assert.match(channelDoctorBeforeSetup.stdout, /next=muster channels setup telegram/);
 
   const slackPlanBeforeSetup = await runCli(["channels", "plan", "slack", "--public-url", "https://example.test/muster"], cwd);
   assert.match(slackPlanBeforeSetup.stdout, /channel_plan=slack label="Slack App" ready=false/);
@@ -1383,6 +1482,14 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(slackPlanAfterSetup.stdout, /reply_mode=draft_stream/);
   assert.doesNotMatch(slackPlanAfterSetup.stdout, /xoxb-secret|slack-signing-secret/);
 
+  const channelDoctorAfterSetup = await runCli(["channels", "doctor"], cwd);
+  assert.match(channelDoctorAfterSetup.stdout, /channel_doctor=all status=needs_setup ready=3\/7/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=telegram status=warning missing=- warnings=telegram\.live_check_available auth=secret-token-header-recommended reply=draft_stream next="muster channels doctor telegram --live"/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=slack status=ready missing=- warnings=- auth=slack-signature-required reply=draft_stream/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=gchat status=needs_setup missing=gchat section/);
+  assert.match(channelDoctorAfterSetup.stdout, /next=muster channels setup gchat/);
+  assert.doesNotMatch(channelDoctorAfterSetup.stdout, /123456:telegram-secret-token|telegram-webhook-secret|xoxb-secret|slack-signing-secret/);
+
   const gchatSetup = await runCli(["channels", "setup", "gchat", "--public-url", "https://chat.example.test"], cwd);
   assert.match(gchatSetup.stdout, /channel=gchat .*ready=false/);
   assert.match(gchatSetup.stdout, /webhook_url=https:\/\/chat\.example\.test\/v1\/adapters\/gchat/);
@@ -1406,6 +1513,12 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const integrationStatus = await runCli(["integrations", "status"], cwd);
   assert.match(integrationStatus.stdout, /integration_status=/);
   assert.match(integrationStatus.stdout, /profile=configured gateway=configured memory=scoped_sqlite_fts/);
+  assert.match(integrationStatus.stdout, /catalog_coverage channels=\d+ plugins=\d+ mcps=\d+ skills=\d+/);
+  assert.match(integrationStatus.stdout, /readiness_matrix channels_ready=\d+\/\d+ plugins_enabled=\d+\/\d+ plugin_env_satisfied=\d+\/\d+ plugin_packs=\d+ setup_plan_only=\d+/);
+  assert.match(integrationStatus.stdout, /mcp_matrix configured=\d+\/\d+ installable=\d+ needs_env=\d+ needs_oauth=\d+ skills_enabled=\d+\/\d+/);
+  assert.match(integrationStatus.stdout, /top_blockers/);
+  assert.match(integrationStatus.stdout, /plugin=github missing=GITHUB_PERSONAL_ACCESS_TOKEN/);
+  assert.match(integrationStatus.stdout, /mcp=github missing=GITHUB_PERSONAL_ACCESS_TOKEN\|GITHUB_TOKEN/);
   assert.match(integrationStatus.stdout, /channels_optional/);
   assert.match(integrationStatus.stdout, /telegram\tready\tmuster gateway start/);
   assert.match(integrationStatus.stdout, /gchat\tneeds_setup\tmuster channels setup gchat/);
@@ -1832,6 +1945,25 @@ test("CLI artifacts command plans gated workflows and creates local files", asyn
   const bytes = await readFile(join(cwd, "out", "brief.docx"));
   assert.ok(bytes.subarray(0, 2).equals(Buffer.from("PK")));
   assert.match(bytes.toString("utf8"), /Muster Board Brief/);
+
+  await writeFile(join(cwd, "ledger-spec.json"), `${JSON.stringify({
+    title: "Token Ledger Export",
+    filename: "ledger-export",
+    sheetName: "Ledger",
+    columns: ["model", "input", "output", "waste"],
+    rows: [
+      { model: "codex/gpt-5.5", input: 54600, output: 1500, waste: 0 },
+      { model: "muster-local/workspace-read", input: 0, output: 0, waste: 0 },
+    ],
+  }, null, 2)}\n`, "utf8");
+  const xlsx = await runCli(["artifacts", "create", "--format", "xlsx", "--spec", "ledger-spec.json", "--out", "out/ledger.xlsx"], cwd);
+  assert.match(xlsx.stdout, /artifact=.*out\/ledger\.xlsx/);
+  assert.match(xlsx.stdout, /format=xlsx/);
+  const xlsxBytes = await readFile(join(cwd, "out", "ledger.xlsx"));
+  const xlsxText = xlsxBytes.toString("utf8");
+  assert.match(xlsxText, /Ledger/);
+  assert.match(xlsxText, /codex\/gpt-5\.5/);
+  assert.match(xlsxText, /54600/);
 });
 
 test("CLI skills index renders pinned skill digests", async () => {
@@ -1907,6 +2039,18 @@ test("CLI context graph exports graph JSON from episode and scoped memory ledger
 
 test("CLI memory add and search preserve scoped isolation", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-memory-"));
+  const missingScope = await runCliAllowFailure(["memory", "add", "--summary", "Unscoped memory should be refused.", "--provenance", "cli-test"], cwd);
+  assert.equal(missingScope.code, 1);
+  assert.match(missingScope.stdout, /memory_add status=blocked reason=scope_required/);
+  assert.match(missingScope.stdout, /prevent cross-user, cross-tenant, or cross-session recall leaks/);
+  assert.match(missingScope.stdout, /--scope user:me/);
+
+  const missingProvenance = await runCliAllowFailure(["memory", "add", "--summary", "Unexplained memory should be refused.", "--scope", "user:dhairya"], cwd);
+  assert.equal(missingProvenance.code, 1);
+  assert.match(missingProvenance.stdout, /memory_add status=blocked reason=provenance_required/);
+  assert.match(missingProvenance.stdout, /future recall can explain where the fact came from/);
+  assert.match(missingProvenance.stdout, /--provenance manual/);
+
   const added = await runCli(
     [
       "memory",
@@ -1991,10 +2135,24 @@ test("CLI profile, schedule, tokens, and verify work end to end in a fresh works
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-beast-"));
   await runCli(["init"], cwd);
 
-  await runCli(["profile", "create", "team-a"], cwd);
-  await runCli(["profile", "use", "team-a"], cwd);
+  const createdProfile = await runCli(["profile", "create", "team-a"], cwd);
+  assert.match(createdProfile.stdout, /Created profile: team-a/);
+  assert.match(createdProfile.stdout, /profile_data=.*\.muster\/profiles\/team-a\/data/);
+  assert.match(createdProfile.stdout, /profile_home=.*\.muster\/profiles\/team-a\/home/);
+  assert.match(createdProfile.stdout, /profile_workspace=.*\.muster\/profiles\/team-a\/workspace/);
+  assert.match(createdProfile.stdout, /isolation=config,data,memory,skills,provider-home,workspace/);
+
+  const activeProfileResult = await runCli(["profile", "use", "team-a"], cwd);
+  assert.match(activeProfileResult.stdout, /Active profile: team-a/);
+  assert.match(activeProfileResult.stdout, /profile_config_read=.*\.muster\/config\.json/);
+  assert.match(activeProfileResult.stdout, /profile_config_write=.*\.muster\/profiles\/team-a\/config\.json/);
   const profiles = await runCli(["profile", "list"], cwd);
   assert.match(profiles.stdout, /\* team-a/);
+
+  const clonedProfile = await runCli(["profile", "clone", "team-a", "team-b"], cwd);
+  assert.match(clonedProfile.stdout, /Cloned profile team-a -> team-b \(history-free copy of config, memory, and skills\)/);
+  assert.match(clonedProfile.stdout, /clone_excludes=sessions,episodes,tokens,provider-home/);
+  assert.match(clonedProfile.stdout, /profile_workspace=.*\.muster\/profiles\/team-b\/workspace/);
 
   const added = await runCli(["provider", "add", "kimi", "--model", "kimi-latest"], cwd);
   assert.match(added.stdout, /provider_added=kimi/);
@@ -2066,6 +2224,56 @@ test("CLI flow save, check, run with gate, approve, and runs work end to end", a
   const badCheck = await runCliAllowFailure(["flow", "check", "missing-flow"], cwd);
   assert.equal(badCheck.code, 1);
   assert.match(badCheck.stderr, /Flow not found: missing-flow/);
+});
+
+test("CLI flows run governed built-in tools and keep shell opt-in", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "muster-cli-flow-tools-"));
+  await runCli(["init"], cwd);
+  await writeFile(join(cwd, "notes.txt"), "Muster flow tools can read governed workspace files.", "utf8");
+  await writeFile(
+    join(cwd, "read-notes.json"),
+    JSON.stringify({
+      id: "read-notes",
+      steps: [
+        { id: "read", kind: "tool", tool: "read_file", args: { path: "notes.txt", limit: 5 } },
+      ],
+    }),
+    "utf8",
+  );
+
+  await runCli(["flow", "save", "read-notes.json"], cwd);
+  const checked = await runCli(["flow", "check", "read-notes"], cwd);
+  assert.match(checked.stdout, /flow=read-notes preflight=ok/);
+
+  const run = await runCli(["flow", "run", "read-notes"], cwd);
+  assert.match(run.stdout, /step=read status=completed/);
+  assert.match(run.stdout, /status=completed/);
+  const readRunId = run.stdout.match(/flow_run=(flowrun_[a-f0-9]+)/)?.[1];
+  assert.ok(readRunId);
+  const flowEvents = await readFile(join(cwd, ".muster", "data", "flows", `${readRunId}.jsonl`), "utf8");
+  assert.match(flowEvents, /governed workspace files/);
+
+  await writeFile(
+    join(cwd, "shell.json"),
+    JSON.stringify({
+      id: "shell-check",
+      steps: [{ id: "node", kind: "tool", tool: "terminal", args: { command: "node", args: ["--version"] } }],
+    }),
+    "utf8",
+  );
+  await runCli(["flow", "save", "shell.json"], cwd);
+
+  const defaultShellCheck = await runCliAllowFailure(["flow", "check", "shell-check"], cwd);
+  assert.equal(defaultShellCheck.code, 1);
+  assert.match(defaultShellCheck.stdout, /tool "terminal" is not registered/);
+
+  const shellRunWithoutAllow = await runCliAllowFailure(["flow", "run", "shell-check", "--toolset", "full"], cwd);
+  assert.equal(shellRunWithoutAllow.code, 1);
+  assert.match(shellRunWithoutAllow.stdout, /Tool terminal is not available in this context/);
+
+  const shellRun = await runCli(["flow", "run", "shell-check", "--toolset", "full", "--allow-command", "node"], cwd);
+  assert.match(shellRun.stdout, /step=node status=completed/);
+  assert.match(shellRun.stdout, /status=completed/);
 });
 
 test("CLI doctor --fix bootstraps a fresh workspace and status renders mission control", async () => {
