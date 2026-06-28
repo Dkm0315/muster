@@ -71,6 +71,7 @@ import {
   type BuiltinMcpCatalogEntry,
   type BuiltinMcpInstallSpec,
   type BuiltinCapabilityMention,
+  type BuiltinSkillCatalogEntry,
   type BuiltinPluginCatalogEntry,
   mcpOAuthStatus,
   removeMcpOAuthToken,
@@ -7540,13 +7541,18 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
   const [action, ...rest] = commandArgs;
   if (action === "catalog") {
     for (const skill of listBuiltinSkills()) {
-      console.log(`${skill.id.padEnd(28)} ${skill.source.padEnd(9)} ${skill.category.padEnd(22)} risk=${skill.risk.padEnd(6)} ${skill.description}`);
+      console.log(formatBuiltinSkillCatalogLine(skill));
     }
     return;
   }
   if (action === "enable" && rest[0]) {
     const skill = await enableBuiltinSkill(rest[0]);
     console.log(`enabled skill=${skill.id} source=${skill.source} risk=${skill.risk}`);
+    console.log(`category=${skill.category} invocation=user-invocable dispatch=prompt`);
+    console.log(`tags=${skill.tags.join(",") || "-"}`);
+    console.log(`requires=${skill.requires?.join(",") || "-"}`);
+    console.log(`guardrail=check prerequisites first; keep scope narrow; confirm credentials, network, destructive writes, and broad filesystem access`);
+    console.log(`next="muster skills view ${skill.id}"`);
     return;
   }
   if (action === "disable" && rest[0]) {
@@ -7601,6 +7607,12 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   throw new Error("Usage: muster skills list|catalog|enable <id>|disable <id>|view <name>|index|curate");
+}
+
+function formatBuiltinSkillCatalogLine(skill: BuiltinSkillCatalogEntry): string {
+  const tags = skill.tags.length ? ` tags=${skill.tags.slice(0, 5).join(",")}` : "";
+  const requires = skill.requires?.length ? ` requires=${skill.requires.join(",")}` : " requires=-";
+  return `${skill.id.padEnd(28)} ${skill.source.padEnd(9)} ${skill.category.padEnd(22)} risk=${skill.risk.padEnd(6)} invoke=prompt${requires}${tags} ${skill.description}`;
 }
 
 async function pulseCommand(commandArgs: string[]): Promise<void> {

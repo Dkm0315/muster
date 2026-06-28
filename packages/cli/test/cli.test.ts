@@ -720,11 +720,16 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(plugins.stdout, /No plugin policy configured/);
 
   const skillCatalog = await runCli(["skills", "catalog"], cwd);
-  assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes/);
-  assert.match(skillCatalog.stdout, /browser-control\s+openclaw/);
+  assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes\s+software-development\s+risk=low\s+invoke=prompt requires=- tags=debugging,quality/);
+  assert.match(skillCatalog.stdout, /browser-control\s+openclaw\s+web\s+risk=high\s+invoke=prompt requires=- tags=browser,automation/);
 
   const enabledSkill = await runCli(["skills", "enable", "systematic-debugging"], cwd);
   assert.match(enabledSkill.stdout, /enabled skill=systematic-debugging/);
+  assert.match(enabledSkill.stdout, /category=software-development invocation=user-invocable dispatch=prompt/);
+  assert.match(enabledSkill.stdout, /tags=debugging,quality/);
+  assert.match(enabledSkill.stdout, /requires=-/);
+  assert.match(enabledSkill.stdout, /guardrail=check prerequisites first/);
+  assert.match(enabledSkill.stdout, /next="muster skills view systematic-debugging"/);
 
   const listedSkills = await runCli(["skills", "list"], cwd);
   assert.match(listedSkills.stdout, /active\s+systematic-debugging/);
