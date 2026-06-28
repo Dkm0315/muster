@@ -160,8 +160,8 @@ rl.on("line", async (line) => {
     send({ id: msg.id, result: { turn: { id, status: "inProgress" } } });
     await later(prompt === "one" ? 60 : 1);
     send({ method: "item/completed", params: { item: { type: "agentMessage", id: "m-" + id, text: "ok:" + prompt }, threadId: "thread-serial", turnId: id } });
-    send({ method: "turn/completed", params: { threadId: "thread-serial", turn: { id, status: "completed" } } });
     appendFileSync(log, "done:" + prompt + "\\n");
+    send({ method: "turn/completed", params: { threadId: "thread-serial", turn: { id, status: "completed" } } });
   }
 });
 `, "utf8");
