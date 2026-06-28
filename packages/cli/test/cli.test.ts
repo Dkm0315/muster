@@ -1375,6 +1375,13 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(channelCatalog.stdout, /slack\t--bot-token-env,--signing-secret-env\tmuster channels setup slack/);
   assert.match(channelCatalog.stdout, /gchat\t--verification-token-env\tmuster channels setup gchat/);
 
+  const coldChannelDoctor = await runCli(["channels", "doctor"], cwd);
+  assert.match(coldChannelDoctor.stdout, /channel_doctor=all status=needs_setup ready=0\/7/);
+  assert.match(coldChannelDoctor.stdout, /gateway_config=missing/);
+  assert.match(coldChannelDoctor.stdout, /operator_matrix/);
+  assert.match(coldChannelDoctor.stdout, /channel=web status=needs_setup missing=gateway\.token .* next="muster gateway init"/);
+  assert.match(coldChannelDoctor.stdout, /next=muster gateway init/);
+
   const gatewayInitForChannels = await runCli(["gateway", "init"], cwd);
   assert.match(gatewayInitForChannels.stdout, /gateway_config=/);
 

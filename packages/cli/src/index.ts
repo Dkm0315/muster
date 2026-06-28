@@ -7087,13 +7087,16 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   if (action === "doctor") {
-    const config = await loadGatewayConfig();
+    const gateway = await loadGatewayConfig().then(
+      (config) => ({ config, initialized: true }),
+      () => ({ config: emptyGatewayConfig(), initialized: false }),
+    );
     if (!channel) {
-      printChannelDoctorSummary(config);
+      printChannelDoctorSummary(gateway.config, { initialized: gateway.initialized });
       return;
     }
     const spec = requireChannelSpec(channel);
-    await printChannelDoctor(spec, config, { live: commandArgs.includes("--live") });
+    await printChannelDoctor(spec, gateway.config, { live: commandArgs.includes("--live") });
     return;
   }
   if (action === "setup" && channel) {
@@ -7268,7 +7271,7 @@ function channelReplyMode(channel: ChannelId, config: GatewayConfig): string {
   return "http_response";
 }
 
-function printChannelDoctorSummary(config: GatewayConfig): void {
+function printChannelDoctorSummary(config: GatewayConfig, options: { readonly initialized?: boolean } = {}): void {
   const rows = CHANNEL_SETUP_SPECS.map((spec) => {
     const ready = channelReady(spec.id, config);
     const missing = channelMissingSetup(spec.id, config);
@@ -7285,7 +7288,9 @@ function printChannelDoctorSummary(config: GatewayConfig): void {
     const channelStatus = row.ready ? row.warnings.length ? "warning" : "ready" : "needs_setup";
     const missing = row.missing.length ? row.missing.join(",") : "-";
     const warnings = row.warnings.length ? row.warnings.join(",") : "-";
-    const next = row.ready
+    const next = !options.initialized && row.spec.id === "web"
+      ? "muster gateway init"
+      : row.ready
       ? row.warnings.length ? `muster channels doctor ${row.spec.id}${row.spec.id === "telegram" ? " --live" : ""}` : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`
       : `muster channels setup ${row.spec.id}`;
     console.log(`  channel=${row.spec.id} status=${channelStatus} missing=${missing} warnings=${warnings} auth=${channelAuthMode(row.spec.id)} reply=${channelReplyMode(row.spec.id, config)} next="${next}"`);
@@ -7293,7 +7298,8 @@ function printChannelDoctorSummary(config: GatewayConfig): void {
   console.log("guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger");
   const firstBlocked = rows.find((row) => !row.ready);
   const firstWarning = rows.find((row) => row.ready && row.warnings.length);
-  if (firstBlocked) console.log(`next=muster channels setup ${firstBlocked.spec.id}`);
+  if (!options.initialized) console.log("next=muster gateway init");
+  else if (firstBlocked) console.log(`next=muster channels setup ${firstBlocked.spec.id}`);
   else if (firstWarning) console.log(`next=muster channels doctor ${firstWarning.spec.id}${firstWarning.spec.id === "telegram" ? " --live" : ""}`);
   else console.log(`next=muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
 }
@@ -7378,6 +7384,10 @@ function printChannelSetup(spec: ChannelSetupSpec, config: GatewayConfig, args: 
 async function loadOrInitGatewayConfig(): Promise<GatewayConfig> {
   const result = await initGatewayConfig();
   return result.config;
+}
+
+function emptyGatewayConfig(): GatewayConfig {
+  return { port: DEFAULT_GATEWAY_PORT } as GatewayConfig;
 }
 
 function applyChannelSetup(channel: ChannelId, config: GatewayConfig, args: readonly string[]): GatewayConfig {
