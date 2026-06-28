@@ -448,6 +448,7 @@ Usage:
   muster flow save <file.json> | list | check <id> | run <id> [--toolset core|full] [--allow-command cmd] [--allow-host host] [--pack dir]
   muster flow runs | show <run-id> | approve <run-id> | reject <run-id>
   muster gateway init
+  muster gateway status              # readiness without printing bearer tokens
   muster gateway start [--port 7460]
   muster gateway poll                 # Telegram long-poll (no public webhook URL needed)
   muster pairing list | approve <code>

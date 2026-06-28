@@ -19,6 +19,9 @@ semantic versioning.
 - Added all-channel doctor output for Telegram, Slack, Google Chat, Discord,
   WhatsApp, Teams, and web embed operators with missing setup, auth mode, reply
   mode, guardrails, and next commands.
+- Added `muster gateway status` and cold-start channel status guidance so users
+  can inspect gateway/channel readiness without initializing or exposing bearer
+  tokens.
 - Added personal-agent dashboard readiness lines so `muster dashboard status`
   shows packs, channels, MCPs, memory health, token ledger state, sessions, and
   concrete next setup commands.

@@ -41,6 +41,7 @@ test("CLI help exposes terminal and pi surfaces", async () => {
   assert.match(stdout, /muster mcp list/);
   assert.match(stdout, /muster dashboard status/);
   assert.match(stdout, /muster channels list/);
+  assert.match(stdout, /muster gateway status/);
   assert.match(stdout, /muster integrations/);
   assert.match(stdout, /muster memory add/);
   assert.match(stdout, /muster latency "prompt"/);
