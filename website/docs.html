@@ -198,7 +198,9 @@ $ muster flow show flowrun_89e4607c       # full step-by-step run record</pre>
           <h1>Gateway &amp; surfaces</h1>
           <p>One gateway process, one message envelope, any frontend. Six webhook adapters ship in <code>packages/gateway/src/adapters</code> — <strong>telegram, slack, discord, whatsapp, gchat, teams</strong> — plus a browser client in <code>packages/surface</code>. Discord interactions are verified with native ed25519 signatures.</p>
 
-          <pre class="mono codeblock">$ muster gateway init                # writes .muster/gateway.json (token inside)
+          <pre class="mono codeblock">$ muster gateway status              # safe readiness check; token is never printed
+$ muster gateway init                # writes .muster/gateway.json (token inside)
+$ muster gateway status              # configured, port, channel readiness, next command
 $ muster gateway start --port 7460
 $ muster pairing list                # pending senders
 $ muster pairing approve &lt;code&gt;      # first message from an unknown sender requires pairing</pre>
@@ -286,6 +288,7 @@ Usage:
   muster flow save &lt;file.json&gt; | list | check &lt;id&gt; | run &lt;id&gt;
   muster flow runs | show &lt;run-id&gt; | approve &lt;run-id&gt; | reject &lt;run-id&gt;
   muster gateway init
+  muster gateway status
   muster gateway start [--port 7460]
   muster pairing list | approve &lt;code&gt;
   muster flow replay &lt;run-id&gt; [--live-agents]
