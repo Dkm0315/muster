@@ -31,14 +31,16 @@ That opens the terminal chat surface. First run opens onboarding; after setup it
 
 ![Muster terminal launch demo](docs/assets/muster-terminal-launch-demo.gif)
 
-This is the latest slowed terminal video from the current launch flow: onboarding/product context, governed chat, channel setup, MCP setup, live token ledger, and integrity checks. It uses the real Muster terminal colors and the same demo path a new user can run locally.
+**Watch the latest slowed launch video:** [MP4](docs/assets/muster-terminal-launch-demo.mp4) · [GIF](docs/assets/muster-terminal-launch-demo.gif)
+
+This is the latest terminal video from the current launch flow: onboarding/product context, governed chat, channel setup, MCP setup, live token ledger, and integrity checks. It uses the real Muster terminal colors and the same demo path a new user can run locally. The GIF is for inline GitHub preview; the MP4 is the higher-quality asset for Telegram, LinkedIn, GitHub release notes, and launch posts.
 
 Launch assets for GitHub, Telegram, LinkedIn, and release posts:
 
 | Asset | Use |
 |---|---|
 | [Slowed terminal GIF](docs/assets/muster-terminal-launch-demo.gif) | Inline GitHub/README preview |
-| [Slowed terminal MP4](docs/assets/muster-terminal-launch-demo.mp4) | Social posts and richer demos |
+| [Slowed launch MP4](docs/assets/muster-terminal-launch-demo.mp4) | Telegram, LinkedIn, GitHub release notes, and richer demos |
 | [Recording script](docs/assets/muster-terminal-launch-demo.tape) | Reproducible terminal capture source |
 
 Today you can run the same path locally:
