@@ -7066,13 +7066,17 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   if (action === "status") {
-    const config = await loadGatewayConfig();
+    const gateway = await loadGatewayConfig().then(
+      (config) => ({ config, initialized: true }),
+      () => ({ config: emptyGatewayConfig(), initialized: false }),
+    );
+    if (!gateway.initialized) console.log(`gateway_config=missing next="muster gateway init"`);
     if (channel) {
       const spec = requireChannelSpec(channel);
-      printChannelStatus(spec, config);
+      printChannelStatus(spec, gateway.config);
       return;
     }
-    for (const spec of CHANNEL_SETUP_SPECS) printChannelStatus(spec, config);
+    for (const spec of CHANNEL_SETUP_SPECS) printChannelStatus(spec, gateway.config);
     return;
   }
   if (action === "plan" && channel) {
