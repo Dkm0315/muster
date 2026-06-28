@@ -2561,7 +2561,8 @@ async function printChatIntegrations(selection: string | undefined, state: ChatS
     return;
   }
   if (action === "status") {
-    await printIntegrationReadiness();
+    const statusLines = await captureConsoleLines(() => printIntegrationReadiness());
+    printChatIntegrationStatus(statusLines);
     return;
   }
   if (action === "list" || action === "guide") {
@@ -2626,6 +2627,55 @@ function printChatIntegrationWorkflow(rawLines: readonly string[]): void {
     ...formatWorkflowField(fields, "guardrails", "Guardrails"),
   ];
   printChatPanel("Integration workflow", lines);
+}
+
+function printChatIntegrationStatus(rawLines: readonly string[]): void {
+  const sections = splitIntegrationStatusSections(rawLines);
+  const summary = rawLines.filter((line) =>
+    line.startsWith("integration_status=") ||
+    line.startsWith("profile=") ||
+    line.startsWith("catalog_coverage") ||
+    line.startsWith("readiness_matrix") ||
+    line.startsWith("mcp_matrix"),
+  );
+  const suggested = (sections.get("suggested_path") ?? []).filter((line) => /^\s*\d+\./.test(line));
+  const blockers = (sections.get("top_blockers") ?? []).slice(0, 6);
+  const channels = (sections.get("channels_optional") ?? []).slice(0, 6);
+  const daily = (sections.get("daily_life_packs") ?? []).slice(0, 5);
+  const mcps = (sections.get("mcp_connectors") ?? []).slice(0, 5);
+  const guardrails = rawLines.find((line) => line.startsWith("guardrails="));
+  printChatPanel("Integration readiness", [
+    ...summary.map((line) => humanizeIntegrationStatusLine(line)),
+    ...(blockers.length ? ["", `${color("Blockers", "accent")} ${blockers.map(compactIntegrationRow).join(" · ")}`] : []),
+    ...(suggested.length ? ["", `${color("Suggested path", "accent")} ${suggested.map((line) => line.trim()).join(" · ")}`] : []),
+    ...(channels.length ? ["", `${color("Channels", "accent")} ${channels.map(compactIntegrationRow).join(" · ")}`] : []),
+    ...(daily.length ? [`${color("Packs", "accent")} ${daily.map(compactIntegrationRow).join(" · ")}`] : []),
+    ...(mcps.length ? [`${color("MCP", "accent")} ${mcps.map(compactIntegrationRow).join(" · ")}`] : []),
+    ...(guardrails ? ["", `${color("Guardrails", "accent")} ${guardrails.slice("guardrails=".length)}`] : []),
+  ]);
+}
+
+function splitIntegrationStatusSections(rawLines: readonly string[]): Map<string, string[]> {
+  const sections = new Map<string, string[]>();
+  let current: string | undefined;
+  for (const line of rawLines) {
+    if (/^[a-z_]+$/.test(line)) {
+      current = line;
+      sections.set(current, []);
+      continue;
+    }
+    if (current) sections.set(current, [...(sections.get(current) ?? []), line]);
+  }
+  return sections;
+}
+
+function humanizeIntegrationStatusLine(line: string): string {
+  const [key, value = ""] = line.split(/=(.*)/s);
+  return `${color(key.replace(/_/g, " "), "accent")} ${value}`;
+}
+
+function compactIntegrationRow(line: string): string {
+  return line.trim().replace(/\s+/g, " ").replace(/\t/g, " ");
 }
 
 function integrationWorkflowNextAction(fields: ReadonlyMap<string, readonly string[]>): string | undefined {
