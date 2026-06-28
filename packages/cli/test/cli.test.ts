@@ -133,6 +133,13 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(history.stdout, /session=release-audit/);
   assert.match(history.stdout, /messages=0/);
 
+  const status = await runCli(["chat", "--session", "release-audit", "/status"], cwd);
+  assert.match(status.stdout, /Status/);
+  assert.match(status.stdout, /session\s+release-audit/);
+  assert.match(status.stdout, /resume\s+\/resume release-audit/);
+  assert.match(status.stdout, /history\s+\/history 10/);
+  assert.match(status.stdout, /inspect\s+muster sessions show sess_/);
+
   const listed = await runCli(["chat", "--list"], cwd);
   assert.match(listed.stdout, /release-audit/);
 

@@ -1903,6 +1903,9 @@ async function printChatStatus(state: ChatState): Promise<void> {
       `${color("messages".padEnd(12), "accent")} ${messages}`,
       `${color("tokens".padEnd(12), "accent")} in ${session.tokensIn} / out ${session.tokensOut}`,
       `${color("fallbacks".padEnd(12), "accent")} ${formatFallbackRoutes(config)}`,
+      `${color("resume".padEnd(12), "accent")} /resume ${state.sessionName}`,
+      `${color("history".padEnd(12), "accent")} /history ${Math.min(Math.max(messages, 10), 40)}`,
+      `${color("inspect".padEnd(12), "accent")} muster sessions show ${session.id}`,
       color(`id ${session.id}`, "dim"),
     ]);
   } finally {
