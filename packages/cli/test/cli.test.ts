@@ -774,7 +774,20 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   await runCli(["init"], cwd);
 
   const plugins = await runCli(["plugins", "list"], cwd);
-  assert.match(plugins.stdout, /No plugin policy configured/);
+  assert.match(plugins.stdout, /No plugins enabled for this profile yet/);
+  assert.match(plugins.stdout, /catalog=\d+ setup_or_pack=\d+ high_risk=\d+/);
+  assert.match(plugins.stdout, /next=muster plugins catalog/);
+  assert.match(plugins.stdout, /setup=muster plugins setup <id>/);
+
+  const emptySkills = await runCli(["skills", "list"], cwd);
+  assert.match(emptySkills.stdout, /No skills enabled for this profile yet/);
+  assert.match(emptySkills.stdout, /catalog=\d+ high_risk=\d+/);
+  assert.match(emptySkills.stdout, /next=muster skills catalog/);
+
+  const emptyMcp = await runCli(["mcp", "list"], cwd);
+  assert.match(emptyMcp.stdout, /No MCP servers configured for this profile yet/);
+  assert.match(emptyMcp.stdout, /catalog=\d+ installable_or_guided=\d+ oauth=\d+/);
+  assert.match(emptyMcp.stdout, /install=muster mcp install <id>/);
 
   const skillCatalog = await runCli(["skills", "catalog"], cwd);
   assert.match(skillCatalog.stdout, /systematic-debugging\s+hermes\s+software-development\s+risk=low\s+invoke=prompt requires=- tags=debugging,quality/);

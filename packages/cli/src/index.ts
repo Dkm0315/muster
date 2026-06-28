@@ -3717,7 +3717,14 @@ async function pluginsCommand(args: string[]): Promise<void> {
   }
   if (action === "list" || action === undefined) {
     if (!policy) {
-      console.log("No plugin policy configured. Use capability packs with muster plugins inspect/load <path>.");
+      const catalog = listBuiltinPlugins();
+      const installable = catalog.filter((plugin) => plugin.packPath || plugin.setup).length;
+      const highRisk = catalog.filter((plugin) => plugin.risk === "high").length;
+      console.log("No plugins enabled for this profile yet.");
+      console.log(`catalog=${catalog.length} setup_or_pack=${installable} high_risk=${highRisk}`);
+      console.log("next=muster plugins catalog");
+      console.log("setup=muster plugins setup <id>");
+      console.log("enable=muster plugins enable <id> [--allow-high-risk]");
       return;
     }
     console.log(`allow=${policy.allow?.join(",") || "-"}`);
@@ -4211,7 +4218,14 @@ async function mcpCommand(args: string[]): Promise<void> {
     const servers = (await loadConfig()).tools?.mcp?.servers ?? {};
     const entries = Object.entries(servers);
     if (!entries.length) {
-      console.log("No MCP servers configured.");
+      const catalog = listBuiltinMcpServers();
+      const oauth = catalog.filter((entry) => entry.auth === "oauth").length;
+      const installable = catalog.filter((entry) => entry.install || entry.commandHint).length;
+      console.log("No MCP servers configured for this profile yet.");
+      console.log(`catalog=${catalog.length} installable_or_guided=${installable} oauth=${oauth}`);
+      console.log("next=muster mcp catalog");
+      console.log("install=muster mcp install <id>");
+      console.log("custom=muster mcp add-http <name> <url> | muster mcp add-stdio <name> <command> [args...]");
       return;
     }
     for (const [serverName, server] of entries) {
@@ -4306,8 +4320,14 @@ async function printMcpStatus(name?: string): Promise<void> {
   }
   const entries = Object.entries(servers);
   if (!entries.length) {
-    console.log("No MCP servers configured.");
+    const catalog = listBuiltinMcpServers();
+    const oauth = catalog.filter((entry) => entry.auth === "oauth").length;
+    const installable = catalog.filter((entry) => entry.install || entry.commandHint).length;
+    console.log("No MCP servers configured for this profile yet.");
+    console.log(`catalog=${catalog.length} installable_or_guided=${installable} oauth=${oauth}`);
     console.log("next=muster mcp catalog");
+    console.log("install=muster mcp install <id>");
+    console.log("custom=muster mcp add-http <name> <url> | muster mcp add-stdio <name> <command> [args...]");
     return;
   }
   for (const [serverName, server] of entries) await printConfiguredMcpStatus(serverName, server);
@@ -7762,7 +7782,16 @@ async function skillsCommand(commandArgs: string[]): Promise<void> {
   }
   if (action === "list" || action === undefined) {
     const skills = await listSkills();
-    if (!skills.length) { console.log("No skills yet."); return; }
+    if (!skills.length) {
+      const catalog = listBuiltinSkills();
+      const highRisk = catalog.filter((skill) => skill.risk === "high").length;
+      console.log("No skills enabled for this profile yet.");
+      console.log(`catalog=${catalog.length} high_risk=${highRisk}`);
+      console.log("next=muster skills catalog");
+      console.log("enable=muster skills enable <id>");
+      console.log("view=muster skills view <id>");
+      return;
+    }
     for (const skill of skills) {
       console.log(`${skill.status.padEnd(10)} ${skill.name.padEnd(28)} ${skill.description.slice(0, 60)}`);
     }
