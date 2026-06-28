@@ -220,9 +220,18 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatIntegrations.stdout, /\/integrations <id>/);
 
   const chatTelegramIntegration = await runCli(["chat", "/integrations telegram"], cwd);
-  assert.match(chatTelegramIntegration.stdout, /integration_workflow=telegram kind=channel/);
-  assert.match(chatTelegramIntegration.stdout, /steps=pick -> explain impact -> authenticate\/setup -> verify -> enable gateway -> run local sample/);
-  assert.match(chatTelegramIntegration.stdout, /guardrails=no_secret_echo, scoped_memory, token_ledger/);
+  assert.match(chatTelegramIntegration.stdout, /Integration workflow/);
+  assert.match(chatTelegramIntegration.stdout, /telegram/);
+  assert.match(chatTelegramIntegration.stdout, /Impact/);
+  assert.match(chatTelegramIntegration.stdout, /Setup/);
+  assert.match(chatTelegramIntegration.stdout, /Verify/);
+  assert.match(chatTelegramIntegration.stdout, /Enable/);
+  assert.match(chatTelegramIntegration.stdout, /Sample/);
+  assert.match(chatTelegramIntegration.stdout, /Flow/);
+  assert.match(chatTelegramIntegration.stdout, /pick -> explain impact -> authenticate\/setup -> verify -> enable gateway -> run\s+.*local sample/s);
+  assert.match(chatTelegramIntegration.stdout, /Guardrails/);
+  assert.match(chatTelegramIntegration.stdout, /no_secret_echo, scoped_memory, token_ledger/);
+  assert.doesNotMatch(chatTelegramIntegration.stdout, /integration_workflow=telegram/);
   assert.doesNotMatch(chatHttpMcp.stdout, /client_secret/i);
 
   const mcpStatus = await runCli(["mcp", "status", "product"], cwd);

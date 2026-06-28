@@ -2576,7 +2576,58 @@ async function printChatIntegrations(selection: string | undefined, state: ChatS
     ]);
     return;
   }
-  await printIntegrationWorkflow(target);
+  const workflowLines = await captureConsoleLines(() => printIntegrationWorkflow(target));
+  printChatIntegrationWorkflow(workflowLines);
+}
+
+async function captureConsoleLines(fn: () => Promise<void>): Promise<string[]> {
+  const original = console.log;
+  const lines: string[] = [];
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    await fn();
+  } finally {
+    console.log = original;
+  }
+  return lines;
+}
+
+function printChatIntegrationWorkflow(rawLines: readonly string[]): void {
+  const fields = new Map<string, string[]>();
+  for (const line of rawLines) {
+    const index = line.indexOf("=");
+    if (index <= 0) continue;
+    const key = line.slice(0, index);
+    const value = line.slice(index + 1);
+    fields.set(key, [...(fields.get(key) ?? []), value]);
+  }
+  const first = fields.get("integration_workflow")?.[0] ?? "unknown";
+  const [id, ...metaParts] = first.split(/\s+/).filter(Boolean);
+  const meta = metaParts.join(" · ");
+  const setupUrls = fields.get("setup_url") ?? [];
+  const lines = [
+    `${color(id, "accent")} ${meta ? color(meta, "dim") : ""}`.trim(),
+    ...formatWorkflowField(fields, "impact", "Impact"),
+    ...formatWorkflowField(fields, "readiness", "Readiness"),
+    ...formatWorkflowField(fields, "risk", "Risk"),
+    ...formatWorkflowField(fields, "auth", "Auth"),
+    ...formatWorkflowField(fields, "authenticate", "Authenticate"),
+    ...formatWorkflowField(fields, "setup", "Setup"),
+    ...formatWorkflowField(fields, "verify", "Verify"),
+    ...formatWorkflowField(fields, "enable", "Enable"),
+    ...formatWorkflowField(fields, "sample", "Sample"),
+    ...formatWorkflowField(fields, "failure_behavior", "Failure"),
+    ...(setupUrls.length ? [`${color("Open", "accent")} ${setupUrls.join(" · ")}`] : []),
+    ...formatWorkflowField(fields, "steps", "Flow"),
+    ...formatWorkflowField(fields, "guardrails", "Guardrails"),
+  ];
+  printChatPanel("Integration workflow", lines);
+}
+
+function formatWorkflowField(fields: ReadonlyMap<string, readonly string[]>, key: string, label: string): string[] {
+  return (fields.get(key) ?? []).map((value) => `${color(label, "accent")} ${value}`);
 }
 
 async function chatAddHttpMcp(args: string[], state: ChatState): Promise<void> {
