@@ -7,6 +7,21 @@ semantic versioning.
 ## [Unreleased]
 
 ### Added
+- Added governed first-party flow tool execution so saved flows can run audited
+  core tools, while shell execution remains opt-in behind `--toolset full` and
+  explicit command allowlists.
+- Added session-continuity metadata for searchable chat history so resumed
+  sessions expose the active backend, latest session id, and recall path instead
+  of hiding continuity state.
+- Added integration readiness summaries covering catalog coverage, channel
+  setup, plugin enablement, MCP configuration, top blockers, and daily-life pack
+  next steps.
+- Added all-channel doctor output for Telegram, Slack, Google Chat, Discord,
+  WhatsApp, Teams, and web embed operators with missing setup, auth mode, reply
+  mode, guardrails, and next commands.
+- Added personal-agent dashboard readiness lines so `muster dashboard status`
+  shows packs, channels, MCPs, memory health, token ledger state, sessions, and
+  concrete next setup commands.
 - Added Artifact Studio builders for DOCX, XLSX, PPTX, and simple PDF outputs,
   plus app-server handoff planning for higher-fidelity document, spreadsheet,
   presentation, and PDF workflows when a Codex or Claude host exposes those
@@ -28,6 +43,9 @@ semantic versioning.
   Forum, and Reddit drafts.
 
 ### Changed
+- Tightened release/demo evidence around integrations: the dashboard now gives a
+  compact cockpit view, while `muster integrations status` remains the deeper
+  readiness matrix for catalog and setup blockers.
 - Updated homepage SEO metadata and exact-query language around "Muster agent
   harness", governed agent harness, MCP agent harness, Frappe / ERPNext agent
   harness, and production AI agents.
