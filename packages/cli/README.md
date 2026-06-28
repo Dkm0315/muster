@@ -85,6 +85,21 @@ muster benchmark                              # the Token Waste Index, live
 
 Everything renders plain-text tables in your terminal. No web dashboard required.
 
+## Gateway and channel readiness
+
+Use the gateway status path before starting web or chat surfaces. It reports
+configuration, channel readiness, and the next command without printing bearer
+tokens.
+
+```bash
+muster gateway status                         # safe before init
+muster gateway init                           # writes .muster/gateway.json
+muster gateway status                         # token=configured, channels_ready=...
+muster channels status                        # Telegram/Slack/GChat/etc. setup state
+muster channels doctor                        # auth mode, missing setup, guardrails
+muster gateway start --port 7460              # start only after setup is understood
+```
+
 ## Architecture
 
 ```
