@@ -45,6 +45,7 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
     speeds: () => [{ value: "session" }, { value: "fast" }],
     skills: () => [{ value: "api-contract-testing" }, { value: "adversarial-ux-test", description: "qa · ux · break CLI flows" }, { value: "dashboard-reporting" }],
     plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }, { value: "developer-tools" }],
+    pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }, { value: "custom", description: "MUSTER_CUSTOM_PLUGIN_CACHE" }],
     mcpServers: () => [{ value: "git" }, { value: "github" }, { value: "filesystem" }],
     agents: async () => ["review", "research"],
   });
@@ -103,6 +104,10 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.deepEqual(pluginByDescription?.items.map((item) => item.value), ["artifact-studio"]);
   const barePlugins = await provider.getSuggestions(["/plugins"], 0, 8, { signal });
   assert.deepEqual(provider.applyCompletion(["/plugins"], 0, 8, barePlugins!.items[0], barePlugins!.prefix).lines, ["/plugins artifact-studio"]);
+  const reuseProviders = await provider.getSuggestions(["/plugins reuse co"], 0, 17, { signal });
+  assert.deepEqual(reuseProviders?.items.map((item) => item.value), ["codex"]);
+  assert.deepEqual(provider.applyCompletion(["/plugins reuse"], 0, 14, reuseProviders!.items[0], reuseProviders!.prefix).lines, ["/plugins reuse codex"]);
+  assert.deepEqual(provider.applyCompletion(["/plugins reuse co"], 0, 17, reuseProviders!.items[0], reuseProviders!.prefix).lines, ["/plugins reuse codex"]);
 
   const mcp = await provider.getSuggestions(["/mcp git"], 0, 8, { signal });
   assert.deepEqual(mcp?.items.map((item) => item.value), ["git", "github"]);
@@ -198,6 +203,7 @@ test("muster chat harness opens skill and plugin pickers as interactive composer
     recentSessions: () => [],
     skills: () => [{ value: "adversarial-ux-test", description: "qa · ux · break CLI flows" }],
     plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }],
+    pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }],
     agents: async () => [],
     width: 100,
   });
@@ -215,6 +221,13 @@ test("muster chat harness opens skill and plugin pickers as interactive composer
   assert.equal(harness.text(), "/skills ux");
   assert.match(skillScreen, /suggestions/);
   assert.match(skillScreen, /adversarial-ux-test/);
+
+  harness.openPicker("/plugins reuse");
+  await settleAutocomplete();
+  const reuseScreen = stripAnsi(harness.visible(90).join("\n"));
+  assert.equal(harness.text(), "/plugins reuse");
+  assert.match(reuseScreen, /suggestions/);
+  assert.match(reuseScreen, /codex/);
 });
 
 test("muster chat harness escape closes bare completion and restores normal prompt", async () => {
