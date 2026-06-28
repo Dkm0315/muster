@@ -139,6 +139,10 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.deepEqual(workflowIntegration?.items.map((item) => item.value), ["parallel-search"]);
   assert.deepEqual(provider.applyCompletion(["/integrations workflow par"], 0, 26, workflowIntegration!.items[0], workflowIntegration!.prefix).lines, ["/integrations workflow parallel-search"]);
 
+  const verifyIntegration = await provider.getSuggestions(["/integrations verify tel"], 0, 24, { signal });
+  assert.deepEqual(verifyIntegration?.items.map((item) => item.value), ["telegram"]);
+  assert.deepEqual(provider.applyCompletion(["/integrations verify tel"], 0, 24, verifyIntegration!.items[0], verifyIntegration!.prefix).lines, ["/integrations verify telegram"]);
+
   const workflowStatus = await provider.getSuggestions(["/integrations workflow st"], 0, 25, { signal });
   assert.ok(workflowStatus);
   assert.notDeepEqual(workflowStatus.items.map((item) => item.value), ["status"]);
