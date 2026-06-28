@@ -49,6 +49,12 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
     pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }, { value: "custom", description: "MUSTER_CUSTOM_PLUGIN_CACHE" }],
     mcpServers: () => [{ value: "git" }, { value: "github" }, { value: "filesystem" }],
     integrations: () => [
+      { value: "status", description: "readiness" },
+      { value: "telegram", description: "channel · guided setup" },
+      { value: "artifact-studio", description: "plugin · docs/pptx/pdf" },
+      { value: "parallel-search", description: "mcp · web search" },
+    ],
+    integrationWorkflows: () => [
       { value: "telegram", description: "channel · guided setup" },
       { value: "artifact-studio", description: "plugin · docs/pptx/pdf" },
       { value: "parallel-search", description: "mcp · web search" },
@@ -125,9 +131,18 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.deepEqual(integrations?.items.map((item) => item.value), ["telegram"]);
   assert.deepEqual(provider.applyCompletion(["/integrations tel"], 0, 17, integrations!.items[0], integrations!.prefix).lines, ["/integrations telegram"]);
 
+  const integrationStatus = await provider.getSuggestions(["/integrations st"], 0, 16, { signal });
+  assert.equal(integrationStatus?.items[0]?.value, "status");
+  assert.deepEqual(provider.applyCompletion(["/integrations st"], 0, 16, integrationStatus!.items[0], integrationStatus!.prefix).lines, ["/integrations status"]);
+
   const workflowIntegration = await provider.getSuggestions(["/integrations workflow par"], 0, 26, { signal });
   assert.deepEqual(workflowIntegration?.items.map((item) => item.value), ["parallel-search"]);
   assert.deepEqual(provider.applyCompletion(["/integrations workflow par"], 0, 26, workflowIntegration!.items[0], workflowIntegration!.prefix).lines, ["/integrations workflow parallel-search"]);
+
+  const workflowStatus = await provider.getSuggestions(["/integrations workflow st"], 0, 25, { signal });
+  assert.ok(workflowStatus);
+  assert.notDeepEqual(workflowStatus.items.map((item) => item.value), ["status"]);
+  assert.equal(workflowStatus.items.some((item) => item.value === "status"), false);
 });
 
 test("muster TUI completion provider can be backed by one catalog service", async () => {

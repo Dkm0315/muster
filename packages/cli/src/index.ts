@@ -774,6 +774,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       agents: chatAgentOptions,
       pluginReuseProviders: chatReuseProviderOptions,
       integrations: chatIntegrationOptions,
+      integrationWorkflows: chatIntegrationWorkflowOptions,
       statusLine: () => chatStatusLine(state),
       onSubmit: async (text, sink) => {
         state.statusSink = sink;
@@ -1309,8 +1310,9 @@ function chatCompletions(line: string): string[] {
     return filterPickerOptions(CHAT_MCP_OPTIONS, fragment).map((server) => server.value);
   }
   if (command === "integrations" || command === "integration") {
+    const workflowOnly = parts[1]?.toLowerCase() === "workflow";
     return filterPickerOptions([
-      ...chatIntegrationOptions(),
+      ...(workflowOnly ? chatIntegrationWorkflowOptions() : chatIntegrationOptions()),
     ], fragment).map((integration) => integration.value);
   }
   return [];
@@ -1522,7 +1524,8 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
   if (/^\/integrations?(?:\s+workflow)?(?:\s+\S*)?$/i.test(trimmed)) {
     const parts = trimmed.split(/\s+/).filter(Boolean);
     const fragment = parts.length > 1 ? parts.at(-1)?.toLowerCase() ?? "" : "";
-    return filterPickerOptions(chatIntegrationOptions(), parts[1]?.toLowerCase() === "workflow" && parts.length <= 2 ? "" : fragment)
+    const workflowOnly = parts[1]?.toLowerCase() === "workflow";
+    return filterPickerOptions(workflowOnly ? chatIntegrationWorkflowOptions() : chatIntegrationOptions(), workflowOnly && parts.length <= 2 ? "" : fragment)
       .slice(0, 24)
       .map((integration) => ({
         label: `${color(integration.value.padEnd(28), "highlight")} ${integration.description ?? "integration workflow"}`,
@@ -2839,6 +2842,8 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
           return filterPickerOptions(await chatMcpOptions(), request.fragment);
         case "integration":
           return filterPickerOptions(chatIntegrationOptions(), request.fragment);
+        case "integration-workflow":
+          return filterPickerOptions(chatIntegrationWorkflowOptions(), request.fragment);
         case "agent": {
           const fragment = request.fragment.toLowerCase();
           return [...new Set(await chatAgentOptions())]
@@ -2969,6 +2974,15 @@ async function chatMcpOptions(): Promise<PickerOption[]> {
 }
 
 function chatIntegrationOptions(): PickerOption[] {
+  const actionOptions: PickerOption[] = [
+    { value: "status", label: "status", description: "show integration readiness, blockers, suggested path, and guardrails" },
+    { value: "list", label: "list", description: "show the machine-readable integration catalog" },
+    { value: "guide", label: "guide", description: "show setup guidance for channels, plugins, and MCPs" },
+  ];
+  return [...actionOptions, ...chatIntegrationWorkflowOptions()];
+}
+
+function chatIntegrationWorkflowOptions(): PickerOption[] {
   const channelOptions = CHANNEL_SETUP_SPECS.map((spec) => ({
     value: spec.id,
     label: spec.id,

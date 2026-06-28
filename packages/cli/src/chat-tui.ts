@@ -34,6 +34,7 @@ export interface MusterAutocompleteOptions {
   readonly pluginReuseProviders?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly mcpServers?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly integrations?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
+  readonly integrationWorkflows?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly agents: () => readonly string[] | Promise<readonly string[]>;
 }
 
@@ -53,6 +54,7 @@ export type MusterCompletionKind =
   | "plugin-reuse-provider"
   | "mcp"
   | "integration"
+  | "integration-workflow"
   | "agent";
 
 export interface MusterCompletionRequest {
@@ -528,6 +530,7 @@ function slashCompletionContext(trimmed: string):
   | { kind: "plugin-reuse-provider"; fragment: string; prefix: string }
   | { kind: "mcp"; fragment: string; prefix: string }
   | { kind: "integration"; fragment: string; prefix: string }
+  | { kind: "integration-workflow"; fragment: string; prefix: string }
   | undefined {
   switch (trimmed.toLowerCase()) {
     case "/tools":
@@ -563,7 +566,7 @@ function slashCompletionContext(trimmed: string):
       return { kind: "integration", fragment: "", prefix: trimmed };
     case "/integration workflow":
     case "/integrations workflow":
-      return { kind: "integration", fragment: "", prefix: trimmed };
+      return { kind: "integration-workflow", fragment: "", prefix: trimmed };
   }
   if (/^\/[a-z-]*$/i.test(trimmed)) return { kind: "command", fragment: trimmed.slice(1), prefix: trimmed };
   const toolMatch = trimmed.match(/^\/tools\s+([^\s]*)$/i);
@@ -593,7 +596,7 @@ function slashCompletionContext(trimmed: string):
   const mcpMatch = trimmed.match(/^\/mcp\s+([^\s]*)$/i);
   if (mcpMatch) return { kind: "mcp", fragment: mcpMatch[1] ?? "", prefix: trimmed };
   const integrationWorkflowMatch = trimmed.match(/^\/integrations?\s+workflow\s+([^\s]*)$/i);
-  if (integrationWorkflowMatch) return { kind: "integration", fragment: integrationWorkflowMatch[1] ?? "", prefix: trimmed };
+  if (integrationWorkflowMatch) return { kind: "integration-workflow", fragment: integrationWorkflowMatch[1] ?? "", prefix: trimmed };
   const integrationMatch = trimmed.match(/^\/integrations?\s+([^\s]*)$/i);
   if (integrationMatch) return { kind: "integration", fragment: integrationMatch[1] ?? "", prefix: trimmed };
   return undefined;
@@ -675,6 +678,8 @@ function createCallbackCompletionCatalog(options: MusterAutocompleteOptions): Mu
           return filterPickerOptions(await options.mcpServers?.() ?? [], request.fragment);
         case "integration":
           return filterPickerOptions(await options.integrations?.() ?? [], request.fragment);
+        case "integration-workflow":
+          return filterPickerOptions(await options.integrationWorkflows?.() ?? await options.integrations?.() ?? [], request.fragment);
         case "agent": {
           const fragment = request.fragment.toLowerCase();
           return [...new Set(await options.agents())]
