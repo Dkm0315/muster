@@ -1361,6 +1361,13 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const dashboard = await runCli(["dashboard", "status"], cwd);
   assert.match(dashboard.stdout, /profile=default/);
   assert.match(dashboard.stdout, /configured=true/);
+  assert.match(dashboard.stdout, /personal_agent packs_enabled=\d+\/6 channels_ready=\d+\/7 mcps_configured=\d+\/4/);
+  assert.match(dashboard.stdout, /memory=backend=.* jsonl_objects=\d+ index_objects=\d+ scopes=\d+ fresh=/);
+  assert.match(dashboard.stdout, /token_ledger=records=\d+ today_in=\d+ today_out=\d+ today_cost_usd=\d+\.\d{4}/);
+  assert.match(dashboard.stdout, /sessions=backend=sqlite-(fts5|like) recent=\d+ latest=/);
+  assert.match(dashboard.stdout, /next_personal_pack="muster plugins enable daily-ops"/);
+  assert.match(dashboard.stdout, /next_channel="muster gateway init"/);
+  assert.match(dashboard.stdout, /next_mcp="muster mcp install google-drive"/);
   assert.match(dashboard.stdout, /start=muster dashboard start --port 7461/);
 
   const channelCatalog = await runCli(["channels", "list"], cwd);

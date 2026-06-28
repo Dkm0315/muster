@@ -4762,14 +4762,42 @@ async function dashboardCommand(args: string[]): Promise<void> {
   const action = args[0] ?? "status";
   if (action === "status") {
     const state = await buildCockpitState();
+    const config = await loadConfig().catch(() => undefined);
+    const gateway = await loadGatewayConfig().catch(() => undefined);
+    const memory = await inspectMemoryStore().catch(() => undefined);
+    const tokenRecords = await listTokenRecords().catch(() => []);
+    const today = new Date().toISOString().slice(0, 10);
+    const todayRecords = tokenRecords.filter((record) => record.createdAt.slice(0, 10) === today);
+    const todayInputTokens = todayRecords.reduce((sum, record) => sum + record.inputTokens, 0);
+    const todayOutputTokens = todayRecords.reduce((sum, record) => sum + record.outputTokens, 0);
+    const todayCostUsd = todayRecords.reduce((sum, record) => sum + (record.costUsd ?? 0), 0);
+    const configuredMcp = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
+    const enabledPlugins = activePluginIds(config?.plugins);
+    const personalPacks = ["daily-ops", "artifact-studio", "google-workspace", "google-calendar", "notion", "web-search"];
+    const enabledPersonalPacks = personalPacks.filter((id) => enabledPlugins.has(id));
+    const nextPersonalPack = personalPacks.find((id) => !enabledPlugins.has(id));
+    const personalMcps = ["google-drive", "notion", "parallel-search", "browser"];
+    const configuredPersonalMcps = personalMcps.filter((id) => configuredMcp.has(id));
+    const nextMcp = personalMcps.find((id) => !configuredMcp.has(id));
+    const channelCount = CHANNEL_SETUP_SPECS.length;
+    const readyChannelCount = gateway ? CHANNEL_SETUP_SPECS.filter((spec) => channelReady(spec.id, gateway)).length : 0;
+    const nextChannel = gateway ? CHANNEL_SETUP_SPECS.find((spec) => !channelReady(spec.id, gateway))?.id : undefined;
     const store = openSessionStore();
     try {
       const sessions = store.search({ limit: 1 });
       const sessionCount = sessions.shape === "browse" ? sessions.sessions.length : 0;
+      const latestSession = sessions.shape === "browse" ? sessions.sessions[0] : undefined;
       console.log(`profile=${activeProfile()}`);
       console.log(`configured=${state.configured}`);
       console.log(`default_runtime=${state.configSummary?.defaultRuntime ?? "-"}`);
       console.log(`recent_sessions_visible=${sessionCount}`);
+      console.log(`personal_agent packs_enabled=${enabledPersonalPacks.length}/${personalPacks.length} channels_ready=${readyChannelCount}/${channelCount} mcps_configured=${configuredPersonalMcps.length}/${personalMcps.length}`);
+      console.log(`memory=backend=${memory?.index.backend ?? "unknown"} jsonl_objects=${memory?.jsonl.objectCount ?? 0} index_objects=${memory?.index.objectCount ?? 0} scopes=${memory?.index.scopeRowCount ?? 0} fresh=${memory?.index.fresh ?? false}`);
+      console.log(`token_ledger=records=${tokenRecords.length} today_in=${todayInputTokens} today_out=${todayOutputTokens} today_cost_usd=${todayCostUsd.toFixed(4)}`);
+      console.log(`sessions=backend=${store.backend} recent=${sessionCount} latest=${latestSession?.id ?? "-"}`);
+      console.log(`next_personal_pack=${JSON.stringify(nextPersonalPack ? `muster plugins enable ${nextPersonalPack}` : "configured")}`);
+      console.log(`next_channel=${JSON.stringify(gateway ? nextChannel ? `muster channels setup ${nextChannel}` : "configured" : "muster gateway init")}`);
+      console.log(`next_mcp=${JSON.stringify(nextMcp ? `muster mcp install ${nextMcp}` : "configured")}`);
       console.log("start=muster dashboard start --port 7461");
     } finally {
       store.close();
@@ -4803,6 +4831,22 @@ async function dashboardCommand(args: string[]): Promise<void> {
     return;
   }
   throw new Error("Usage: muster dashboard status|start [--port 7461] [--host 127.0.0.1] [--insecure]");
+}
+
+function activePluginIds(policy: CapabilityPluginPolicy | undefined): Set<string> {
+  const denied = new Set(policy?.deny ?? []);
+  const active = new Set<string>();
+  for (const id of policy?.allow ?? []) {
+    if (!denied.has(id)) active.add(id);
+  }
+  for (const [id, entry] of Object.entries(policy?.entries ?? {})) {
+    if (denied.has(id) || entry.enabled === false) {
+      active.delete(id);
+      continue;
+    }
+    active.add(id);
+  }
+  return active;
 }
 
 function safeConfigKey(value: string): string {
