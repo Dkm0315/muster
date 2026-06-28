@@ -223,6 +223,8 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatTelegramIntegration.stdout, /Integration workflow/);
   assert.match(chatTelegramIntegration.stdout, /telegram/);
   assert.match(chatTelegramIntegration.stdout, /Impact/);
+  assert.match(chatTelegramIntegration.stdout, /Next/);
+  assert.match(chatTelegramIntegration.stdout, /muster channels setup telegram/);
   assert.match(chatTelegramIntegration.stdout, /Setup/);
   assert.match(chatTelegramIntegration.stdout, /Verify/);
   assert.match(chatTelegramIntegration.stdout, /Enable/);
@@ -233,6 +235,20 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatTelegramIntegration.stdout, /no_secret_echo, scoped_memory, token_ledger/);
   assert.doesNotMatch(chatTelegramIntegration.stdout, /integration_workflow=telegram/);
   assert.doesNotMatch(chatHttpMcp.stdout, /client_secret/i);
+
+  const chatGithubIntegration = await runCli(["chat", "/integrations github"], cwd);
+  assert.match(chatGithubIntegration.stdout, /Integration workflow/);
+  assert.match(chatGithubIntegration.stdout, /github/);
+  assert.match(chatGithubIntegration.stdout, /Next/);
+  assert.match(chatGithubIntegration.stdout, /muster plugins setup github/);
+  assert.doesNotMatch(chatGithubIntegration.stdout, /integration_workflow=github/);
+
+  const chatParallelIntegration = await runCli(["chat", "/integrations parallel-search"], cwd);
+  assert.match(chatParallelIntegration.stdout, /Integration workflow/);
+  assert.match(chatParallelIntegration.stdout, /parallel-search/);
+  assert.match(chatParallelIntegration.stdout, /Next/);
+  assert.match(chatParallelIntegration.stdout, /muster mcp install parallel-search/);
+  assert.doesNotMatch(chatParallelIntegration.stdout, /integration_workflow=parallel-search/);
 
   const mcpStatus = await runCli(["mcp", "status", "product"], cwd);
   assert.match(mcpStatus.stdout, /mcp=product transport=http https:\/\/mcp\.example\.test\/mcp auth=oauth/);

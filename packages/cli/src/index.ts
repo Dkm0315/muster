@@ -2607,6 +2607,7 @@ function printChatIntegrationWorkflow(rawLines: readonly string[]): void {
   const [id, ...metaParts] = first.split(/\s+/).filter(Boolean);
   const meta = metaParts.join(" · ");
   const setupUrls = fields.get("setup_url") ?? [];
+  const nextAction = integrationWorkflowNextAction(fields);
   const lines = [
     `${color(id, "accent")} ${meta ? color(meta, "dim") : ""}`.trim(),
     ...formatWorkflowField(fields, "impact", "Impact"),
@@ -2614,6 +2615,7 @@ function printChatIntegrationWorkflow(rawLines: readonly string[]): void {
     ...formatWorkflowField(fields, "risk", "Risk"),
     ...formatWorkflowField(fields, "auth", "Auth"),
     ...formatWorkflowField(fields, "authenticate", "Authenticate"),
+    ...(nextAction ? [`${color("Next", "green")} ${nextAction}`] : []),
     ...formatWorkflowField(fields, "setup", "Setup"),
     ...formatWorkflowField(fields, "verify", "Verify"),
     ...formatWorkflowField(fields, "enable", "Enable"),
@@ -2624,6 +2626,23 @@ function printChatIntegrationWorkflow(rawLines: readonly string[]): void {
     ...formatWorkflowField(fields, "guardrails", "Guardrails"),
   ];
   printChatPanel("Integration workflow", lines);
+}
+
+function integrationWorkflowNextAction(fields: ReadonlyMap<string, readonly string[]>): string | undefined {
+  const first = fields.get("integration_workflow")?.[0] ?? "";
+  const auth = fields.get("auth")?.[0] ?? "";
+  const readiness = fields.get("readiness")?.[0] ?? "";
+  const setup = fields.get("setup")?.[0];
+  const authenticate = fields.get("authenticate")?.[0];
+  const verify = fields.get("verify")?.[0];
+  const enable = fields.get("enable")?.[0];
+  const sample = fields.get("sample")?.[0];
+  if (/ready=true|enabled=true|configured=true/.test(first)) return verify ?? sample ?? enable;
+  if (/missing|needs_env|needs OAuth|needs_oauth|manual_setup/i.test(auth) || /needs_env|manual_setup|setup_plan_only/i.test(readiness)) {
+    return authenticate && authenticate !== "no interactive auth required" ? authenticate : setup;
+  }
+  if (/installable/i.test(readiness)) return enable ?? setup ?? verify;
+  return setup ?? enable ?? verify ?? sample;
 }
 
 function formatWorkflowField(fields: ReadonlyMap<string, readonly string[]>, key: string, label: string): string[] {
