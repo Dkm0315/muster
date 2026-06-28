@@ -1371,6 +1371,15 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const gatewayInitForChannels = await runCli(["gateway", "init"], cwd);
   assert.match(gatewayInitForChannels.stdout, /gateway_config=/);
 
+  const channelDoctorBeforeSetup = await runCli(["channels", "doctor"], cwd);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel_doctor=all status=needs_setup ready=1\/7/);
+  assert.match(channelDoctorBeforeSetup.stdout, /gateway_config=configured/);
+  assert.match(channelDoctorBeforeSetup.stdout, /operator_matrix/);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel=telegram status=needs_setup missing=telegram\.botToken/);
+  assert.match(channelDoctorBeforeSetup.stdout, /channel=web status=ready missing=-/);
+  assert.match(channelDoctorBeforeSetup.stdout, /guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger/);
+  assert.match(channelDoctorBeforeSetup.stdout, /next=muster channels setup telegram/);
+
   const slackPlanBeforeSetup = await runCli(["channels", "plan", "slack", "--public-url", "https://example.test/muster"], cwd);
   assert.match(slackPlanBeforeSetup.stdout, /channel_plan=slack label="Slack App" ready=false/);
   assert.match(slackPlanBeforeSetup.stdout, /operator_contract=inbound_normalize -> scoped_memory_recall -> policy_gate -> draft_or_reply -> token_ledger/);
@@ -1435,6 +1444,14 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(slackPlanAfterSetup.stdout, /channel_plan=slack label="Slack App" ready=true/);
   assert.match(slackPlanAfterSetup.stdout, /reply_mode=draft_stream/);
   assert.doesNotMatch(slackPlanAfterSetup.stdout, /xoxb-secret|slack-signing-secret/);
+
+  const channelDoctorAfterSetup = await runCli(["channels", "doctor"], cwd);
+  assert.match(channelDoctorAfterSetup.stdout, /channel_doctor=all status=needs_setup ready=3\/7/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=telegram status=warning missing=- warnings=telegram\.live_check_available auth=secret-token-header-recommended reply=draft_stream next="muster channels doctor telegram --live"/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=slack status=ready missing=- warnings=- auth=slack-signature-required reply=draft_stream/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=gchat status=needs_setup missing=gchat section/);
+  assert.match(channelDoctorAfterSetup.stdout, /next=muster channels setup gchat/);
+  assert.doesNotMatch(channelDoctorAfterSetup.stdout, /123456:telegram-secret-token|telegram-webhook-secret|xoxb-secret|slack-signing-secret/);
 
   const gchatSetup = await runCli(["channels", "setup", "gchat", "--public-url", "https://chat.example.test"], cwd);
   assert.match(gchatSetup.stdout, /channel=gchat .*ready=false/);

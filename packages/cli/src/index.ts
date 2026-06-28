@@ -7042,9 +7042,13 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     printChannelSimulation(spec, readFlag(commandArgs, "--message") ?? "hello from Muster local simulation");
     return;
   }
-  if (action === "doctor" && channel) {
-    const spec = requireChannelSpec(channel);
+  if (action === "doctor") {
     const config = await loadGatewayConfig();
+    if (!channel) {
+      printChannelDoctorSummary(config);
+      return;
+    }
+    const spec = requireChannelSpec(channel);
     await printChannelDoctor(spec, config, { live: commandArgs.includes("--live") });
     return;
   }
@@ -7059,7 +7063,7 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     printChannelSetup(spec, updated, commandArgs);
     return;
   }
-  throw new Error("Usage: muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <telegram|slack|gchat|discord|whatsapp|teams|web> [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
+  throw new Error("Usage: muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor [telegram|slack|gchat|discord|whatsapp|teams|web] [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
 }
 
 function printChannelCatalog(): void {
@@ -7218,6 +7222,48 @@ function channelReplyMode(channel: ChannelId, config: GatewayConfig): string {
   if (channel === "discord" || channel === "gchat" || channel === "teams") return "synchronous_response";
   if (channel === "whatsapp") return "graph_api_send";
   return "http_response";
+}
+
+function printChannelDoctorSummary(config: GatewayConfig): void {
+  const rows = CHANNEL_SETUP_SPECS.map((spec) => {
+    const ready = channelReady(spec.id, config);
+    const missing = channelMissingSetup(spec.id, config);
+    const warnings = channelDoctorWarnings(spec.id, config);
+    return { spec, ready, missing, warnings };
+  });
+  const readyCount = rows.filter((row) => row.ready).length;
+  const warningCount = rows.filter((row) => row.warnings.length).length;
+  const status = readyCount < rows.length ? "needs_setup" : warningCount ? "warning" : "ready";
+  console.log(`channel_doctor=all status=${status} ready=${readyCount}/${rows.length} warnings=${warningCount}`);
+  console.log(`gateway_config=${config.token ? "configured" : "missing"} port=${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  console.log("operator_matrix");
+  for (const row of rows) {
+    const channelStatus = row.ready ? row.warnings.length ? "warning" : "ready" : "needs_setup";
+    const missing = row.missing.length ? row.missing.join(",") : "-";
+    const warnings = row.warnings.length ? row.warnings.join(",") : "-";
+    const next = row.ready
+      ? row.warnings.length ? `muster channels doctor ${row.spec.id}${row.spec.id === "telegram" ? " --live" : ""}` : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`
+      : `muster channels setup ${row.spec.id}`;
+    console.log(`  channel=${row.spec.id} status=${channelStatus} missing=${missing} warnings=${warnings} auth=${channelAuthMode(row.spec.id)} reply=${channelReplyMode(row.spec.id, config)} next="${next}"`);
+  }
+  console.log("guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger");
+  const firstBlocked = rows.find((row) => !row.ready);
+  const firstWarning = rows.find((row) => row.ready && row.warnings.length);
+  if (firstBlocked) console.log(`next=muster channels setup ${firstBlocked.spec.id}`);
+  else if (firstWarning) console.log(`next=muster channels doctor ${firstWarning.spec.id}${firstWarning.spec.id === "telegram" ? " --live" : ""}`);
+  else console.log(`next=muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+}
+
+function channelDoctorWarnings(channel: ChannelId, config: GatewayConfig): string[] {
+  if (channel === "telegram") {
+    return [
+      config.telegram?.secretToken ? "" : "telegram.secretToken_recommended",
+      config.telegram?.botToken ? "telegram.live_check_available" : "",
+    ].filter(Boolean);
+  }
+  if (channel === "discord" && config.discord?.botToken && !config.discord.publicKey) return ["discord.publicKey_recommended"];
+  if (channel === "teams" && !config.teams?.hmacSecret) return ["teams.hmacSecret_optional"];
+  return [];
 }
 
 async function printChannelDoctor(
