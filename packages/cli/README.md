@@ -1,16 +1,22 @@
-# Muster — the AI agent harness you can audit
+# Muster — Governed Agent Harness for Production AI Agents
 
-**Open-source agent runtime with a token-waste ledger, leak-proof scoped memory, eval-gated learning, and integrity verification. Works with Claude, OpenAI, Gemini, Grok, Kimi, DeepSeek, and 20+ providers. TypeScript, MIT, self-hosted.**
+**Muster is an open-source governed agent harness for production AI agents.**
 
-> Self-improving agents are easy. **Provably governed** agents are Muster: every memory scoped, every skill eval-gated, every token on a ledger. Does your agent *pass muster*?
+Agents that run for more than a demo need boundaries: they should not leak memory, waste tokens, or learn new behavior without tests.
+
+Muster gives those agents scoped memory, a local token ledger, eval-gated learning, MCP/plugin controls, browser automation surfaces, Frappe / ERPNext capability packs, channel operators, and provider choice across cloud, open-source, self-hosted, and private routes.
 
 ```bash
 pnpm --package=@musterhq/cli dlx muster demo
 ```
 
+## Latest Terminal Launch Demo
+
 ![Muster terminal launch demo](https://raw.githubusercontent.com/Dkm0315/muster/main/docs/assets/muster-terminal-launch-demo.gif)
 
-[Watch the MP4 launch demo](https://github.com/Dkm0315/muster/blob/main/docs/assets/muster-terminal-launch-demo.mp4)
+This is the latest slowed terminal video from the current launch flow: onboarding/product context, governed chat, channel setup, MCP setup, live token ledger, and integrity checks. It uses the real Muster terminal colors and the same demo path a new user can run locally.
+
+[Watch the MP4 launch video](https://github.com/Dkm0315/muster/blob/main/docs/assets/muster-terminal-launch-demo.mp4)
 
 ## See it work — `muster demo`
 

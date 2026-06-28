@@ -12,6 +12,7 @@ const commands = [
   { name: "sessions", usage: "/sessions [limit]", description: "list recent named chats" },
   { name: "resume", usage: "/resume <name|id>", description: "switch to a prior named chat or session id" },
   { name: "tools", usage: "/tools [toolset]", description: "list built-in toolsets and tools" },
+  { name: "integrations", usage: "/integrations [id]", description: "guided channel/plugin/MCP setup workflow", aliases: ["integration"] },
 ] as const;
 
 test("muster TUI completion provider filters slash commands and applies selected command", async () => {
@@ -47,6 +48,11 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
     plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }, { value: "developer-tools" }],
     pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }, { value: "custom", description: "MUSTER_CUSTOM_PLUGIN_CACHE" }],
     mcpServers: () => [{ value: "git" }, { value: "github" }, { value: "filesystem" }],
+    integrations: () => [
+      { value: "telegram", description: "channel · guided setup" },
+      { value: "artifact-studio", description: "plugin · docs/pptx/pdf" },
+      { value: "parallel-search", description: "mcp · web search" },
+    ],
     agents: async () => ["review", "research"],
   });
   const signal = new AbortController().signal;
@@ -113,6 +119,15 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.deepEqual(mcp?.items.map((item) => item.value), ["git", "github"]);
   const bareMcp = await provider.getSuggestions(["/mcp"], 0, 4, { signal });
   assert.deepEqual(provider.applyCompletion(["/mcp"], 0, 4, bareMcp!.items[0], bareMcp!.prefix).lines, ["/mcp git"]);
+
+  const integrations = await provider.getSuggestions(["/integrations tel"], 0, 17, { signal });
+  assert.equal(integrations?.prefix, "/integrations tel");
+  assert.deepEqual(integrations?.items.map((item) => item.value), ["telegram"]);
+  assert.deepEqual(provider.applyCompletion(["/integrations tel"], 0, 17, integrations!.items[0], integrations!.prefix).lines, ["/integrations telegram"]);
+
+  const workflowIntegration = await provider.getSuggestions(["/integrations workflow par"], 0, 26, { signal });
+  assert.deepEqual(workflowIntegration?.items.map((item) => item.value), ["parallel-search"]);
+  assert.deepEqual(provider.applyCompletion(["/integrations workflow par"], 0, 26, workflowIntegration!.items[0], workflowIntegration!.prefix).lines, ["/integrations workflow parallel-search"]);
 });
 
 test("muster TUI completion provider can be backed by one catalog service", async () => {
@@ -204,6 +219,7 @@ test("muster chat harness opens skill and plugin pickers as interactive composer
     skills: () => [{ value: "adversarial-ux-test", description: "qa · ux · break CLI flows" }],
     plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }],
     pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }],
+    integrations: () => [{ value: "telegram", description: "channel · guided setup" }],
     agents: async () => [],
     width: 100,
   });
@@ -228,6 +244,13 @@ test("muster chat harness opens skill and plugin pickers as interactive composer
   assert.equal(harness.text(), "/plugins reuse");
   assert.match(reuseScreen, /suggestions/);
   assert.match(reuseScreen, /codex/);
+
+  harness.openPicker("/integrations tel");
+  await settleAutocomplete();
+  const integrationScreen = stripAnsi(harness.visible(90).join("\n"));
+  assert.equal(harness.text(), "/integrations tel");
+  assert.match(integrationScreen, /suggestions/);
+  assert.match(integrationScreen, /telegram/);
 });
 
 test("muster chat harness escape closes bare completion and restores normal prompt", async () => {

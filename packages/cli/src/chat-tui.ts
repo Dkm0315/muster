@@ -33,6 +33,7 @@ export interface MusterAutocompleteOptions {
   readonly plugins?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly pluginReuseProviders?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly mcpServers?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
+  readonly integrations?: () => readonly PickerOption[] | Promise<readonly PickerOption[]>;
   readonly agents: () => readonly string[] | Promise<readonly string[]>;
 }
 
@@ -51,6 +52,7 @@ export type MusterCompletionKind =
   | "plugin"
   | "plugin-reuse-provider"
   | "mcp"
+  | "integration"
   | "agent";
 
 export interface MusterCompletionRequest {
@@ -525,6 +527,7 @@ function slashCompletionContext(trimmed: string):
   | { kind: "plugin"; fragment: string; prefix: string }
   | { kind: "plugin-reuse-provider"; fragment: string; prefix: string }
   | { kind: "mcp"; fragment: string; prefix: string }
+  | { kind: "integration"; fragment: string; prefix: string }
   | undefined {
   switch (trimmed.toLowerCase()) {
     case "/tools":
@@ -555,6 +558,12 @@ function slashCompletionContext(trimmed: string):
       return { kind: "plugin", fragment: "", prefix: trimmed };
     case "/mcp":
       return { kind: "mcp", fragment: "", prefix: trimmed };
+    case "/integration":
+    case "/integrations":
+      return { kind: "integration", fragment: "", prefix: trimmed };
+    case "/integration workflow":
+    case "/integrations workflow":
+      return { kind: "integration", fragment: "", prefix: trimmed };
   }
   if (/^\/[a-z-]*$/i.test(trimmed)) return { kind: "command", fragment: trimmed.slice(1), prefix: trimmed };
   const toolMatch = trimmed.match(/^\/tools\s+([^\s]*)$/i);
@@ -583,6 +592,10 @@ function slashCompletionContext(trimmed: string):
   if (pluginMatch) return { kind: "plugin", fragment: pluginMatch[1] ?? "", prefix: trimmed };
   const mcpMatch = trimmed.match(/^\/mcp\s+([^\s]*)$/i);
   if (mcpMatch) return { kind: "mcp", fragment: mcpMatch[1] ?? "", prefix: trimmed };
+  const integrationWorkflowMatch = trimmed.match(/^\/integrations?\s+workflow\s+([^\s]*)$/i);
+  if (integrationWorkflowMatch) return { kind: "integration", fragment: integrationWorkflowMatch[1] ?? "", prefix: trimmed };
+  const integrationMatch = trimmed.match(/^\/integrations?\s+([^\s]*)$/i);
+  if (integrationMatch) return { kind: "integration", fragment: integrationMatch[1] ?? "", prefix: trimmed };
   return undefined;
 }
 
@@ -660,6 +673,8 @@ function createCallbackCompletionCatalog(options: MusterAutocompleteOptions): Mu
           return filterPickerOptions(await options.pluginReuseProviders?.() ?? [], request.fragment);
         case "mcp":
           return filterPickerOptions(await options.mcpServers?.() ?? [], request.fragment);
+        case "integration":
+          return filterPickerOptions(await options.integrations?.() ?? [], request.fragment);
         case "agent": {
           const fragment = request.fragment.toLowerCase();
           return [...new Set(await options.agents())]
@@ -708,6 +723,12 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
       return `/plugins ${item.value}`;
     case "/mcp":
       return `/mcp ${item.value}`;
+    case "/integration":
+    case "/integrations":
+      return `/integrations ${item.value}`;
+    case "/integration workflow":
+    case "/integrations workflow":
+      return `/integrations workflow ${item.value}`;
   }
   if (/^\/tools\s+/i.test(trimmed)) return `/tools ${item.value}`;
   if (/^\/resume\s+/i.test(trimmed)) return `/resume ${item.value}`;
@@ -724,6 +745,8 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
   if (/^\/plugins?\s+reuse(?:\s+.*)?$/i.test(trimmed)) return `/plugins reuse ${item.value}`;
   if (/^\/plugins?\s+/i.test(trimmed)) return `/plugins ${item.value}`;
   if (/^\/mcp\s+/i.test(trimmed)) return `/mcp ${item.value}`;
+  if (/^\/integrations?\s+workflow\s+/i.test(trimmed)) return `/integrations workflow ${item.value}`;
+  if (/^\/integrations?\s+/i.test(trimmed)) return `/integrations ${item.value}`;
   return item.value;
 }
 

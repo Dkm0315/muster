@@ -589,6 +589,7 @@ const CHAT_COMMANDS: readonly ChatCommandDef[] = [
   { name: "skills", usage: "/skills [id]", description: "show or enable built-in skills", aliases: ["skill"] },
   { name: "plugins", usage: "/plugins [id|reuse provider]", description: "show, enable, or reuse provider-authenticated plugins", aliases: ["plugin"] },
   { name: "mcp", usage: "/mcp [id]", description: "show configured and suggested MCP servers" },
+  { name: "integrations", usage: "/integrations [id]", description: "guided channel/plugin/MCP setup workflow", aliases: ["integration"] },
   { name: "agents", usage: "/agents", description: "list configured runtimes and @agent ids" },
   { name: "tokens", usage: "/tokens [limit]", description: "show token ledger", aliases: ["usage", "ledger"] },
   { name: "goal", usage: "/goal [status]", description: "show active goal-loop retrieval and memory ledger" },
@@ -772,6 +773,7 @@ async function interactiveChat(state: ChatState): Promise<void> {
       catalog: createChatCompletionCatalog(state),
       agents: chatAgentOptions,
       pluginReuseProviders: chatReuseProviderOptions,
+      integrations: chatIntegrationOptions,
       statusLine: () => chatStatusLine(state),
       onSubmit: async (text, sink) => {
         state.statusSink = sink;
@@ -1210,6 +1212,10 @@ async function handleChatCommand(text: string, state: ChatState): Promise<boolea
     case "mcp":
       await printChatMcp(args, state);
       return true;
+    case "integrations":
+    case "integration":
+      await printChatIntegrations(args, state);
+      return true;
     case "agents":
       await printChatAgents();
       return true;
@@ -1301,6 +1307,11 @@ function chatCompletions(line: string): string[] {
   }
   if (command === "mcp") {
     return filterPickerOptions(CHAT_MCP_OPTIONS, fragment).map((server) => server.value);
+  }
+  if (command === "integrations" || command === "integration") {
+    return filterPickerOptions([
+      ...chatIntegrationOptions(),
+    ], fragment).map((integration) => integration.value);
   }
   return [];
 }
@@ -1508,6 +1519,17 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
         kind: "completion" as const,
       }));
   }
+  if (/^\/integrations?(?:\s+workflow)?(?:\s+\S*)?$/i.test(trimmed)) {
+    const parts = trimmed.split(/\s+/).filter(Boolean);
+    const fragment = parts.length > 1 ? parts.at(-1)?.toLowerCase() ?? "" : "";
+    return filterPickerOptions(chatIntegrationOptions(), parts[1]?.toLowerCase() === "workflow" && parts.length <= 2 ? "" : fragment)
+      .slice(0, 24)
+      .map((integration) => ({
+        label: `${color(integration.value.padEnd(28), "highlight")} ${integration.description ?? "integration workflow"}`,
+        value: parts[1]?.toLowerCase() === "workflow" ? `/integrations workflow ${integration.value}` : `/integrations ${integration.value}`,
+        kind: "completion" as const,
+      }));
+  }
   if (trimmed === "@" || /^@[a-zA-Z0-9_.:-]*$/.test(trimmed)) {
     const fragment = trimmed.slice(1).toLowerCase();
     const config = await loadConfig().catch(() => undefined);
@@ -1526,7 +1548,7 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
 }
 
 function isBareContextualPickerCommand(trimmed: string): boolean {
-  return /^\/(?:tools|resume|name|provider|use-provider|model|runtime|cloud|speed|capabilities|capability|caps|skills?|plugins?|mcp)$/i.test(trimmed);
+  return /^\/(?:tools|resume|name|provider|use-provider|model|runtime|cloud|speed|capabilities|capability|caps|skills?|plugins?|mcp|integrations?)$/i.test(trimmed);
 }
 
 function renderSuggestionPanel(width: number, suggestions: readonly ChatSuggestion[], selectedIndex: number): string {
@@ -2518,6 +2540,45 @@ async function printChatMcp(selection: string | undefined, state: ChatState): Pr
   openNextPicker(state, "/mcp");
 }
 
+async function printChatIntegrations(selection: string | undefined, state: ChatState): Promise<void> {
+  const parts = (selection ?? "").split(/\s+/).filter(Boolean);
+  const action = parts[0]?.toLowerCase();
+  if (!action) {
+    const channels = CHANNEL_SETUP_SPECS.slice(0, 6).map((spec) => spec.id).join(" · ");
+    const plugins = listBuiltinPlugins().slice(0, 8).map((plugin) => plugin.id).join(" · ");
+    const mcps = listBuiltinMcpServers().slice(0, 8).map((mcp) => mcp.id).join(" · ");
+    printChatPanel("Integrations", [
+      "Pick one channel, plugin, or MCP to see the guided workflow before enabling anything.",
+      `${color("Channels", "accent")} ${channels}`,
+      `${color("Plugins", "accent")} ${plugins}`,
+      `${color("MCP", "accent")} ${mcps}`,
+      "",
+      `${color("Workflow", "accent")} /integrations <id>`,
+      `${color("Status", "accent")} /integrations status`,
+      "Each workflow explains impact, auth/setup, verify, enable, sample, and failure behavior.",
+    ]);
+    openNextPicker(state, "/integrations");
+    return;
+  }
+  if (action === "status") {
+    await printIntegrationReadiness();
+    return;
+  }
+  if (action === "list" || action === "guide") {
+    await integrationsCommand([action]);
+    return;
+  }
+  const target = action === "workflow" ? parts[1] : parts[0];
+  if (!target) {
+    printChatPanel("Integrations", [
+      color("Usage: /integrations <channel|plugin|mcp>", "yellow"),
+      "Example: /integrations telegram · /integrations github · /integrations parallel-search",
+    ]);
+    return;
+  }
+  await printIntegrationWorkflow(target);
+}
+
 async function chatAddHttpMcp(args: string[], state: ChatState): Promise<void> {
   const [name, url] = args;
   if (!name || !url) {
@@ -2656,6 +2717,8 @@ function createChatCompletionCatalog(state: ChatState): MusterCompletionCatalog 
           return filterPickerOptions(await chatReuseProviderOptions(), request.fragment);
         case "mcp":
           return filterPickerOptions(await chatMcpOptions(), request.fragment);
+        case "integration":
+          return filterPickerOptions(chatIntegrationOptions(), request.fragment);
         case "agent": {
           const fragment = request.fragment.toLowerCase();
           return [...new Set(await chatAgentOptions())]
@@ -2783,6 +2846,23 @@ async function chatMcpOptions(): Promise<PickerOption[]> {
     description: `${configured.has(option.value) ? "configured · " : ""}${option.description ?? ""}`,
   })), [...configured][0]);
   return [...servers, ...CHAT_MCP_ACTION_OPTIONS];
+}
+
+function chatIntegrationOptions(): PickerOption[] {
+  const channelOptions = CHANNEL_SETUP_SPECS.map((spec) => ({
+    value: spec.id,
+    label: spec.id,
+    description: `channel · ${spec.label} · ${channelAuthMode(spec.id)} · guided setup, verify, enable, sample`,
+  }));
+  const pluginOptions = CHAT_PLUGIN_OPTIONS.map((option) => ({
+    ...option,
+    description: `plugin · ${option.description ?? "built-in plugin"} · guided setup, verify, enable, sample`,
+  }));
+  const mcpOptions = CHAT_MCP_OPTIONS.map((option) => ({
+    ...option,
+    description: `mcp · ${option.description ?? "built-in MCP server"} · guided authenticate, install, test`,
+  }));
+  return sortPickerOptions([...channelOptions, ...pluginOptions, ...mcpOptions]);
 }
 
 function sortPickerOptions(options: readonly PickerOption[], active?: string): PickerOption[] {
