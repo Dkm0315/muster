@@ -2612,6 +2612,8 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(channelRun.stdout, /case=mcp_auth_install_depth status=passed/);
   assert.match(channelRun.stdout, /case=setup_guidance_frappe-federated-bridge status=passed/);
   assert.match(channelRun.stdout, /case=setup_guidance_slack status=passed/);
+  assert.match(channelRun.stdout, /case=integration_action_completion status=passed/);
+  assert.match(channelRun.stdout, /case=integration_action_next_steps status=passed/);
   assert.match(channelRun.stdout, /case=high_risk_refusal status=passed/);
   assert.match(channelRun.stdout, /case=enable_disable_policy status=passed/);
   assert.match(channelRun.stdout, /artifact_operator_cases=/);
@@ -2626,6 +2628,10 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(channelCases, /"id":"everyday_capability_breadth","status":"passed"/);
   assert.match(channelCases, /"id":"skill_catalog_breadth","status":"passed"/);
   assert.match(channelCases, /"id":"mcp_auth_install_depth","status":"passed"/);
+  assert.match(channelCases, /"id":"operator_plan_slack","status":"passed"/);
+  assert.match(channelCases, /"id":"operator_simulations","status":"passed"/);
+  assert.match(channelCases, /"id":"integration_action_completion","status":"passed"/);
+  assert.match(channelCases, /"id":"integration_action_next_steps","status":"passed"/);
   const channelOperatorCases = JSON.parse(await readFile(join(channelRunArtifact, "operator-cases.json"), "utf8")) as { id: string; status: string; evidence: { simulations?: { channel: string; ok: boolean }[] } }[];
   assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_plan_slack" && testCase.status === "passed"));
   assert.ok(channelOperatorCases.some((testCase) => testCase.id === "operator_simulations" && testCase.evidence.simulations?.some((simulation) => simulation.channel === "whatsapp" && simulation.ok)));
@@ -2634,7 +2640,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.ok(channelCatalog.mcpServers.some((mcp) => mcp.id === "browser"));
   const channelScorecard = await runCliAllowFailure(["qa", "scorecard", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", channelEvidencePath], cwd);
   assert.equal(channelScorecard.code, 1);
-  assert.match(channelScorecard.stdout, /passed\s+qa\.channel_plugin_setup\s+Channel\/plugin catalog depth, setup guidance, skill\/MCP breadth, unsafe-plugin refusal, and enable\/disable policy verified/);
+  assert.match(channelScorecard.stdout, /passed\s+qa\.channel_plugin_setup\s+Channel\/plugin catalog depth, setup guidance, skill\/MCP breadth, unsafe-plugin refusal, and enable\/disable policy verified; channel operator plans, adapter simulations, and integration action loops verified/);
   assert.match(channelScorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
 
   const fakeSsh = await writeFakeSsh(cwd);

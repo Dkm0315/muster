@@ -6160,12 +6160,22 @@ async function runChannelPluginSetupQaSuite(args: string[], stamp: string): Prom
   const artifactDir = resolve(process.cwd(), readFlag(args, "--artifact-dir") ?? join(dataDir(), "qa", `channel-plugin-setup-${stamp}`));
   const result = await runChannelPluginSetupQa({ artifactDir });
   const operatorCases = channelOperatorQaCases();
+  const integrationActionCases = await integrationActionQaCases();
+  const allCases = [...result.cases, ...operatorCases, ...integrationActionCases];
   const operatorCasesPath = join(artifactDir, "operator-cases.json");
   await writeFile(operatorCasesPath, `${JSON.stringify(operatorCases, null, 2)}\n`, "utf8");
-  const status = result.status === "passed" && operatorCases.every((testCase) => testCase.status === "passed") ? "passed" : "failed";
+  await writeFile(result.casesPath, `${allCases.map((testCase) => JSON.stringify(testCase)).join("\n")}\n`, "utf8");
+  const originalManifest = JSON.parse(await readFile(result.manifestPath, "utf8")) as Record<string, unknown>;
+  const status = allCases.every((testCase) => testCase.status === "passed") ? "passed" : "failed";
   const summary = status === "passed"
-    ? `${result.summary}; channel operator plans and adapter simulations verified`
-    : "Channel/plugin setup QA found missing setup guidance, policy regressions, or broken operator simulations";
+    ? `${result.summary}; channel operator plans, adapter simulations, and integration action loops verified`
+    : "Channel/plugin setup QA found missing setup guidance, policy regressions, broken operator simulations, or broken integration action loops";
+  await writeFile(result.manifestPath, `${JSON.stringify({
+    ...originalManifest,
+    status,
+    summary,
+    caseCount: allCases.length,
+  }, null, 2)}\n`, "utf8");
   const evidencePath = readFlag(args, "--evidence");
   await recordRuntimeQaSuiteEvidence({
     suite: "channel_plugin_setup",
@@ -6180,10 +6190,7 @@ async function runChannelPluginSetupQaSuite(args: string[], stamp: string): Prom
   console.log(`artifact_cases=${result.casesPath}`);
   console.log(`artifact_catalog=${result.catalogPath}`);
   console.log(`artifact_operator_cases=${operatorCasesPath}`);
-  for (const testCase of result.cases) {
-    console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
-  }
-  for (const testCase of operatorCases) {
+  for (const testCase of allCases) {
     console.log(`case=${testCase.id} status=${testCase.status} summary=${testCase.summary}`);
   }
   if (status === "failed") process.exitCode = 1;
@@ -6220,6 +6227,51 @@ function channelOperatorQaCases(): Array<{ readonly id: string; readonly status:
       status: failedSimulations.length ? "failed" : "passed",
       summary: failedSimulations.length ? "one or more channel adapter simulations failed" : "all channel adapter simulations normalize local inbound messages",
       evidence: { simulations, failedSimulations },
+    },
+  ];
+}
+
+async function integrationActionQaCases(): Promise<Array<{ readonly id: string; readonly status: RuntimeDoctorStatus; readonly summary: string; readonly evidence: Record<string, unknown> }>> {
+  await ensureDefaultConfig();
+  const state: ChatState = {
+    sessionName: DEFAULT_CHAT_SESSION,
+    speedMode: "session",
+    scopes: defaultChatScopes(),
+  };
+  const verifyCompletions = await chatTuiCompletions("/integrations verify tel", state);
+  const sampleCompletions = await chatTuiCompletions("/integrations sample gch", state);
+  const completionPassed = verifyCompletions.includes("telegram") && sampleCompletions.includes("gchat") && !verifyCompletions.includes("status");
+
+  const gchatSample = await captureConsoleLines(() => runIntegrationAction("sample", "gchat"));
+  const parallelVerify = await captureConsoleLines(() => runIntegrationAction("verify", "parallel-search"));
+  const githubVerify = await captureConsoleLines(() => runIntegrationAction("verify", "github"));
+  const expectedNext = [
+    "integration_next=muster integrations setup gchat",
+    "integration_next=muster integrations setup parallel-search",
+    "integration_next=muster integrations setup github",
+  ];
+  const nextPassed = expectedNext.every((line, index) => [gchatSample, parallelVerify, githubVerify][index]?.includes(line));
+  const actionEvidence = {
+    gchatSample: gchatSample.filter((line) => line.startsWith("integration_action=") || line.startsWith("integration_next=") || line.startsWith("channel_simulation=")),
+    parallelVerify: parallelVerify.filter((line) => line.startsWith("integration_action=") || line.startsWith("integration_next=") || line.startsWith("mcp=")),
+    githubVerify: githubVerify.filter((line) => line.startsWith("integration_action=") || line.startsWith("integration_next=") || line.startsWith("plugin=") || line.startsWith("auth=")),
+  };
+  return [
+    {
+      id: "integration_action_completion",
+      status: completionPassed ? "passed" : "failed",
+      summary: completionPassed
+        ? "integration action pickers return real workflow targets and exclude status/list pseudo-actions"
+        : "integration action picker suggestions are incomplete or polluted by pseudo-actions",
+      evidence: { verifyCompletions, sampleCompletions },
+    },
+    {
+      id: "integration_action_next_steps",
+      status: nextPassed ? "passed" : "failed",
+      summary: nextPassed
+        ? "channel, plugin, and MCP integration actions emit integration_next continuity commands"
+        : "one or more integration action paths failed to emit a guided next step",
+      evidence: actionEvidence,
     },
   ];
 }
