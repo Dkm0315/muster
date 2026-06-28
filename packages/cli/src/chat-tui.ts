@@ -566,6 +566,14 @@ function slashCompletionContext(trimmed: string):
       return { kind: "integration", fragment: "", prefix: trimmed };
     case "/integration workflow":
     case "/integrations workflow":
+    case "/integration setup":
+    case "/integrations setup":
+    case "/integration verify":
+    case "/integrations verify":
+    case "/integration enable":
+    case "/integrations enable":
+    case "/integration sample":
+    case "/integrations sample":
       return { kind: "integration-workflow", fragment: "", prefix: trimmed };
   }
   if (/^\/[a-z-]*$/i.test(trimmed)) return { kind: "command", fragment: trimmed.slice(1), prefix: trimmed };
@@ -595,7 +603,7 @@ function slashCompletionContext(trimmed: string):
   if (pluginMatch) return { kind: "plugin", fragment: pluginMatch[1] ?? "", prefix: trimmed };
   const mcpMatch = trimmed.match(/^\/mcp\s+([^\s]*)$/i);
   if (mcpMatch) return { kind: "mcp", fragment: mcpMatch[1] ?? "", prefix: trimmed };
-  const integrationWorkflowMatch = trimmed.match(/^\/integrations?\s+workflow\s+([^\s]*)$/i);
+  const integrationWorkflowMatch = trimmed.match(/^\/integrations?\s+(?:workflow|setup|verify|enable|sample)\s+([^\s]*)$/i);
   if (integrationWorkflowMatch) return { kind: "integration-workflow", fragment: integrationWorkflowMatch[1] ?? "", prefix: trimmed };
   const integrationMatch = trimmed.match(/^\/integrations?\s+([^\s]*)$/i);
   if (integrationMatch) return { kind: "integration", fragment: integrationMatch[1] ?? "", prefix: trimmed };
@@ -734,6 +742,18 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
     case "/integration workflow":
     case "/integrations workflow":
       return `/integrations workflow ${item.value}`;
+    case "/integration setup":
+    case "/integrations setup":
+      return `/integrations setup ${item.value}`;
+    case "/integration verify":
+    case "/integrations verify":
+      return `/integrations verify ${item.value}`;
+    case "/integration enable":
+    case "/integrations enable":
+      return `/integrations enable ${item.value}`;
+    case "/integration sample":
+    case "/integrations sample":
+      return `/integrations sample ${item.value}`;
   }
   if (/^\/tools\s+/i.test(trimmed)) return `/tools ${item.value}`;
   if (/^\/resume\s+/i.test(trimmed)) return `/resume ${item.value}`;
@@ -750,7 +770,8 @@ function completionReplacement(beforeCursor: string, item: AutocompleteItem, pre
   if (/^\/plugins?\s+reuse(?:\s+.*)?$/i.test(trimmed)) return `/plugins reuse ${item.value}`;
   if (/^\/plugins?\s+/i.test(trimmed)) return `/plugins ${item.value}`;
   if (/^\/mcp\s+/i.test(trimmed)) return `/mcp ${item.value}`;
-  if (/^\/integrations?\s+workflow\s+/i.test(trimmed)) return `/integrations workflow ${item.value}`;
+  const integrationAction = trimmed.match(/^\/integrations?\s+(workflow|setup|verify|enable|sample)\s+/i);
+  if (integrationAction) return `/integrations ${integrationAction[1]?.toLowerCase()} ${item.value}`;
   if (/^\/integrations?\s+/i.test(trimmed)) return `/integrations ${item.value}`;
   return item.value;
 }

@@ -203,6 +203,9 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(integrationWorkflowCompletion.stdout, /parallel-search/);
   const integrationWorkflowActionCompletion = await runCli(["chat", "--complete", "/integrations workflow st"], cwd);
   assert.doesNotMatch(integrationWorkflowActionCompletion.stdout, /^status$/m);
+  const integrationVerifyCompletion = await runCli(["chat", "--complete", "/integrations verify tel"], cwd);
+  assert.match(integrationVerifyCompletion.stdout, /telegram/);
+  assert.doesNotMatch(integrationVerifyCompletion.stdout, /^status$/m);
 
   const optionalSkillCompletion = await runCli(["chat", "--complete", "/skills advers"], cwd);
   assert.match(optionalSkillCompletion.stdout, /adversarial-ux-test/);
@@ -265,6 +268,11 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatParallelIntegration.stdout, /Next/);
   assert.match(chatParallelIntegration.stdout, /muster mcp install parallel-search/);
   assert.doesNotMatch(chatParallelIntegration.stdout, /integration_workflow=parallel-search/);
+
+  const chatGchatSample = await runCli(["chat", "/integrations sample gchat"], cwd);
+  assert.match(chatGchatSample.stdout, /Integration sample/);
+  assert.match(chatGchatSample.stdout, /integration_action=sample target=gchat kind=channel/);
+  assert.match(chatGchatSample.stdout, /channel_simulation=gchat normalized=true/);
 
   const mcpStatus = await runCli(["mcp", "status", "product"], cwd);
   assert.match(mcpStatus.stdout, /mcp=product transport=http https:\/\/mcp\.example\.test\/mcp auth=oauth/);
@@ -1629,6 +1637,22 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(parallelMcpWorkflow.stdout, /setup=muster mcp install parallel-search/);
   assert.match(parallelMcpWorkflow.stdout, /sample=muster mcp check parallel-search/);
   assert.match(parallelMcpWorkflow.stdout, /steps=pick -> explain impact -> authenticate\/setup -> verify -> enable -> run sample/);
+
+  const gchatIntegrationVerify = await runCli(["integrations", "verify", "gchat"], cwd);
+  assert.match(gchatIntegrationVerify.stdout, /integration_action=verify target=gchat kind=channel/);
+  assert.match(gchatIntegrationVerify.stdout, /channel_doctor=gchat status=needs_setup/);
+
+  const gchatIntegrationSample = await runCli(["integrations", "sample", "gchat"], cwd);
+  assert.match(gchatIntegrationSample.stdout, /integration_action=sample target=gchat kind=channel/);
+  assert.match(gchatIntegrationSample.stdout, /channel_simulation=gchat normalized=true/);
+
+  const githubIntegrationVerify = await runCli(["integrations", "verify", "github"], cwd);
+  assert.match(githubIntegrationVerify.stdout, /integration_action=verify target=github kind=plugin/);
+  assert.match(githubIntegrationVerify.stdout, /plugin=github/);
+
+  const parallelIntegrationVerify = await runCli(["integrations", "verify", "parallel-search"], cwd);
+  assert.match(parallelIntegrationVerify.stdout, /integration_action=verify target=parallel-search kind=mcp/);
+  assert.match(parallelIntegrationVerify.stdout, /mcp=parallel-search status=installable/);
 
   await assert.rejects(
     () => runCli(["integrations", "workflow", "not-a-real-integration"], cwd),

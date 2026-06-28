@@ -398,7 +398,7 @@ Usage:
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
   muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
-  muster integrations [list|guide|status|workflow <id>]  # guided setup for channels, plugins, and MCPs
+  muster integrations [list|guide|status|workflow <id>|setup <id>|verify <id>|enable <id>|sample <id>]  # guided setup for channels, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
   muster qa scorecard [--codex-command path] [--latest-version x.y.z] [--evidence path] [--strict-release]
@@ -1521,15 +1521,16 @@ async function liveSuggestions(line: string, state: ChatState): Promise<ChatSugg
         kind: "completion" as const,
       }));
   }
-  if (/^\/integrations?(?:\s+workflow)?(?:\s+\S*)?$/i.test(trimmed)) {
+  if (/^\/integrations?(?:\s+(?:workflow|setup|verify|enable|sample))?(?:\s+\S*)?$/i.test(trimmed)) {
     const parts = trimmed.split(/\s+/).filter(Boolean);
     const fragment = parts.length > 1 ? parts.at(-1)?.toLowerCase() ?? "" : "";
-    const workflowOnly = parts[1]?.toLowerCase() === "workflow";
+    const subAction = parts[1]?.toLowerCase();
+    const workflowOnly = subAction === "workflow" || subAction === "setup" || subAction === "verify" || subAction === "enable" || subAction === "sample";
     return filterPickerOptions(workflowOnly ? chatIntegrationWorkflowOptions() : chatIntegrationOptions(), workflowOnly && parts.length <= 2 ? "" : fragment)
       .slice(0, 24)
       .map((integration) => ({
         label: `${color(integration.value.padEnd(28), "highlight")} ${integration.description ?? "integration workflow"}`,
-        value: parts[1]?.toLowerCase() === "workflow" ? `/integrations workflow ${integration.value}` : `/integrations ${integration.value}`,
+        value: workflowOnly ? `/integrations ${subAction} ${integration.value}` : `/integrations ${integration.value}`,
         kind: "completion" as const,
       }));
   }
@@ -2568,6 +2569,20 @@ async function printChatIntegrations(selection: string | undefined, state: ChatS
     printChatIntegrationStatus(statusLines);
     return;
   }
+  if (action === "setup" || action === "verify" || action === "enable" || action === "sample") {
+    const target = parts[1];
+    if (!target) {
+      printChatPanel("Integrations", [
+        color(`Usage: /integrations ${action} <channel|plugin|mcp>`, "yellow"),
+        `Pick from the next list, then submit /integrations ${action} <id>.`,
+      ]);
+      openNextPicker(state, `/integrations ${action}`);
+      return;
+    }
+    const actionLines = await captureConsoleLines(() => runIntegrationAction(action, target));
+    printChatIntegrationAction(action, target, actionLines);
+    return;
+  }
   if (action === "list" || action === "guide") {
     await integrationsCommand([action]);
     return;
@@ -2655,6 +2670,15 @@ function printChatIntegrationStatus(rawLines: readonly string[]): void {
     ...(daily.length ? [`${color("Packs", "accent")} ${daily.map(compactIntegrationRow).join(" · ")}`] : []),
     ...(mcps.length ? [`${color("MCP", "accent")} ${mcps.map(compactIntegrationRow).join(" · ")}`] : []),
     ...(guardrails ? ["", `${color("Guardrails", "accent")} ${guardrails.slice("guardrails=".length)}`] : []),
+  ]);
+}
+
+function printChatIntegrationAction(action: string, target: string, rawLines: readonly string[]): void {
+  const lines = rawLines.length ? rawLines : [color("No output returned.", "dim")];
+  printChatPanel(`Integration ${action}`, [
+    `${color(target, "accent")} ${color("ran through existing Muster command surface", "dim")}`,
+    ...lines.slice(0, 18),
+    ...(lines.length > 18 ? [color(`... ${lines.length - 18} more line(s) omitted`, "dim")] : []),
   ]);
 }
 
@@ -2978,6 +3002,10 @@ function chatIntegrationOptions(): PickerOption[] {
     { value: "status", label: "status", description: "show integration readiness, blockers, suggested path, and guardrails" },
     { value: "list", label: "list", description: "show the machine-readable integration catalog" },
     { value: "guide", label: "guide", description: "show setup guidance for channels, plugins, and MCPs" },
+    { value: "setup", label: "setup <id>", description: "start setup/install guidance for a selected channel, plugin, or MCP" },
+    { value: "verify", label: "verify <id>", description: "run the selected integration's doctor/check/test path" },
+    { value: "enable", label: "enable <id>", description: "enable policy or install/configure the selected integration when safe" },
+    { value: "sample", label: "sample <id>", description: "run a local sample simulation or readiness check" },
   ];
   return [...actionOptions, ...chatIntegrationWorkflowOptions()];
 }
@@ -7915,8 +7943,8 @@ async function printIntegrationReadiness(): Promise<void> {
 
 async function integrationsCommand(args: string[]): Promise<void> {
   const action = args[0] ?? "list";
-  if (action !== "list" && action !== "guide" && action !== "status" && action !== "workflow") {
-    throw new Error("Usage: muster integrations [list|guide|status|workflow <plugin|mcp|channel>]");
+  if (action !== "list" && action !== "guide" && action !== "status" && action !== "workflow" && action !== "setup" && action !== "verify" && action !== "enable" && action !== "sample") {
+    throw new Error("Usage: muster integrations [list|guide|status|workflow|setup|verify|enable|sample <plugin|mcp|channel>]");
   }
   if (action === "status") {
     await printIntegrationReadiness();
@@ -7926,6 +7954,12 @@ async function integrationsCommand(args: string[]): Promise<void> {
     const target = args[1];
     if (!target) throw new Error("Usage: muster integrations workflow <plugin|mcp|channel>");
     await printIntegrationWorkflow(target);
+    return;
+  }
+  if (action === "setup" || action === "verify" || action === "enable" || action === "sample") {
+    const target = args[1];
+    if (!target) throw new Error(`Usage: muster integrations ${action} <plugin|mcp|channel>`);
+    await runIntegrationAction(action, target);
     return;
   }
   const config = await loadConfig().catch(() => undefined);
@@ -7972,6 +8006,101 @@ async function integrationsCommand(args: string[]): Promise<void> {
   console.log("2. muster channels setup gchat --public-url https://your-domain.example");
   console.log("3. muster plugins enable web-search");
   console.log("4. muster mcp install parallel-search");
+}
+
+async function runIntegrationAction(action: "setup" | "verify" | "enable" | "sample", target: string): Promise<void> {
+  const channel = findChannelSpec(target);
+  if (channel) {
+    await runChannelIntegrationAction(action, channel);
+    return;
+  }
+  const plugin = listBuiltinPlugins().find((entry) => entry.id === target || entry.aliases?.includes(target));
+  if (plugin) {
+    await runPluginIntegrationAction(action, plugin);
+    return;
+  }
+  const mcp = findBuiltinMcpEntry(target);
+  if (mcp) {
+    await runMcpIntegrationAction(action, mcp);
+    return;
+  }
+  throw new Error(`Unknown integration "${target}". Run: muster integrations`);
+}
+
+async function runChannelIntegrationAction(action: "setup" | "verify" | "enable" | "sample", spec: ChannelSetupSpec): Promise<void> {
+  console.log(`integration_action=${action} target=${spec.id} kind=channel`);
+  if (action === "setup") {
+    await channelsCommand(["setup", spec.id]);
+    return;
+  }
+  if (action === "verify") {
+    await channelsCommand(["doctor", spec.id, ...(spec.id === "telegram" ? ["--live"] : [])]);
+    return;
+  }
+  if (action === "enable") {
+    const gateway = await loadGatewayConfig().catch(() => undefined);
+    if (!gateway || !channelReady(spec.id, gateway)) {
+      console.log(`status=blocked next="muster channels setup ${spec.id}"`);
+      console.log("reason=channel setup is incomplete; gateway was not started");
+      return;
+    }
+    console.log(`status=ready start="muster gateway start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}"`);
+    return;
+  }
+  await channelsCommand(["simulate", spec.id, "--message", `hello from ${spec.id}`]);
+}
+
+async function runPluginIntegrationAction(action: "setup" | "verify" | "enable" | "sample", plugin: BuiltinPluginCatalogEntry): Promise<void> {
+  console.log(`integration_action=${action} target=${plugin.id} kind=plugin`);
+  if (action === "setup") {
+    await pluginsCommand(["setup", plugin.id]);
+    return;
+  }
+  if (action === "verify") {
+    await pluginsCommand(["check", plugin.id]);
+    return;
+  }
+  if (action === "enable") {
+    await pluginsCommand(["enable", plugin.id]);
+    return;
+  }
+  const firstChannel = plugin.setup?.channels?.[0];
+  if (firstChannel) {
+    await channelsCommand(["simulate", firstChannel, "--message", `hello from ${plugin.id}`]);
+    return;
+  }
+  const firstMcp = plugin.setup?.defaultMcpServers?.[0] ?? plugin.setup?.mcpServers?.[0];
+  if (firstMcp) {
+    await runMcpSample(firstMcp);
+    return;
+  }
+  await pluginsCommand(["check", plugin.id]);
+}
+
+async function runMcpIntegrationAction(action: "setup" | "verify" | "enable" | "sample", entry: BuiltinMcpCatalogEntry): Promise<void> {
+  console.log(`integration_action=${action} target=${entry.id} kind=mcp`);
+  if (action === "setup" || action === "enable") {
+    await mcpCommand(["install", entry.id]);
+    return;
+  }
+  if (action === "verify") {
+    await runMcpVerify(entry.id);
+    return;
+  }
+  await runMcpSample(entry.id);
+}
+
+async function runMcpVerify(id: string): Promise<void> {
+  const config = await loadConfig().catch(() => undefined);
+  if (config?.tools?.mcp?.servers?.[id]) {
+    await mcpCommand(["test", id]);
+    return;
+  }
+  await mcpCommand(["check", id]);
+}
+
+async function runMcpSample(id: string): Promise<void> {
+  await runMcpVerify(id);
 }
 
 async function printIntegrationWorkflow(target: string): Promise<void> {
