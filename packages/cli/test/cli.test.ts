@@ -219,6 +219,14 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatIntegrations.stdout, /Workflow/);
   assert.match(chatIntegrations.stdout, /\/integrations <id>/);
 
+  const chatIntegrationStatus = await runCli(["chat", "/integrations status"], cwd);
+  assert.match(chatIntegrationStatus.stdout, /Integration readiness/);
+  assert.match(chatIntegrationStatus.stdout, /integration status/);
+  assert.match(chatIntegrationStatus.stdout, /catalog coverage/);
+  assert.match(chatIntegrationStatus.stdout, /Suggested path/);
+  assert.match(chatIntegrationStatus.stdout, /Guardrails/);
+  assert.doesNotMatch(chatIntegrationStatus.stdout, /^integration_status=/m);
+
   const chatTelegramIntegration = await runCli(["chat", "/integrations telegram"], cwd);
   assert.match(chatTelegramIntegration.stdout, /Integration workflow/);
   assert.match(chatTelegramIntegration.stdout, /telegram/);
