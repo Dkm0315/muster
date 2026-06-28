@@ -5700,8 +5700,8 @@ async function qaCommand(args: string[]): Promise<void> {
     latestVersion: readFlag(args, "--latest-version"),
   });
   const providerReports = inspectProviderConfig(config);
-  const evidencePath = readFlag(args, "--evidence") ?? qaEvidencePath(process.cwd());
-  const storedEvidence = await loadRuntimeQaEvidence(process.cwd(), evidencePath);
+  const evidencePath = resolve(process.cwd(), readFlag(args, "--evidence") ?? qaEvidencePath(process.cwd()));
+  const storedEvidence = await loadQaEvidenceForScorecard(evidencePath);
   const scorecard = buildRuntimeMaturityScorecard({
     config,
     codex,
@@ -5723,6 +5723,46 @@ async function qaCommand(args: string[]): Promise<void> {
     }
   }
   if (scorecard.status === "failed" || strictValidation?.status === "failed") process.exitCode = 1;
+}
+
+async function loadQaEvidenceForScorecard(evidencePath: string): Promise<Awaited<ReturnType<typeof loadRuntimeQaEvidence>>> {
+  let pathStat: Awaited<ReturnType<typeof stat>> | undefined;
+  try {
+    pathStat = await stat(evidencePath);
+  } catch {
+    return loadRuntimeQaEvidence(process.cwd(), evidencePath);
+  }
+  if (!pathStat.isDirectory()) return loadRuntimeQaEvidence(process.cwd(), evidencePath);
+
+  const scorecardPath = resolve(evidencePath, "scorecard.json");
+  if (existsSync(scorecardPath)) return loadRuntimeQaEvidence(process.cwd(), scorecardPath);
+
+  const manifestPath = resolve(evidencePath, "manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Evidence directory is missing manifest.json or scorecard.json: ${evidencePath}`);
+  }
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+    readonly kind?: string;
+    readonly suite?: string;
+    readonly status?: RuntimeDoctorStatus;
+    readonly summary?: string;
+  };
+  if (manifest.kind !== "muster-qa" || !manifest.suite) {
+    throw new Error(`Evidence directory manifest is not a Muster QA artifact: ${manifestPath}`);
+  }
+  if (!(REQUIRED_QA_SUITES as readonly string[]).includes(manifest.suite)) {
+    throw new Error(`Evidence directory suite is not required by the release scorecard: ${manifest.suite}`);
+  }
+  const suite = manifest.suite as RequiredQaSuiteId;
+  return {
+    suites: {
+      [suite]: {
+        status: manifest.status ?? "unknown",
+        artifactDir: evidencePath,
+        summary: manifest.summary ?? `${suite} artifact directory`,
+      },
+    },
+  };
 }
 
 function printQaSuites(): void {

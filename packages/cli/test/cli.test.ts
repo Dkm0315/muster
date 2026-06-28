@@ -2352,6 +2352,11 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   const packManifest = JSON.parse(await readFile(join(packRunArtifact, "manifest.json"), "utf8")) as { suite: string; status: string; caseCount: number };
   assert.equal(packManifest.suite, "pack_readiness");
   assert.ok(packManifest.caseCount >= 5);
+  const packDirScorecard = await runCliAllowFailure(["qa", "scorecard", "--strict-release", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", packRunArtifact], cwd);
+  assert.equal(packDirScorecard.code, 1);
+  assert.match(packDirScorecard.stdout, /qa_scorecard status=failed/);
+  assert.match(packDirScorecard.stdout, /passed\s+qa\.pack_readiness\s+Capability pack readiness metadata and release claims are consistent/);
+  assert.match(packDirScorecard.stdout, new RegExp(`evidence=${packRunArtifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 
   const ptyRunArtifact = join(cwd, "qa-artifacts", "pty-run");
   const ptyEvidencePath = join(cwd, "pty-evidence.json");
