@@ -193,6 +193,9 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   const integrationCompletion = await runCli(["chat", "--complete", "/integrations tel"], cwd);
   assert.match(integrationCompletion.stdout, /telegram/);
 
+  const duplicatedIntegrationCompletion = await runCli(["chat", "--complete", "/integrations browser"], cwd);
+  assert.equal(duplicatedIntegrationCompletion.stdout.trim().split(/\r?\n/).filter((line) => line === "browser").length, 1);
+
   const integrationWorkflowCompletion = await runCli(["chat", "--complete", "/integrations workflow par"], cwd);
   assert.match(integrationWorkflowCompletion.stdout, /parallel-search/);
 

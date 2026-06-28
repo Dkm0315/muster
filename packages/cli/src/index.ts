@@ -2982,7 +2982,28 @@ function chatIntegrationOptions(): PickerOption[] {
     ...option,
     description: `mcp · ${option.description ?? "built-in MCP server"} · guided authenticate, install, test`,
   }));
-  return sortPickerOptions([...channelOptions, ...pluginOptions, ...mcpOptions]);
+  return sortPickerOptions(mergePickerOptionsByValue([...channelOptions, ...pluginOptions, ...mcpOptions]));
+}
+
+function mergePickerOptionsByValue(options: readonly PickerOption[]): PickerOption[] {
+  const merged = new Map<string, PickerOption>();
+  for (const option of options) {
+    const current = merged.get(option.value);
+    if (!current) {
+      merged.set(option.value, option);
+      continue;
+    }
+    const descriptions = [
+      ...(current.description ? current.description.split(" · also ") : []),
+      ...(option.description ? [option.description] : []),
+    ];
+    merged.set(option.value, {
+      value: current.value,
+      label: current.label ?? option.label,
+      description: [...new Set(descriptions)].join(" · also "),
+    });
+  }
+  return [...merged.values()];
 }
 
 function sortPickerOptions(options: readonly PickerOption[], active?: string): PickerOption[] {
