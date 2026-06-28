@@ -136,6 +136,11 @@ import {
   skillsIndexPath,
   activeProfile,
   dataDir,
+  profileConfigPath,
+  profileConfigWritePath,
+  profileDataDir,
+  profileHomeDir,
+  profileWorkspaceDir,
   parseCron,
   cloneProfile,
   createProfile,
@@ -6496,6 +6501,7 @@ async function profileCommand(commandArgs: string[]): Promise<void> {
   if (action === "create" && name) {
     await createProfile(name);
     console.log(`Created profile: ${name}`);
+    printProfileIsolationSummary(name);
     return;
   }
   if (action === "list") {
@@ -6508,6 +6514,7 @@ async function profileCommand(commandArgs: string[]): Promise<void> {
   if (action === "use" && name) {
     await useProfile(name);
     console.log(`Active profile: ${name}`);
+    printProfileIsolationSummary(name);
     return;
   }
   if (action === "clone") {
@@ -6515,6 +6522,8 @@ async function profileCommand(commandArgs: string[]): Promise<void> {
     if (!from || !to) throw new Error("Usage: muster profile clone <from> <to>");
     await cloneProfile(from, to);
     console.log(`Cloned profile ${from} -> ${to} (history-free copy of config, memory, and skills)`);
+    console.log("clone_excludes=sessions,episodes,tokens,provider-home");
+    printProfileIsolationSummary(to);
     return;
   }
   if (action === "current" || action === undefined) {
@@ -6522,6 +6531,15 @@ async function profileCommand(commandArgs: string[]): Promise<void> {
     return;
   }
   throw new Error("Usage: muster profile create|list|use|current|clone [name]");
+}
+
+function printProfileIsolationSummary(profile: string): void {
+  console.log(`profile_data=${profileDataDir(process.cwd(), profile)}`);
+  console.log(`profile_config_read=${profileConfigPath(process.cwd(), profile)}`);
+  console.log(`profile_config_write=${profileConfigWritePath(process.cwd(), profile)}`);
+  console.log(`profile_home=${profileHomeDir(process.cwd(), profile)}`);
+  console.log(`profile_workspace=${profileWorkspaceDir(process.cwd(), profile)}`);
+  console.log("isolation=config,data,memory,skills,provider-home,workspace");
 }
 
 async function scheduleCommand(commandArgs: string[]): Promise<void> {

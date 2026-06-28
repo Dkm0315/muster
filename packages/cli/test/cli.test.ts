@@ -2032,10 +2032,24 @@ test("CLI profile, schedule, tokens, and verify work end to end in a fresh works
   const cwd = await mkdtemp(join(tmpdir(), "muster-cli-beast-"));
   await runCli(["init"], cwd);
 
-  await runCli(["profile", "create", "team-a"], cwd);
-  await runCli(["profile", "use", "team-a"], cwd);
+  const createdProfile = await runCli(["profile", "create", "team-a"], cwd);
+  assert.match(createdProfile.stdout, /Created profile: team-a/);
+  assert.match(createdProfile.stdout, /profile_data=.*\.muster\/profiles\/team-a\/data/);
+  assert.match(createdProfile.stdout, /profile_home=.*\.muster\/profiles\/team-a\/home/);
+  assert.match(createdProfile.stdout, /profile_workspace=.*\.muster\/profiles\/team-a\/workspace/);
+  assert.match(createdProfile.stdout, /isolation=config,data,memory,skills,provider-home,workspace/);
+
+  const activeProfileResult = await runCli(["profile", "use", "team-a"], cwd);
+  assert.match(activeProfileResult.stdout, /Active profile: team-a/);
+  assert.match(activeProfileResult.stdout, /profile_config_read=.*\.muster\/config\.json/);
+  assert.match(activeProfileResult.stdout, /profile_config_write=.*\.muster\/profiles\/team-a\/config\.json/);
   const profiles = await runCli(["profile", "list"], cwd);
   assert.match(profiles.stdout, /\* team-a/);
+
+  const clonedProfile = await runCli(["profile", "clone", "team-a", "team-b"], cwd);
+  assert.match(clonedProfile.stdout, /Cloned profile team-a -> team-b \(history-free copy of config, memory, and skills\)/);
+  assert.match(clonedProfile.stdout, /clone_excludes=sessions,episodes,tokens,provider-home/);
+  assert.match(clonedProfile.stdout, /profile_workspace=.*\.muster\/profiles\/team-b\/workspace/);
 
   const added = await runCli(["provider", "add", "kimi", "--model", "kimi-latest"], cwd);
   assert.match(added.stdout, /provider_added=kimi/);
