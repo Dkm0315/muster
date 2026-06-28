@@ -27,11 +27,13 @@ pnpm --package=@musterhq/cli dlx muster
 
 That opens the terminal chat surface. First run opens onboarding; after setup it opens a named chat with slash commands, `@agent` routing, provider/model pickers, memory controls, plugin/MCP setup, and the token ledger.
 
-## 20-Second Demo
+## Terminal Launch Demo
 
-![Muster terminal demo](docs/assets/muster-terminal-demo.gif)
+![Muster terminal launch demo](docs/assets/muster-terminal-launch-demo.gif)
 
-A prompt enters the harness, scoped memory is recalled, the run completes, tokens are recorded, and integrity can be checked from the terminal.
+This is the current terminal launch path: onboarding/product context, governed chat flow, channel and MCP setup surfaces, live token ledger, and integrity checks.
+
+Prefer video? [Watch the MP4 demo](docs/assets/muster-terminal-launch-demo.mp4).
 
 Today you can run the same path locally:
 
