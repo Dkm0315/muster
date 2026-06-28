@@ -28,6 +28,8 @@ export type CapabilityPermissionMode = "deny_by_default" | "ask" | "allow_when_s
 export type CapabilityMutationApproval = "never" | "required" | "policy";
 export type CapabilitySafetyRisk = "low" | "medium" | "high";
 
+const PACK_TOOL_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+
 export interface CapabilityReadinessSetup {
   readonly urls: readonly string[];
   readonly requiredEnv: readonly string[];
@@ -83,6 +85,7 @@ export interface CapabilityPackManifest {
   readonly sandbox: CapabilitySandbox;
   readonly secrets?: string[];
   readonly evals?: string[];
+  readonly implementedTools?: string[];
   readonly digest?: string;
   readonly readiness?: CapabilityReadiness;
 }
@@ -161,6 +164,9 @@ export function inspectCapabilityManifest(path: string, value: unknown): Capabil
   if (!isSandbox(value.sandbox)) blockers.push("sandbox is invalid.");
   if (Array.isArray(value.secrets) && !value.secrets.every(isEnvName)) blockers.push("secrets must be environment variable names.");
   if (Array.isArray(value.evals) && !value.evals.every(isNonEmpty)) blockers.push("evals must be non-empty paths.");
+  if (value.implementedTools !== undefined && (!Array.isArray(value.implementedTools) || !value.implementedTools.every(isPackToolName))) {
+    blockers.push("implementedTools must be tool export names.");
+  }
   const readiness = value.readiness === undefined ? undefined : inspectReadiness(value.readiness, blockers);
 
   const permissions = Array.isArray(value.permissions) ? value.permissions.filter(isPermission) : [];
@@ -190,6 +196,7 @@ export function inspectCapabilityManifest(path: string, value: unknown): Capabil
         sandbox,
         secrets: Array.isArray(value.secrets) ? value.secrets.filter(isEnvName) : undefined,
         evals: Array.isArray(value.evals) ? value.evals.filter(isNonEmpty) : undefined,
+        implementedTools: Array.isArray(value.implementedTools) ? value.implementedTools.filter(isPackToolName) : undefined,
         digest: typeof value.digest === "string" ? value.digest : undefined,
         readiness
       } satisfies CapabilityPackManifest);
@@ -224,6 +231,10 @@ function isPluginSlot(value: unknown): value is string {
 
 function isNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPackToolName(value: unknown): value is string {
+  return typeof value === "string" && PACK_TOOL_NAME_PATTERN.test(value);
 }
 
 function isSemverLike(value: unknown): value is string {
@@ -547,8 +558,6 @@ export interface LoadCapabilityPackOptions {
   /** Env source for `manifest.secrets`; defaults to process.env (injectable for tests). */
   readonly env?: Record<string, string | undefined>;
 }
-
-const PACK_TOOL_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
 /**
  * Validates the pack manifest (inspectCapabilityPack), refuses invalid or

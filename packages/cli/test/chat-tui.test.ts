@@ -43,8 +43,9 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
     runtimes: () => [{ value: "native" }, { value: "claude-code", description: "Claude Code" }],
     clouds: () => [{ value: "openrouter" }, { value: "anthropic" }],
     speeds: () => [{ value: "session" }, { value: "fast" }],
-    skills: () => [{ value: "api-contract-testing" }, { value: "dashboard-reporting" }],
-    plugins: () => [{ value: "artifact-studio" }, { value: "developer-tools" }],
+    skills: () => [{ value: "api-contract-testing" }, { value: "adversarial-ux-test", description: "qa · ux · break CLI flows" }, { value: "dashboard-reporting" }],
+    plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }, { value: "developer-tools" }],
+    pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }, { value: "custom", description: "MUSTER_CUSTOM_PLUGIN_CACHE" }],
     mcpServers: () => [{ value: "git" }, { value: "github" }, { value: "filesystem" }],
     agents: async () => ["review", "research"],
   });
@@ -94,11 +95,19 @@ test("muster TUI completion provider completes toolsets, sessions, and agents", 
   assert.equal(skills?.prefix, "/skills api");
   assert.deepEqual(skills?.items.map((item) => item.value), ["api-contract-testing"]);
   assert.deepEqual(provider.applyCompletion(["/skills api"], 0, 11, skills!.items[0], skills!.prefix).lines, ["/skills api-contract-testing"]);
+  const skillByDescription = await provider.getSuggestions(["/skills ux"], 0, 10, { signal });
+  assert.deepEqual(skillByDescription?.items.map((item) => item.value), ["adversarial-ux-test"]);
 
   const plugins = await provider.getSuggestions(["/plugins art"], 0, 12, { signal });
   assert.deepEqual(plugins?.items.map((item) => item.value), ["artifact-studio"]);
+  const pluginByDescription = await provider.getSuggestions(["/plugins pdf"], 0, 12, { signal });
+  assert.deepEqual(pluginByDescription?.items.map((item) => item.value), ["artifact-studio"]);
   const barePlugins = await provider.getSuggestions(["/plugins"], 0, 8, { signal });
   assert.deepEqual(provider.applyCompletion(["/plugins"], 0, 8, barePlugins!.items[0], barePlugins!.prefix).lines, ["/plugins artifact-studio"]);
+  const reuseProviders = await provider.getSuggestions(["/plugins reuse co"], 0, 17, { signal });
+  assert.deepEqual(reuseProviders?.items.map((item) => item.value), ["codex"]);
+  assert.deepEqual(provider.applyCompletion(["/plugins reuse"], 0, 14, reuseProviders!.items[0], reuseProviders!.prefix).lines, ["/plugins reuse codex"]);
+  assert.deepEqual(provider.applyCompletion(["/plugins reuse co"], 0, 17, reuseProviders!.items[0], reuseProviders!.prefix).lines, ["/plugins reuse codex"]);
 
   const mcp = await provider.getSuggestions(["/mcp git"], 0, 8, { signal });
   assert.deepEqual(mcp?.items.map((item) => item.value), ["git", "github"]);
@@ -185,6 +194,40 @@ test("muster chat harness keeps one persistent slash overlay through arrow navig
   assert.equal((navigated.match(/suggestions/g) ?? []).length, 1, "arrow navigation must update the same overlay, not append panes");
   assert.equal((navigated.match(/\/help/g) ?? []).length, 1, "list rows should not duplicate while navigating");
   assert.ok(/\/runtime|\/sessions|\/provider/.test(navigated), "selection should move through command rows");
+});
+
+test("muster chat harness opens skill and plugin pickers as interactive composer state", async () => {
+  const harness = createMusterChatHarness({
+    commands,
+    toolsets: [],
+    recentSessions: () => [],
+    skills: () => [{ value: "adversarial-ux-test", description: "qa · ux · break CLI flows" }],
+    plugins: () => [{ value: "artifact-studio", description: "documents · pdf · pptx · xlsx" }],
+    pluginReuseProviders: () => [{ value: "codex", description: "provider cache" }],
+    agents: async () => [],
+    width: 100,
+  });
+
+  harness.openPicker("/plugins pdf");
+  await settleAutocomplete();
+  const pluginScreen = stripAnsi(harness.visible(90).join("\n"));
+  assert.equal(harness.text(), "/plugins pdf");
+  assert.match(pluginScreen, /suggestions/);
+  assert.match(pluginScreen, /artifact-studio/);
+
+  harness.openPicker("/skills ux");
+  await settleAutocomplete();
+  const skillScreen = stripAnsi(harness.visible(90).join("\n"));
+  assert.equal(harness.text(), "/skills ux");
+  assert.match(skillScreen, /suggestions/);
+  assert.match(skillScreen, /adversarial-ux-test/);
+
+  harness.openPicker("/plugins reuse");
+  await settleAutocomplete();
+  const reuseScreen = stripAnsi(harness.visible(90).join("\n"));
+  assert.equal(harness.text(), "/plugins reuse");
+  assert.match(reuseScreen, /suggestions/);
+  assert.match(reuseScreen, /codex/);
 });
 
 test("muster chat harness escape closes bare completion and restores normal prompt", async () => {
