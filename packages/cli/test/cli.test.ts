@@ -271,6 +271,7 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
 
   const chatGchatSample = await runCli(["chat", "/integrations sample gchat"], cwd);
   assert.match(chatGchatSample.stdout, /Integration sample/);
+  assert.match(chatGchatSample.stdout, /Next\s+muster integrations setup gchat/);
   assert.match(chatGchatSample.stdout, /integration_action=sample target=gchat kind=channel/);
   assert.match(chatGchatSample.stdout, /channel_simulation=gchat normalized=true/);
 
@@ -1641,18 +1642,22 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   const gchatIntegrationVerify = await runCli(["integrations", "verify", "gchat"], cwd);
   assert.match(gchatIntegrationVerify.stdout, /integration_action=verify target=gchat kind=channel/);
   assert.match(gchatIntegrationVerify.stdout, /channel_doctor=gchat status=needs_setup/);
+  assert.match(gchatIntegrationVerify.stdout, /integration_next=muster integrations setup gchat/);
 
   const gchatIntegrationSample = await runCli(["integrations", "sample", "gchat"], cwd);
   assert.match(gchatIntegrationSample.stdout, /integration_action=sample target=gchat kind=channel/);
   assert.match(gchatIntegrationSample.stdout, /channel_simulation=gchat normalized=true/);
+  assert.match(gchatIntegrationSample.stdout, /integration_next=muster integrations setup gchat/);
 
   const githubIntegrationVerify = await runCli(["integrations", "verify", "github"], cwd);
   assert.match(githubIntegrationVerify.stdout, /integration_action=verify target=github kind=plugin/);
   assert.match(githubIntegrationVerify.stdout, /plugin=github/);
+  assert.match(githubIntegrationVerify.stdout, /integration_next=muster integrations setup github/);
 
   const parallelIntegrationVerify = await runCli(["integrations", "verify", "parallel-search"], cwd);
   assert.match(parallelIntegrationVerify.stdout, /integration_action=verify target=parallel-search kind=mcp/);
   assert.match(parallelIntegrationVerify.stdout, /mcp=parallel-search status=installable/);
+  assert.match(parallelIntegrationVerify.stdout, /integration_next=muster integrations setup parallel-search/);
 
   await assert.rejects(
     () => runCli(["integrations", "workflow", "not-a-real-integration"], cwd),

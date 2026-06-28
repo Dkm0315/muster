@@ -2674,11 +2674,14 @@ function printChatIntegrationStatus(rawLines: readonly string[]): void {
 }
 
 function printChatIntegrationAction(action: string, target: string, rawLines: readonly string[]): void {
-  const lines = rawLines.length ? rawLines : [color("No output returned.", "dim")];
+  const next = rawLines.find((line) => line.startsWith("integration_next="))?.slice("integration_next=".length);
+  const lines = rawLines.filter((line) => !line.startsWith("integration_next="));
+  const visible = lines.length ? lines : [color("No output returned.", "dim")];
   printChatPanel(`Integration ${action}`, [
     `${color(target, "accent")} ${color("ran through existing Muster command surface", "dim")}`,
-    ...lines.slice(0, 18),
-    ...(lines.length > 18 ? [color(`... ${lines.length - 18} more line(s) omitted`, "dim")] : []),
+    ...(next ? [`${color("Next", "green")} ${next}`] : []),
+    ...visible.slice(0, 18),
+    ...(visible.length > 18 ? [color(`... ${visible.length - 18} more line(s) omitted`, "dim")] : []),
   ]);
 }
 
@@ -8031,10 +8034,13 @@ async function runChannelIntegrationAction(action: "setup" | "verify" | "enable"
   console.log(`integration_action=${action} target=${spec.id} kind=channel`);
   if (action === "setup") {
     await channelsCommand(["setup", spec.id]);
+    console.log(`integration_next=muster integrations verify ${spec.id}`);
     return;
   }
   if (action === "verify") {
     await channelsCommand(["doctor", spec.id, ...(spec.id === "telegram" ? ["--live"] : [])]);
+    const gateway = await loadGatewayConfig().catch(() => undefined);
+    console.log(`integration_next=muster integrations ${gateway && channelReady(spec.id, gateway) ? "sample" : "setup"} ${spec.id}`);
     return;
   }
   if (action === "enable") {
@@ -8042,52 +8048,67 @@ async function runChannelIntegrationAction(action: "setup" | "verify" | "enable"
     if (!gateway || !channelReady(spec.id, gateway)) {
       console.log(`status=blocked next="muster channels setup ${spec.id}"`);
       console.log("reason=channel setup is incomplete; gateway was not started");
+      console.log(`integration_next=muster integrations setup ${spec.id}`);
       return;
     }
     console.log(`status=ready start="muster gateway start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}"`);
+    console.log(`integration_next=muster integrations sample ${spec.id}`);
     return;
   }
   await channelsCommand(["simulate", spec.id, "--message", `hello from ${spec.id}`]);
+  const gateway = await loadGatewayConfig().catch(() => undefined);
+  console.log(`integration_next=muster integrations ${gateway && channelReady(spec.id, gateway) ? "enable" : "setup"} ${spec.id}`);
 }
 
 async function runPluginIntegrationAction(action: "setup" | "verify" | "enable" | "sample", plugin: BuiltinPluginCatalogEntry): Promise<void> {
   console.log(`integration_action=${action} target=${plugin.id} kind=plugin`);
   if (action === "setup") {
     await pluginsCommand(["setup", plugin.id]);
+    console.log(`integration_next=muster integrations verify ${plugin.id}`);
     return;
   }
   if (action === "verify") {
     await pluginsCommand(["check", plugin.id]);
+    const missing = missingSetupEnv(plugin.setup);
+    console.log(`integration_next=muster integrations ${missing.length ? "setup" : "enable"} ${plugin.id}`);
     return;
   }
   if (action === "enable") {
     await pluginsCommand(["enable", plugin.id]);
+    console.log(`integration_next=muster integrations sample ${plugin.id}`);
     return;
   }
   const firstChannel = plugin.setup?.channels?.[0];
   if (firstChannel) {
     await channelsCommand(["simulate", firstChannel, "--message", `hello from ${plugin.id}`]);
+    console.log(`integration_next=muster integrations verify ${plugin.id}`);
     return;
   }
   const firstMcp = plugin.setup?.defaultMcpServers?.[0] ?? plugin.setup?.mcpServers?.[0];
   if (firstMcp) {
     await runMcpSample(firstMcp);
+    console.log(`integration_next=muster integrations verify ${plugin.id}`);
     return;
   }
   await pluginsCommand(["check", plugin.id]);
+  console.log(`integration_next=muster integrations verify ${plugin.id}`);
 }
 
 async function runMcpIntegrationAction(action: "setup" | "verify" | "enable" | "sample", entry: BuiltinMcpCatalogEntry): Promise<void> {
   console.log(`integration_action=${action} target=${entry.id} kind=mcp`);
   if (action === "setup" || action === "enable") {
     await mcpCommand(["install", entry.id]);
+    console.log(`integration_next=muster integrations verify ${entry.id}`);
     return;
   }
   if (action === "verify") {
     await runMcpVerify(entry.id);
+    const config = await loadConfig().catch(() => undefined);
+    console.log(`integration_next=muster integrations ${config?.tools?.mcp?.servers?.[entry.id] ? "sample" : "setup"} ${entry.id}`);
     return;
   }
   await runMcpSample(entry.id);
+  console.log(`integration_next=muster integrations verify ${entry.id}`);
 }
 
 async function runMcpVerify(id: string): Promise<void> {
