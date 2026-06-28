@@ -1551,7 +1551,7 @@ async function runChatTurn(text: string, state: ChatState, options: { timeoutMs?
   const prompt = routed ? routed.prompt : text;
   const agentId = routed?.agentId;
   const config = await loadConfig();
-  const mentionedCapabilities = await printMentionedCapabilityChecks(prompt, config);
+  const mentionedCapabilities = await printMentionedCapabilityChecks(prompt, config, { interactive: Boolean(state.statusSink) });
   const started = Date.now();
   const stopWorking = state.statusSink ? startTuiWorkingStatus(state.statusSink, agentId, started) : startWorkingStatus(agentId, started);
   let outcome: RunOutcome;
@@ -1634,6 +1634,7 @@ function parseAgentMention(text: string): { agentId: string; prompt: string } | 
 async function printMentionedCapabilityChecks(
   prompt: string,
   config: Awaited<ReturnType<typeof loadConfig>>,
+  options: { interactive?: boolean } = {},
 ): Promise<readonly BuiltinCapabilityMention[]> {
   const mentions = resolveBuiltinCapabilityMentions(prompt, { limit: 5 });
   if (!mentions.length) return [];
@@ -1641,10 +1642,13 @@ async function printMentionedCapabilityChecks(
   for (const mention of mentions) {
     lines.push(await formatMentionedCapabilityCheck(mention, config));
   }
+  const nextLine = options.interactive
+    ? "The matching picker opens after this turn so you can confirm setup instead of guessing commands."
+    : "Run the shown next command, or start interactive chat for the guided picker.";
   printChatPanel("Capability Check", [
     color("Muster noticed capability names in your prompt and checked setup before routing.", "dim"),
     ...lines,
-    color("The matching picker opens after this turn so you can confirm setup instead of guessing commands.", "dim"),
+    color(nextLine, "dim"),
   ]);
   return mentions;
 }
@@ -2204,7 +2208,12 @@ async function printChatCapabilities(query: string | undefined, state: ChatState
     const lines = [
       color(`Matched "${trimmed}" against built-in skills, plugins, and MCP servers.`, "dim"),
       ...(await Promise.all(mentions.map((mention) => formatMentionedCapabilityCheck(mention, config)))),
-      color("Pick from the opened selector, or run the shown setup/check command.", "dim"),
+      color(
+        state.statusSink
+          ? "Pick from the opened selector, or run the shown setup/check command."
+          : "Run the shown setup/check command, or start interactive chat for the guided selector.",
+        "dim",
+      ),
     ];
     printChatPanel("Capabilities", lines);
     openMentionedCapabilityPicker(state, mentions, config);
