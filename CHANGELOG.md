@@ -6,6 +6,13 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-06-29
+
+Muster 0.1.9 is the Office artifacts and integration-readiness point release.
+It strengthens the document/PPT/PDF/Excel pillar, improves daily-life channel
+readiness, and makes the public website/npm discovery surface easier to trust
+before the next heavier workflow release.
+
 ### Added
 - Added governed first-party flow tool execution so saved flows can run audited
   core tools, while shell execution remains opt-in behind `--toolset full` and
