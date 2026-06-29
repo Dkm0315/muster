@@ -1,9 +1,11 @@
 export {
   artifact_capability_plan,
+  artifact_structural_verify,
   artifact_goal_passes,
   dashboard_manifest,
   docx_document,
   markdown_report,
+  office_artifact_contract,
   office_artifact_workflow,
   office_tool_integrations,
   pdf_document,
