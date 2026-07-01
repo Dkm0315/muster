@@ -13,11 +13,11 @@
       <stop offset="1" stop-color="#4e25d8"/>
     </radialGradient>
   </defs>
-  <g fill="none" stroke="url(#muster-path)" stroke-width="48" stroke-linecap="butt">
-    <path d="M0 220H112C171.647 220 220 171.647 220 112V0"/>
-    <path d="M512 220H400C340.353 220 292 171.647 292 112V0"/>
-    <path d="M0 292H112C171.647 292 220 340.353 220 400V512"/>
-    <path d="M512 292H400C340.353 292 292 340.353 292 400V512"/>
+  <g fill="none" stroke="url(#muster-path)" stroke-width="56" stroke-linecap="butt">
+    <path d="M-96 218H108C168.751 218 218 168.751 218 108V-96"/>
+    <path d="M608 218H404C343.249 218 294 168.751 294 108V-96"/>
+    <path d="M-96 294H108C168.751 294 218 343.249 218 404V608"/>
+    <path d="M608 294H404C343.249 294 294 343.249 294 404V608"/>
   </g>
-  <circle cx="256" cy="256" r="48" fill="url(#muster-point)"/>
+  <circle cx="256" cy="256" r="44" fill="url(#muster-point)"/>
 </svg>
