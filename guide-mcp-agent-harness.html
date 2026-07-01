@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCP Agent Harness with Token Visibility — Muster Guide</title>
+  <meta name="description" content="A practical guide to MCP agent harnesses: tool policy, OAuth setup, result caps, scoped memory, and token ledger visibility for MCP servers." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/guide-mcp-agent-harness.html" />
+  <meta property="og:type" content="article" /><meta property="og:site_name" content="Muster" /><meta property="og:title" content="MCP Agent Harness with Token Visibility" /><meta property="og:description" content="How MCP servers become safer when routed through scoped memory, policy, result caps, and token ledgers." /><meta property="og:url" content="https://themuster.dev/guide-mcp-agent-harness.html" /><meta property="og:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" crossorigin src="/assets/modulepreload-polyfill-B5Qt9EMX.js"></script>
+  <script type="module" crossorigin src="/assets/theme-CCPwQkxz.js"></script>
+  <script type="module" crossorigin src="/assets/main-rVgtbp_p.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-DWUsbR_a.css">
+</head>
+<body>
+  <div id="scroll-progress" aria-hidden="true"></div><div id="hero-stage" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+  <header class="topbar"><a class="brand" href="/" aria-label="Muster home"><img src="/assets/brand/muster-logo.png" alt="Muster" /></a><nav aria-label="Main"><a href="/">Home</a><a href="/guides.html">Guides</a><a href="/mcp-agent-harness.html">MCP page</a><a href="/docs.html">Docs</a><a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a></nav></header>
+  <main>
+    <section class="hero"><div class="hero-inner"><p class="kicker hero-step">guide · MCP</p><h1 class="hero-step">MCP agent harness with token visibility.</h1><p class="sub hero-step">MCP makes tools portable. A harness makes those tools governable.</p></div></section>
+    <section class="band" data-reveal>
+      <p class="sec-kicker reveal-child">The risk</p>
+      <h2 class="reveal-child">Tool access is useful only when it is bounded.</h2>
+      <p class="sec-sub reveal-child">The Model Context Protocol gives agents a common way to reach tools, files, APIs, databases, browsers, and workspace systems. That portability is valuable. It also creates a new governance problem: once a tool server is available, which tools should the agent see, how large can results be, which credentials are active, what happens when auth fails, and how much context gets pushed back into the model?</p>
+      <p class="sec-sub reveal-child">A plain MCP connection can become a hidden expansion point. One tool call returns too much data. Another call fails and the agent retries without useful context. A third server requires OAuth but the setup path is buried in documentation. None of that is solved by asking the model to "be careful." The harness has to own setup, policy, and evidence.</p>
+      <div class="capability-board reveal-child">
+        <article class="capability-panel"><span class="cap-label">setup</span><h3>Auth and install checks</h3><p>Users should see which MCP servers are configured, which need OAuth, and which environment variables are missing before a run begins.</p></article>
+        <article class="capability-panel"><span class="cap-label">policy</span><h3>Allowlists and caps</h3><p>Include/exclude rules, result-size caps, and circuit breakers keep a useful MCP server from flooding context or widening access accidentally.</p></article>
+        <article class="capability-panel"><span class="cap-label">memory</span><h3>Scoped recall</h3><p>Tool results should not automatically become global memory. They need tenant, workspace, user, role, and session scope.</p></article>
+        <article class="capability-panel"><span class="cap-label">ledger</span><h3>Token receipts</h3><p>The cost of tool-fed context should be visible. If an MCP result causes replay waste, the ledger should show it.</p></article>
+      </div>
+    </section>
+    <section class="band band-alt" data-reveal>
+      <p class="sec-kicker reveal-child">Muster's approach</p>
+      <h2 class="reveal-child">MCP is a capability surface, not a shortcut around governance.</h2>
+      <p class="sec-sub reveal-child">Muster treats MCP servers as governed capabilities. A server can be stdio or HTTP, local or remote, OAuth-backed or env-backed. The important part is that setup guidance, tool policy, result limits, auth state, and token visibility live in the harness. That lets a team add GitHub, Notion, Google Drive, Postgres, browser, web-search, or custom MCP servers without turning every model turn into an uncontrolled tool buffet.</p>
+      <p class="sec-sub reveal-child">This matters for production AI agents because MCP is often the bridge to real systems. If the agent can read issues, summarize documents, inspect data, or browse authenticated apps, the harness should record what happened. It should show which tools were configured, which calls ran, what results entered memory, and how much token budget the context consumed.</p>
+      <p class="sec-sub reveal-child">The goal is not to slow teams down. It is to make tool use repeatable. A good MCP agent harness gives developers enough friction to prevent accidental leaks and enough visibility to debug why an answer changed.</p>
+      <p class="sec-sub reveal-child">There is also a user-experience problem. Many MCP servers require several setup steps: install a package, create an OAuth app, copy a redirect URL, approve scopes, set an environment variable, and restart a client. Technical users can do that, but they still need clear feedback when something is missing. Non-technical operators need even more help. The harness should turn setup into an explicit workflow: what is installed, what is authenticated, what failed, and what link or command comes next.</p>
+      <p class="sec-sub reveal-child">Token visibility is the other half. MCP tools can return large payloads, and large payloads can quietly become expensive prompts. A ledger lets teams see when a tool result is useful, when it should be summarized, when it should be cached, and when it should be excluded from future turns. Without that visibility, teams often blame the model for latency or cost when the real issue is uncontrolled context.</p>
+      <p class="sec-sub reveal-child">For Muster, MCP support is not a separate feature island. It connects to the same memory scope, provider routing, gateway surfaces, capability packs, and eval fixtures as the rest of the harness. That is what makes MCP practical for long-running agents rather than just impressive in a one-off demo.</p>
+      <p class="sec-sub reveal-child">A mature MCP setup should also be boring to review. The list of servers should be inspectable, the active scopes should be clear, and failures should be explicit. If a Google Drive server is missing OAuth, say that. If a Postgres server can return too many rows, cap it. If a browser server depends on a local binary, check it before the run. This kind of surface makes MCP safer for teams that want strong integrations without making every user a toolchain expert.</p>
+      <p class="proof-link reveal-child"><a href="/docs.html#capability-packs">Read capability docs -></a> <a href="/mcp-agent-harness.html">See the MCP landing page -></a></p>
+    </section>
+  </main>
+</body>
+</html>

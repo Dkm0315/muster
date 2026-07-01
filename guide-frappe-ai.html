@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frappe AI with DocType-Aware Retrieval — Muster Guide</title>
+  <meta name="description" content="Frappe AI and ERPNext agents need DocType, field, workflow, role, permission, report, and site context before they answer or act." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/guide-frappe-ai.html" />
+  <meta property="og:type" content="article" /><meta property="og:site_name" content="Muster" /><meta property="og:title" content="Frappe AI with DocType-Aware Retrieval" /><meta property="og:description" content="Why Frappe / ERPNext agents need DocTypes, fields, workflows, roles, and permission context." /><meta property="og:url" content="https://themuster.dev/guide-frappe-ai.html" /><meta property="og:image" content="https://themuster.dev/assets/demo/frappe-context-card.png" />
+  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content="https://themuster.dev/assets/demo/frappe-context-card.png" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" crossorigin src="/assets/modulepreload-polyfill-B5Qt9EMX.js"></script>
+  <script type="module" crossorigin src="/assets/theme-CCPwQkxz.js"></script>
+  <script type="module" crossorigin src="/assets/main-rVgtbp_p.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-DWUsbR_a.css">
+</head>
+<body>
+  <div id="scroll-progress" aria-hidden="true"></div><div id="hero-stage" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+  <header class="topbar"><a class="brand" href="/" aria-label="Muster home"><img src="/assets/brand/muster-logo.png" alt="Muster" /></a><nav aria-label="Main"><a href="/">Home</a><a href="/guides.html">Guides</a><a href="/frappe-ai.html">Frappe AI</a><a href="/docs.html">Docs</a><a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a></nav></header>
+  <main>
+    <section class="hero"><div class="hero-inner"><p class="kicker hero-step">guide · Frappe AI</p><h1 class="hero-step">Frappe AI with DocType-aware retrieval.</h1><p class="sub hero-step">ERPNext and Frappe agents need site-specific structure, not generic ERP knowledge.</p></div></section>
+    <section class="band" data-reveal>
+      <p class="sec-kicker reveal-child">The problem</p>
+      <h2 class="reveal-child">Frappe context is relational, customized, and permissioned.</h2>
+      <p class="sec-sub reveal-child">A Frappe or ERPNext site is not just a set of docs. It is a live system made of modules, DocTypes, child tables, custom fields, workflows, reports, scripts, roles, permissions, scheduled jobs, and installed apps. Two companies can both run ERPNext and still have very different data models, naming conventions, workflows, and permission rules.</p>
+      <p class="sec-sub reveal-child">That makes generic AI answers risky. A model may know what a Sales Invoice is in ERPNext, but it does not automatically know which custom fields exist on this site, which workflow state blocks submission, which role can approve Leave Applications, or which app added a child table. For Frappe AI to be useful in real operations, retrieval has to understand the site's structure and the current user's authority.</p>
+      <div class="cards five">
+        <article class="card reveal-child"><h3>DocTypes and fields</h3><p>Answers should include the relevant DocType, child table, standard field, custom field, and fieldtype context.</p></article>
+        <article class="card reveal-child"><h3>Workflows and roles</h3><p>Operational questions often depend on workflow state, transition rules, role assignments, and permission levels.</p></article>
+        <article class="card reveal-child"><h3>Reports and scripts</h3><p>Server scripts, client scripts, reports, hooks, and scheduled jobs can change behavior beyond the visible form.</p></article>
+        <article class="card reveal-child"><h3>Installed apps</h3><p>Frappe suites and custom apps add modules and DocTypes that generic documentation does not cover.</p></article>
+        <article class="card reveal-child"><h3>Tenant boundaries</h3><p>Multi-site and multi-customer setups need memory scope so one site's context never leaks into another.</p></article>
+      </div>
+    </section>
+    <section class="band band-alt" data-reveal>
+      <p class="sec-kicker reveal-child">Muster's approach</p>
+      <h2 class="reveal-child">Keep the core light; put Frappe intelligence in a capability pack.</h2>
+      <p class="sec-sub reveal-child">Muster's Frappe / ERPNext direction is plugin-owned. The main harness should stay small and fast. Site-specific Frappe context belongs in a capability pack that can connect to a Frappe site, use admin-approved credentials, inspect installed apps, collect DocType and DocField metadata, and build retrieval around modules, workflows, reports, scripts, and permissions.</p>
+      <p class="sec-sub reveal-child">That model also keeps authorization honest. If an agent reads or writes ERP data, it should act through explicit tools and the paired Frappe user. Frappe remains the authorization authority. Muster's job is to provide the harness around that action: setup checks, scoped memory, token visibility, tool receipts, and eval fixtures for behavior that should become durable.</p>
+      <p class="sec-sub reveal-child">For a real Frappe AI assistant, the useful output is not just "what does ERPNext usually do?" It is "on this site, with this user's permissions, using these DocTypes and workflows, here is the safe next step." That is the difference between generic chat and an ERP-aware agent harness.</p>
+      <p class="sec-sub reveal-child">This also changes retrieval design. Frappe data is naturally graph-shaped: modules contain DocTypes, DocTypes contain fields, child tables link back to parents, workflows depend on states and roles, reports depend on queries, and custom apps can override behavior. A useful Frappe AI system should be able to combine docs retrieval with live metadata retrieval and, where appropriate, graph-like traversal of related objects. The point is not to stuff the entire site into a prompt. The point is to retrieve the small set of structural facts that make the answer correct.</p>
+      <p class="sec-sub reveal-child">For example, an HR assistant on one Frappe site might need to know how Leave Application, Employee, Attendance, Salary Slip, and a custom OxygenHR app relate. Another site may have different fields, different workflows, and different permission rules. A governed harness should keep those contexts separated by site and tenant, then record which facts were used for each answer.</p>
+      <p class="sec-sub reveal-child">The safest path is incremental. Start with read-only context: docs, installed apps, DocTypes, fields, reports, and workflows. Add permission checks. Add eval fixtures for common questions. Only then introduce write tools, and keep those behind explicit actions, paired identities, and receipts. That is slower than a flashy demo, but it is the route that can survive production ERP usage.</p>
+      <p class="sec-sub reveal-child">This is also why Frappe AI should be evaluated with real site questions, not only generic prompts. Ask about a custom field, a workflow transition, a report that joins multiple DocTypes, or a permission issue that depends on role assignments. If the agent cannot show where the answer came from, it is not ready for operational use. A harness gives those answers receipts: retrieved context, tool calls, memory scope, token cost, and test fixtures for future regressions.</p>
+      <p class="proof-link reveal-child"><a href="/frappe-ai.html">See the Frappe AI page -></a> <a href="/docs.html#capability-packs">Read capability docs -></a></p>
+    </section>
+  </main>
+</body>
+</html>

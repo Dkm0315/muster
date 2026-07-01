@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>What Is an Agent Harness? — Muster Guide</title>
+  <meta name="description" content="An agent harness is the control layer around production AI agents: scoped memory, token accounting, tool policy, provider routing, channels, and evals." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/guide-agent-harness.html" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Muster" />
+  <meta property="og:title" content="What Is an Agent Harness?" />
+  <meta property="og:description" content="Why production AI agents need memory scope, token accounting, tool policy, and evals." />
+  <meta property="og:url" content="https://themuster.dev/guide-agent-harness.html" />
+  <meta property="og:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <script type="module" crossorigin src="/assets/modulepreload-polyfill-B5Qt9EMX.js"></script>
+  <script type="module" crossorigin src="/assets/theme-CCPwQkxz.js"></script>
+  <script type="module" crossorigin src="/assets/main-rVgtbp_p.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-DWUsbR_a.css">
+</head>
+<body>
+  <div id="scroll-progress" aria-hidden="true"></div><div id="hero-stage" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+  <header class="topbar"><a class="brand" href="/" aria-label="Muster home"><img src="/assets/brand/muster-logo.png" alt="Muster" /></a><nav aria-label="Main"><a href="/">Home</a><a href="/guides.html">Guides</a><a href="/docs.html">Docs</a><a class="nav-cta" href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a></nav></header>
+  <main>
+    <section class="hero"><div class="hero-inner"><p class="kicker hero-step">guide · agent harness</p><h1 class="hero-step">What is an agent harness?</h1><p class="sub hero-step">An agent harness is the control layer around an AI agent. It decides what context enters a run, which tools can act, how memory is scoped, how tokens are recorded, and how behavior changes are tested.</p></div></section>
+    <section class="band" data-reveal>
+      <p class="sec-kicker reveal-child">Why it exists</p>
+      <h2 class="reveal-child">A demo agent and a production agent fail in different ways.</h2>
+      <p class="sec-sub reveal-child">A demo agent can work with one prompt, one tool, one user, and one clean context window. A production AI agent has a different shape. It receives messages from channels, remembers facts across sessions, calls tools with side effects, switches between model providers, and runs for days or weeks. The failure mode is not only a wrong answer. It can be a memory leak between customers, an unbounded token bill, a tool call that should have been gated, or a "learned" preference that was never tested.</p>
+      <p class="sec-sub reveal-child">That is where an agent harness matters. The harness sits outside the model. The model can reason, draft, summarize, or call requested tools, but the harness owns the boundaries. It records the episode, attaches scoped memory, enforces tool policy, tracks token usage, and saves evidence that can be replayed later.</p>
+      <div class="cards five">
+        <article class="card reveal-child"><h3>Context control</h3><p>The harness decides which memories, files, channel messages, and tool results enter the prompt. Good context is selective, scoped, and explainable.</p></article>
+        <article class="card reveal-child"><h3>Tool policy</h3><p>Production tools need allowlists, setup checks, result caps, and approval gates. A harness makes those decisions visible instead of hiding them in prompts.</p></article>
+        <article class="card reveal-child"><h3>Token ledger</h3><p>Long-running agents can waste money by replaying too much history. A local ledger shows per-run usage, totals, and replay waste.</p></article>
+        <article class="card reveal-child"><h3>Memory boundaries</h3><p>User, workspace, tenant, role, and session boundaries keep personalization useful without turning memory into a leak.</p></article>
+        <article class="card reveal-child"><h3>Eval-gated learning</h3><p>Feedback should become a test fixture before it changes durable behavior. That keeps improvement auditable.</p></article>
+      </div>
+    </section>
+    <section class="band band-alt" data-reveal>
+      <p class="sec-kicker reveal-child">Muster's approach</p>
+      <h2 class="reveal-child">Governance stays outside the provider.</h2>
+      <p class="sec-sub reveal-child">Muster is an open-source governed agent harness for production AI agents. It is provider-flexible because the important controls should not depend on one model family. A team can route to cloud APIs, open-source models, self-hosted endpoints, aggregators, or private runtimes while keeping scoped memory, token accounting, MCP policy, browser automation, Frappe / ERPNext context, and channel adapters in one run loop.</p>
+      <p class="sec-sub reveal-child">The practical test is simple: after a run, can you answer what context was used, which tools were available, how many tokens were spent, what memory was recalled, and whether the result can become a regression fixture? If the answer is no, you have a chatbot wrapper. If the answer is yes, you are closer to an agent harness.</p>
+      <p class="sec-sub reveal-child">This distinction matters when a product starts connecting agents to real surfaces. A Slack message, Telegram DM, browser task, ERP workflow, or MCP tool call should not each invent its own security model. They should enter the same envelope: who sent the request, which scope is active, which provider route is selected, what budget applies, which tools are configured, and what evidence should be saved. That is the boring part of agent engineering, but it is also the part that makes the system survive contact with real users.</p>
+      <p class="sec-sub reveal-child">A good harness also makes provider choice less dramatic. Models will change, local runtimes will improve, and teams will mix cloud APIs with open-source and self-hosted routes. If memory, token ledgers, evals, and tool policy live inside one provider's product, switching providers becomes expensive. If those controls live in the harness, the model is a route rather than the whole operating system.</p>
+      <p class="sec-sub reveal-child">Muster is early, so the honest way to evaluate it is to inspect the repo, run the deterministic demo, run the benchmark, and look at how memory, tokens, gateway adapters, and capability packs are represented as code. The project is trying to make agent governance concrete enough to test, not just nice enough to describe.</p>
+      <p class="sec-sub reveal-child">For teams comparing agent frameworks, this is the practical dividing line: frameworks often help you compose reasoning steps, graphs, crews, or workflows; a harness focuses on operational control around those steps. You can use both. The harness should answer the questions an operator, security reviewer, or maintainer will ask after the demo: what ran, why it was allowed, what it cost, what was remembered, what changed, and how we know it will behave the same way next time.</p>
+      <p class="proof-link reveal-child"><a href="/docs.html">Read the docs -></a> <a href="https://github.com/Dkm0315/muster" rel="noopener">View the GitHub repo -></a></p>
+    </section>
+  </main>
+</body>
+</html>

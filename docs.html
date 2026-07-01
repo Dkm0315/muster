@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Muster Docs — getting started, providers, flows, gateway, CLI</title>
-  <meta name="description" content="Muster documentation: getting started, 20+ provider presets, the flow engine with approval gates, the gateway with six chat adapters and a web client, capability packs, and the full CLI reference." />
+  <title>Muster Docs — Governed Agent Harness, MCP, Memory, Token Ledger</title>
+  <meta name="description" content="Muster docs for the open-source governed agent harness: getting started, multi-provider routing, scoped memory, token ledger, eval-gated learning, MCP, capability packs, browser automation, and Frappe / ERPNext support." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://themuster.dev/docs.html" />
   <meta name="theme-color" content="#F0EEE9" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F0EEE9'/%3E%3Ccircle cx='10' cy='10' r='3' fill='%23A78BFA'/%3E%3Ccircle cx='22' cy='10' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='10' cy='22' r='3' fill='%2306B6D4'/%3E%3Ccircle cx='22' cy='22' r='3' fill='%23A78BFA'/%3E%3C/svg%3E" />
   <!-- Set theme before first paint to avoid a flash (mirrors src/theme.ts). -->
@@ -19,24 +21,32 @@
     })();
   </script>
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Muster Docs" />
-  <meta property="og:description" content="Documentation for the AI agent harness you can audit." />
+  <meta property="og:title" content="Muster Docs — Governed Agent Harness" />
+  <meta property="og:description" content="Documentation for scoped memory, token visibility, eval-gated learning, MCP capabilities, browser automation, and Frappe / ERPNext workflows." />
+  <meta property="og:url" content="https://themuster.dev/docs.html" />
+  <meta property="og:image" content="https://themuster.dev/assets/brand/muster-og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Muster Docs — Governed Agent Harness" />
+  <meta name="twitter:description" content="Docs for scoped memory, token ledger, eval-gated learning, MCP, capability packs, browser automation, and Frappe / ERPNext workflows." />
+  <meta name="twitter:image" content="https://themuster.dev/assets/brand/muster-og.png" />
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=hanken-grotesk@400,500,600,700&display=swap" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
-  <script type="module" crossorigin src="/muster/assets/docs-DUPkvHHy.js"></script>
-  <link rel="modulepreload" crossorigin href="/muster/assets/modulepreload-polyfill-B5Qt9EMX.js">
-  <link rel="modulepreload" crossorigin href="/muster/assets/theme-DEORF_6t.js">
-  <link rel="stylesheet" crossorigin href="/muster/assets/portal-CFfeyCBj.css">
+  <script type="module" crossorigin src="/assets/docs-DvOv8kc0.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/modulepreload-polyfill-B5Qt9EMX.js">
+  <link rel="modulepreload" crossorigin href="/assets/theme-CCPwQkxz.js">
+  <link rel="stylesheet" crossorigin href="/assets/portal-CoI3iHNS.css">
 </head>
 <body class="portal-body docs-body">
   <div class="portal-app">
     <header class="portal-top">
-      <a class="brand" href="/">muster<span class="brand-dot">_</span></a>
+      <a class="brand" href="/" aria-label="Muster home"><img src="/assets/brand/muster-logo.png" alt="Muster" /></a>
       <nav class="portal-nav" aria-label="Site">
         <a href="/">Home</a>
+        <a href="/frappe-ai.html">Frappe AI</a>
+        <a href="/guides.html">Guides</a>
         <a href="/portal.html">Portal</a>
         <a href="/docs.html" class="active" aria-current="page">Docs</a>
         <a href="https://github.com/Dkm0315/muster" rel="noopener">GitHub</a>
@@ -68,7 +78,7 @@
           <h2>1 · Initialize</h2>
           <pre class="mono codeblock">$ muster init
 Created or reused Muster config: .muster/config.json
-Default provider: Codex CLI with model gpt-5.5
+Default provider: generated from local config; use provider presets to pick cloud, open-source, self-hosted, Gemini, aggregator, or CLI-auth routes
 Next: muster doctor</pre>
           <p><code>muster doctor</code> checks the config, routing policy (<em>one active runtime per run</em>), and probes every configured provider's <code>/models</code> endpoint. <code>muster doctor --fix</code> repairs the config and data directory.</p>
 
@@ -83,7 +93,7 @@ $ muster runtime use-provider native openai  # bind the native runtime to it</pr
 recalled 1 scoped memories into context
 run=ea59ad5f… runtime=native model=stub/stub-model task=simple_qa status=completed
 tokens in=54~ out=64~</pre>
-          <p>Every run is recorded as an episode with scoped memory recall and token estimates. Options: <code>--runtime pi</code>, <code>--provider anthropic</code>, <code>--model …</code>, <code>--session memory|create|continue</code>, <code>--task-kind coding</code>, <code>--sensitive</code>.</p>
+          <p>Every run is recorded as an episode with scoped memory recall and token estimates. Options: <code>--runtime pi</code>, <code>--provider gemini|groq|openrouter|vllm|...</code>, <code>--model …</code>, <code>--session memory|create|continue</code>, <code>--task-kind coding</code>, <code>--sensitive</code>.</p>
 
           <h2>4 · Audit</h2>
           <pre class="mono codeblock">$ muster tokens        # per-run ledger + totals by model + waste flags
@@ -95,7 +105,7 @@ $ muster status        # one-screen mission control</pre>
 
         <section id="providers" class="docs-section reveal">
           <h1>Providers</h1>
-          <p>No API or AI provider is ever a bottleneck. Anything speaking the OpenAI-compatible chat protocol works out of the box; CLI runtimes (Claude Code, Codex, Pi) and local servers are first-class too. List presets any time with <code>muster provider presets</code>. Source: <code>packages/core/src/providers-catalog.ts</code>.</p>
+          <p>No API or AI provider should be a bottleneck. Muster is provider-family agnostic: direct cloud APIs, Gemini, OpenAI-compatible endpoints, aggregators, local/open-source servers, Pi, and optional CLI-auth runtimes are all supported through the same governed run loop. List presets any time with <code>muster provider presets</code>. Source: <code>packages/core/src/providers-catalog.ts</code>.</p>
 
           <h2>Cloud providers</h2>
           <table class="docs-table">
@@ -136,13 +146,13 @@ $ muster status        # one-screen mission control</pre>
             </tbody>
           </table>
 
-          <h2>CLI-auth runtimes (subscription auth, no raw API key)</h2>
+          <h2>CLI-auth runtimes (optional subscription auth, no raw API key)</h2>
           <pre class="mono codeblock">codex-cli      OpenAI Codex CLI — uses your local `codex` login (default gpt-5.5)
 
 Also available without presets:
   any OpenAI-compatible endpoint:  muster provider add-openai-compatible &lt;id&gt; &lt;base-url&gt; &lt;model&gt; [--api-key-env VAR]
   Claude Code CLI runtime:         muster run "..." --runtime claude-code   (uses your local `claude` login)
-  Pi-managed providers:            muster run "..." --runtime pi --provider anthropic   (uses Pi auth)</pre>
+  Pi-managed providers:            muster run "..." --runtime pi --provider gemini|anthropic|openai|...   (uses Pi auth)</pre>
         </section>
 
         <section id="flows" class="docs-section reveal">
@@ -191,7 +201,9 @@ $ muster flow show flowrun_89e4607c       # full step-by-step run record</pre>
           <h1>Gateway &amp; surfaces</h1>
           <p>One gateway process, one message envelope, any frontend. Six webhook adapters ship in <code>packages/gateway/src/adapters</code> — <strong>telegram, slack, discord, whatsapp, gchat, teams</strong> — plus a browser client in <code>packages/surface</code>. Discord interactions are verified with native ed25519 signatures.</p>
 
-          <pre class="mono codeblock">$ muster gateway init                # writes .muster/gateway.json (token inside)
+          <pre class="mono codeblock">$ muster gateway status              # safe readiness check; token is never printed
+$ muster gateway init                # writes .muster/gateway.json (token inside)
+$ muster gateway status              # configured, port, channel readiness, next command
 $ muster gateway start --port 7460
 $ muster pairing list                # pending senders
 $ muster pairing approve &lt;code&gt;      # first message from an unknown sender requires pairing</pre>
@@ -279,6 +291,7 @@ Usage:
   muster flow save &lt;file.json&gt; | list | check &lt;id&gt; | run &lt;id&gt;
   muster flow runs | show &lt;run-id&gt; | approve &lt;run-id&gt; | reject &lt;run-id&gt;
   muster gateway init
+  muster gateway status
   muster gateway start [--port 7460]
   muster pairing list | approve &lt;code&gt;
   muster flow replay &lt;run-id&gt; [--live-agents]
