@@ -21,6 +21,8 @@ export interface GatewayConfig {
     readonly entries?: Record<string, GatewayCustomCommand>;
   };
   readonly telegram?: {
+    /** Friendly bot label shown in setup/status output; not used as a secret. */
+    readonly name?: string;
     readonly botToken: string;
     /** "draft" streams replies as live-edited drafts (sendMessage + editMessageText). */
     readonly stream?: "off" | "draft";
@@ -51,6 +53,8 @@ export interface GatewayConfig {
     readonly accessToken: string;
     readonly verifyToken: string;
     readonly phoneNumberId: string;
+    /** Meta app secret for X-Hub-Signature-256 POST webhook verification. */
+    readonly appSecret?: string;
     /** Graph API version segment; defaults to v19.0. */
     readonly apiVersion?: string;
   };

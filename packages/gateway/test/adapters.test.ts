@@ -279,6 +279,14 @@ test("slack webhook posts governed reply via chat.postMessage with bot token", a
     assert.equal(body.channel, "C2147483705");
     assert.equal(body.text, "3 open tickets");
     assert.equal(body.thread_ts, "1765432000.000200");
+
+    const retry = await fetch(`http://127.0.0.1:${running.port}/v1/adapters/slack`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer test-token", "x-slack-retry-num": "1", "x-slack-retry-reason": "http_timeout" },
+      body: JSON.stringify(slackEventCallback),
+    });
+    assert.equal(retry.status, 200);
+    assert.equal(outbound.length, 1, "Slack retry with the same event_id must not double-post or spend tokens twice");
   } finally {
     await running.close();
     llm.close();

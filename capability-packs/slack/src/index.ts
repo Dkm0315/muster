@@ -55,9 +55,9 @@ export async function slack_setup_plan(args: Record<string, unknown>, context: C
     ],
     commands: [
       "muster gateway init",
-      `muster channels setup slack --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --public-url ${base}`,
+      `muster channels ready slack --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --public-url ${base}`,
       "muster channels status slack",
-      "muster gateway start --port 7460",
+      "muster gateway daemon start --port 7460",
     ],
     notes: [
       "Muster verifies Slack signatures when the signing secret is configured.",
@@ -74,11 +74,11 @@ export async function slack_gateway_check(args: Record<string, unknown>, context
     channel: "slack",
     ready: token && signingSecret,
     checks: [
-      { id: "bot_token", ok: token, detail: token ? "bot token configured" : "Set SLACK_BOT_TOKEN and run channels setup." },
-      { id: "signing_secret", ok: signingSecret, detail: signingSecret ? "signing secret configured" : "Set SLACK_SIGNING_SECRET and run channels setup." },
+      { id: "bot_token", ok: token, detail: token ? "bot token configured" : "Set SLACK_BOT_TOKEN and run channels ready." },
+      { id: "signing_secret", ok: signingSecret, detail: signingSecret ? "signing secret configured" : "Set SLACK_SIGNING_SECRET and run channels ready." },
       { id: "public_https_url", ok: Boolean(stringArg(args, "publicUrl")?.startsWith("https://")), detail: "Slack Event Subscriptions require a public HTTPS Request URL." },
     ],
-    next: token && signingSecret ? "Start the gateway and verify the Slack Request URL." : "Run muster channels setup slack with token and signing-secret env vars.",
+    next: token && signingSecret ? "Start the gateway daemon and verify the Slack Request URL." : "Run muster channels ready slack with token and signing-secret env vars.",
   };
 }
 

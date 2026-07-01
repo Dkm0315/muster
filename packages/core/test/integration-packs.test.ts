@@ -923,8 +923,9 @@ test("channel packs produce setup plans, readiness checks, and safe payload summ
     { config: {} },
   );
   assert.equal(googlePlan.webhookUrl, "https://chat.example.test/v1/adapters/gchat");
-  assert.equal(googlePlan.ready, true);
+  assert.equal(googlePlan.ready, false);
   assert.match(googlePlan.notes.join(" "), /Telegram is unavailable/);
+  assert.ok(googlePlan.commands.some((command) => command === "muster gateway daemon start --port 7460"));
 
   const googleCheck = await google_chat_gateway_check({ publicUrl: "http://localhost:7460", gatewayConfig: {} }, { config: {} });
   assert.equal(googleCheck.ready, false);
@@ -1004,7 +1005,7 @@ test("channel packs produce setup plans, readiness checks, and safe payload summ
   assert.deepEqual(telegramSummary, { updateId: 42, chatId: "123", chatType: "private", user: "ada", text: "/start" });
 
   const whatsappPlan = await whatsapp_setup_plan(
-    { publicUrl: "https://wa.example.test", gatewayConfig: { whatsapp: { accessToken: "token", verifyToken: "verify", phoneNumberId: "pnid", apiVersion: "v20.0" } } },
+    { publicUrl: "https://wa.example.test", gatewayConfig: { whatsapp: { accessToken: "token", verifyToken: "verify", phoneNumberId: "pnid", appSecret: "app-secret", apiVersion: "v20.0" } } },
     { config: {} },
   );
   assert.equal(whatsappPlan.ready, true);
@@ -1014,7 +1015,7 @@ test("channel packs produce setup plans, readiness checks, and safe payload summ
 
   const whatsappCheck = await whatsapp_gateway_check({ gatewayConfig: { whatsapp: { accessToken: "token" } } }, { config: {} });
   assert.equal(whatsappCheck.ready, false);
-  assert.deepEqual(whatsappCheck.checks.map((check) => check.id), ["access_token", "verify_token", "phone_number_id", "public_https_url"]);
+  assert.deepEqual(whatsappCheck.checks.map((check) => check.id), ["access_token", "verify_token", "phone_number_id", "app_secret", "public_https_url"]);
   assert.equal(whatsappCheck.checks[1].ok, false);
 
   const whatsappSummary = await whatsapp_webhook_summary({
