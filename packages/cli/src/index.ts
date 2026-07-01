@@ -183,8 +183,9 @@ import {
   telegramUpdateToSurfaceMessage,
   whatsAppWebhookToSurfaceMessages
 } from "@musterhq/gateway";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { existsSync, openSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -397,7 +398,7 @@ Usage:
   muster plugins list | catalog | setup <id> | reuse <provider> [--adopt-mcp id|--adopt-all-mcps] | context frappe <setup|docs|module|build> | enable <id> | disable <id> | policy | inspect <path> | load <path>
   muster mcp list | status [name] | login <name> | logout <name> | catalog | check [id] | install <id> | oauth status|setup|import ... | add-http <name> <url> [--oauth ...] | add-stdio <name> <command> [args...] | test <name>
   muster dashboard status | start [--port 7461] [--host 127.0.0.1]
-  muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup <channel> [--public-url URL] [secret env flags]
+  muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor <channel> [--live] | setup|connect|ready <channel> [--public-url URL] [secret flags]
   muster integrations [list|guide|status|workflow <id>|setup <id>|verify <id>|enable <id>|sample <id>]  # guided setup for channels, plugins, and MCPs
   muster context graph [episode-id] [--scope tenant:hybrow] [--latest]
   muster latency "prompt" [--runs 3] [--runtime codex] [--provider X] [--model Y] [--scope user:me] [--timeout-ms 30000]
@@ -450,7 +451,9 @@ Usage:
   muster gateway init
   muster gateway status              # readiness without printing bearer tokens
   muster gateway start [--port 7460]
-  muster gateway poll                 # Telegram long-poll (no public webhook URL needed)
+  muster gateway daemon start|stop|status|restart [--with-telegram-poll]
+  muster gateway webhook telegram --public-url https://your-domain.example
+  muster gateway poll                 # local Telegram long-poll fallback; daemonize with gateway daemon start --with-telegram-poll
   muster pairing list | approve <code>
   muster flow replay <run-id> [--live-agents]
   muster flow diff <run-id-a> <run-id-b>
@@ -3202,7 +3205,7 @@ async function printPluginSetupStatus(
     for (const channel of setup.channels) {
       const spec = findChannelSpec(channel);
       const ready = spec && gateway ? channelReady(spec.id, gateway) : false;
-      console.log(`channel=${channel} status=${ready ? "ready" : "needs_setup"} command="muster channels setup ${channel}"`);
+      console.log(`channel=${channel} status=${ready ? "ready" : "needs_setup"} command="muster channels ready ${channel}"`);
     }
   }
   if (setup.mcpServers?.length) console.log(`available_mcp=${setup.mcpServers.join(",")}`);
@@ -3297,7 +3300,7 @@ async function printPluginCheck(plugin: BuiltinPluginCatalogEntry): Promise<void
     ? plugin.setup?.mcpServers?.length
       ? `muster mcp check ${plugin.setup.mcpServers[0]}`
       : plugin.setup?.channels?.length
-        ? `muster channels setup ${plugin.setup.channels[0]}`
+        ? `muster channels ready ${plugin.setup.channels[0]}`
         : "muster plugins list"
     : `muster plugins enable ${plugin.id}${plugin.risk === "high" ? " --allow-high-risk" : ""}`;
   console.log(`next="${next}"`);
@@ -3358,7 +3361,7 @@ function chatPluginSetupLines(plugin: BuiltinPluginCatalogEntry): string[] {
   const missing = missingSetupEnv(setup);
   if (missing.length) lines.push(`${color("Missing env", "yellow")} ${missing.join(", ")}`);
   if (setup.defaultMcpServers?.length) lines.push(`${color("Default MCP", "accent")} ${setup.defaultMcpServers.join(", ")} configured by CLI enable`);
-  if (setup.channels?.length) lines.push(`${color("Channel setup", "accent")} ${setup.channels.map((id) => `muster channels setup ${id}`).join(" · ")}`);
+  if (setup.channels?.length) lines.push(`${color("Channel setup", "accent")} ${setup.channels.map((id) => `muster channels ready ${id}`).join(" · ")}`);
   if (setup.mcpServers?.length) lines.push(`${color("MCP options", "accent")} ${setup.mcpServers.join(", ")}`);
   for (const note of setup.notes ?? []) lines.push(color(note, "dim"));
   lines.push(...pluginNextActions(plugin).map((line) => color(line, "dim")));
@@ -3382,7 +3385,7 @@ function pluginNextActions(plugin: BuiltinPluginCatalogEntry): string[] {
 
   if (plugin.setup?.channels?.length) {
     for (const channel of plugin.setup.channels) {
-      actions.push(`next_action=channel_setup command="muster channels setup ${channel}"`);
+      actions.push(`next_action=channel_setup command="muster channels ready ${channel}"`);
     }
   }
 
@@ -5096,7 +5099,7 @@ async function dashboardCommand(args: string[]): Promise<void> {
       console.log(`token_ledger=records=${tokenRecords.length} today_in=${todayInputTokens} today_out=${todayOutputTokens} today_cost_usd=${todayCostUsd.toFixed(4)}`);
       console.log(`sessions=backend=${store.backend} recent=${sessionCount} latest=${latestSession?.id ?? "-"}`);
       console.log(`next_personal_pack=${JSON.stringify(nextPersonalPack ? `muster plugins enable ${nextPersonalPack}` : "configured")}`);
-      console.log(`next_channel=${JSON.stringify(gateway ? nextChannel ? `muster channels setup ${nextChannel}` : "configured" : "muster gateway init")}`);
+      console.log(`next_channel=${JSON.stringify(gateway ? nextChannel ? `muster channels ready ${nextChannel}` : "configured" : "muster gateway init")}`);
       console.log(`next_mcp=${JSON.stringify(nextMcp ? `muster mcp install ${nextMcp}` : "configured")}`);
       console.log("start=muster dashboard start --port 7461");
     } finally {
@@ -5991,6 +5994,12 @@ async function qaCommand(args: string[]): Promise<void> {
     ? validateStrictReleaseEvidence(storedEvidence)
     : undefined;
   if (strictValidation) console.log(renderStrictReleaseValidation(strictValidation));
+  if (args.includes("--strict-release")) {
+    const releaseReady = scorecard.status === "passed" && strictValidation?.status === "passed";
+    console.log(`release_ready=${releaseReady ? "yes" : "no"} mode=strict reason=${releaseReady ? "scorecard_and_strict_release_passed" : "scorecard_or_strict_release_failed"}`);
+  } else {
+    console.log("release_ready=unknown mode=advisory reason=run_with_--strict-release_before_release_claims");
+  }
   console.log(`evidence=${evidencePath}`);
   console.log(`required_suites=${REQUIRED_QA_SUITES.join(",")}`);
   if (providerReports.length) {
@@ -7349,7 +7358,7 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
       console.log("token=<redacted> (stored in gateway_config; rerun with --show-token only in a trusted terminal)");
     }
     console.log("Surfaces authenticate with: Authorization: Bearer <token>");
-    console.log(`next: muster gateway start --port ${result.config.port ?? DEFAULT_GATEWAY_PORT}`);
+    console.log(`next: muster gateway daemon start --port ${result.config.port ?? DEFAULT_GATEWAY_PORT}`);
     return;
   }
   if (action === "status") {
@@ -7361,7 +7370,7 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
       ? CHANNEL_SETUP_SPECS.filter((spec) => channelReady(spec.id, gateway.config)).length
       : 0;
     const next = gateway.initialized
-      ? `muster gateway start --port ${gateway.config.port ?? DEFAULT_GATEWAY_PORT}`
+      ? `muster gateway daemon start --port ${gateway.config.port ?? DEFAULT_GATEWAY_PORT}`
       : "muster gateway init";
     console.log(`gateway_status=${gateway.initialized ? "configured" : "missing"}`);
     console.log(`gateway_config=${gatewayConfigPath()}`);
@@ -7375,9 +7384,26 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     const gateway = await loadGatewayConfig();
     const config = await loadConfig();
     const port = readNumberFlag(commandArgs, "--port") ?? gateway.port ?? DEFAULT_GATEWAY_PORT;
+    const controller = new AbortController();
+    process.on("SIGINT", () => controller.abort());
+    process.on("SIGTERM", () => controller.abort());
     await startGatewayServer({ config, gateway, cwd: process.cwd(), log: (line) => console.log(line) }, port);
     console.log("routes: GET /v1/health | POST /v1/messages | POST /v1/flows/<run>/approve|reject | POST /v1/adapters/telegram|slack|discord|whatsapp|gchat|teams");
+    if (commandArgs.includes("--with-telegram-poll")) {
+      void pollTelegram({ config, gateway, cwd: process.cwd(), signal: controller.signal, log: (line) => console.log(line) }).catch((error) => {
+        console.error(`telegram poll failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      console.log("telegram_poll=background_in_process");
+    }
     console.log("stop with Ctrl-C");
+    return;
+  }
+  if (action === "daemon") {
+    await gatewayDaemonCommand(commandArgs.slice(1));
+    return;
+  }
+  if (action === "webhook") {
+    await gatewayWebhookCommand(commandArgs.slice(1));
     return;
   }
   if (action === "poll") {
@@ -7391,7 +7417,128 @@ async function gatewayCommand(commandArgs: string[]): Promise<void> {
     await pollTelegram({ config, gateway, cwd: process.cwd(), signal: controller.signal, log: (line) => console.log(line) });
     return;
   }
-  throw new Error("Usage: muster gateway <init|status|start [--port 7460]|poll>");
+  throw new Error("Usage: muster gateway <init|status|start [--port 7460] [--with-telegram-poll]|daemon start|stop|status|restart [--with-telegram-poll]|webhook telegram --public-url URL|poll>");
+}
+
+function gatewayPidPath(cwd = process.cwd()): string {
+  return join(cwd, ".muster", "gateway.pid");
+}
+
+function gatewayLogPath(cwd = process.cwd()): string {
+  return join(cwd, ".muster", "gateway.log");
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readGatewayPid(cwd = process.cwd()): Promise<number | undefined> {
+  const raw = await readFile(gatewayPidPath(cwd), "utf8").catch(() => "");
+  const pid = Number(raw.trim());
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+async function gatewayDaemonCommand(args: string[]): Promise<void> {
+  const [subcommand = "status"] = args;
+  const pidPath = gatewayPidPath();
+  const logPath = gatewayLogPath();
+  if (subcommand === "status") {
+    const pid = await readGatewayPid();
+    const alive = pid !== undefined && processIsAlive(pid);
+    console.log(`gateway_daemon=${alive ? "running" : "stopped"}`);
+    console.log(`pid=${pid ?? "-"}`);
+    console.log(`pid_file=${pidPath}`);
+    console.log(`log_file=${logPath}`);
+    console.log(`next=${alive ? "muster gateway daemon stop" : "muster gateway daemon start"}`);
+    return;
+  }
+  if (subcommand === "stop") {
+    const pid = await readGatewayPid();
+    if (!pid || !processIsAlive(pid)) {
+      await unlink(pidPath).catch(() => undefined);
+      console.log("gateway_daemon=stopped");
+      return;
+    }
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+      if (!processIsAlive(pid)) break;
+    }
+    await unlink(pidPath).catch(() => undefined);
+    console.log("gateway_daemon=stopped");
+    return;
+  }
+  if (subcommand === "restart") {
+    await gatewayDaemonCommand(["stop"]);
+    await gatewayDaemonCommand(["start", ...args.slice(1)]);
+    return;
+  }
+  if (subcommand === "start") {
+    const existing = await readGatewayPid();
+    if (existing && processIsAlive(existing)) {
+      console.log(`gateway_daemon=running pid=${existing}`);
+      console.log(`log_file=${logPath}`);
+      return;
+    }
+    await mkdir(dirname(pidPath), { recursive: true, mode: 0o700 });
+    const gateway = await loadGatewayConfig();
+    const port = readNumberFlag(args, "--port") ?? gateway.port ?? DEFAULT_GATEWAY_PORT;
+    const childArgs = [process.argv[1], "gateway", "start", "--port", String(port)];
+    if (args.includes("--with-telegram-poll")) childArgs.push("--with-telegram-poll");
+    const out = openSync(logPath, "a", 0o600);
+    const child = spawn(process.execPath, childArgs, {
+      cwd: process.cwd(),
+      detached: true,
+      stdio: ["ignore", out, out],
+      env: process.env,
+    });
+    child.unref();
+    await writeFile(pidPath, `${child.pid}\n`, { encoding: "utf8", mode: 0o600 });
+    console.log(`gateway_daemon=started pid=${child.pid}`);
+    console.log(`port=${port}`);
+    console.log(`pid_file=${pidPath}`);
+    console.log(`log_file=${logPath}`);
+    console.log(`health=http://127.0.0.1:${port}/v1/health`);
+    return;
+  }
+  throw new Error("Usage: muster gateway daemon start|stop|status|restart [--with-telegram-poll] [--port 7460]");
+}
+
+async function gatewayWebhookCommand(args: string[]): Promise<void> {
+  const [channel] = args;
+  if (channel !== "telegram") throw new Error("Usage: muster gateway webhook telegram --public-url https://your-domain.example");
+  const gateway = await loadGatewayConfig();
+  const publicUrl = readFlag(args, "--public-url")?.replace(/\/$/, "");
+  if (!publicUrl || !publicUrl.startsWith("https://")) throw new Error("--public-url must be a public https:// URL for Telegram webhooks.");
+  const botToken = gateway.telegram?.botToken;
+  if (!botToken) throw new Error("Telegram bot token missing. Run: muster channels ready telegram --bot-token-env TELEGRAM_BOT_TOKEN");
+  const secretToken = gateway.telegram?.secretToken;
+  if (!secretToken) throw new Error("Telegram webhook secret missing. Run: muster channels ready telegram --bot-token-env TELEGRAM_BOT_TOKEN");
+  const url = `${publicUrl}/v1/adapters/telegram`;
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      url,
+      secret_token: secretToken,
+      drop_pending_updates: false,
+      allowed_updates: ["message"],
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const body = await response.json().catch(() => ({})) as { ok?: boolean; description?: string };
+  if (!response.ok || body.ok === false) {
+    throw new Error(`Telegram setWebhook failed: HTTP ${response.status}${body.description ? ` ${body.description}` : ""}`);
+  }
+  console.log("telegram_webhook=configured");
+  console.log(`webhook_url=${url}`);
+  console.log("secret_token=configured");
+  console.log(`next=muster gateway daemon start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}`);
 }
 
 type ChannelId = "telegram" | "slack" | "gchat" | "discord" | "whatsapp" | "teams" | "web";
@@ -7411,10 +7558,10 @@ const CHANNEL_SETUP_SPECS: readonly ChannelSetupSpec[] = [
     id: "telegram",
     label: "Telegram Bot",
     route: "/v1/adapters/telegram",
-    setupUrls: ["https://core.telegram.org/bots/tutorial", "https://core.telegram.org/bots/api#setwebhook"],
+    setupUrls: ["https://core.telegram.org/bots/tutorial"],
     requiredEnvFlags: ["--bot-token-env"],
-    optionalEnvFlags: ["--secret-token-env"],
-    notes: ["Webhook mode needs a public HTTPS URL; use `muster gateway poll` for local long-poll testing where Telegram is reachable."],
+    optionalEnvFlags: ["--name", "--bot-token", "--public-url", "--secret-token-env"],
+    notes: ["Simple setup: muster channels ready telegram --name <bot-name> --bot-token <token>. Muster generates the webhook secret internally. Add --public-url when you have a public HTTPS gateway and want Telegram webhooks instead of background long-poll fallback."],
   },
   {
     id: "slack",
@@ -7422,43 +7569,44 @@ const CHANNEL_SETUP_SPECS: readonly ChannelSetupSpec[] = [
     route: "/v1/adapters/slack",
     setupUrls: ["https://api.slack.com/apps", "https://api.slack.com/apis/connections/events-api"],
     requiredEnvFlags: ["--bot-token-env", "--signing-secret-env"],
-    notes: ["Enable Events API, subscribe to message/app_mention events, and paste the Request URL shown below."],
+    optionalEnvFlags: ["--bot-token", "--signing-secret"],
+    notes: ["HTTP setup needs a bot token and signing secret. Unlike OpenClaw's Socket Mode default, this adapter currently uses signed HTTP webhooks, so a public HTTPS URL is required for live Slack ingress."],
   },
   {
     id: "gchat",
     label: "Google Chat App",
     route: "/v1/adapters/gchat",
     setupUrls: ["https://console.cloud.google.com/apis/library/chat.googleapis.com", "https://developers.google.com/workspace/chat/quickstart/webhooks"],
-    requiredEnvFlags: [],
-    optionalEnvFlags: ["--verification-token-env"],
-    notes: ["Configure the Chat API app URL to the webhook below. Google Chat app identity is configured in Google Cloud, not by a bot token in Muster."],
+    requiredEnvFlags: ["--verification-token-env"],
+    optionalEnvFlags: ["--verification-token"],
+    notes: ["Configure the Chat API app URL to the webhook below. The verification token is required because Google Chat cannot send Muster's gateway bearer token."],
   },
   {
     id: "discord",
     label: "Discord App",
     route: "/v1/adapters/discord",
     setupUrls: ["https://discord.com/developers/applications"],
-    requiredEnvFlags: ["--bot-token-env"],
-    optionalEnvFlags: ["--public-key-env"],
-    notes: ["Bot-token message support is configured; interaction public-key verification is available when public key is supplied."],
+    requiredEnvFlags: ["--bot-token-env", "--public-key-env"],
+    optionalEnvFlags: ["--bot-token", "--public-key"],
+    notes: ["Discord interaction webhooks require the application public key because Discord cannot send Muster's gateway bearer token."],
   },
   {
     id: "whatsapp",
     label: "WhatsApp Cloud API",
     route: "/v1/adapters/whatsapp",
     setupUrls: ["https://developers.facebook.com/docs/whatsapp/cloud-api/get-started", "https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks"],
-    requiredEnvFlags: ["--access-token-env", "--verify-token-env", "--phone-number-id-env"],
-    optionalEnvFlags: ["--api-version"],
-    notes: ["Use a long-lived access token in production; the verify token is the webhook challenge secret you choose."],
+    requiredEnvFlags: ["--access-token-env", "--verify-token-env", "--phone-number-id-env", "--app-secret-env"],
+    optionalEnvFlags: ["--access-token", "--verify-token", "--phone-number-id", "--app-secret", "--api-version"],
+    notes: ["Use a long-lived access token in production; the verify token handles Meta's GET challenge and the app secret verifies POST webhooks."],
   },
   {
     id: "teams",
     label: "Microsoft Teams",
     route: "/v1/adapters/teams",
     setupUrls: ["https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations"],
-    requiredEnvFlags: [],
-    optionalEnvFlags: ["--hmac-secret-env"],
-    notes: ["The adapter accepts Teams-style webhook payloads; production bot OAuth registration still needs a fuller Teams app flow."],
+    requiredEnvFlags: ["--hmac-secret-env"],
+    optionalEnvFlags: ["--hmac-secret"],
+    notes: ["The adapter accepts Teams-style webhook payloads. The HMAC secret is required because Teams cannot send Muster's gateway bearer token."],
   },
   {
     id: "web",
@@ -7514,7 +7662,12 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
     await printChannelDoctor(spec, gateway.config, { live: commandArgs.includes("--live") });
     return;
   }
-  if (action === "setup" && channel) {
+  if (action === "ready" && channel) {
+    const spec = requireChannelSpec(channel);
+    await runChannelReady(spec, commandArgs);
+    return;
+  }
+  if ((action === "setup" || action === "connect") && channel) {
     const spec = requireChannelSpec(channel);
     const config = await loadOrInitGatewayConfig();
     const updated = applyChannelSetup(spec.id, config, commandArgs);
@@ -7522,28 +7675,66 @@ async function channelsCommand(commandArgs: string[]): Promise<void> {
       const path = await saveGatewayConfig(updated);
       console.log(`gateway_config=${path}`);
     }
-    printChannelSetup(spec, updated, commandArgs);
+    printChannelSetup(spec, updated, commandArgs, { friendly: action === "connect" });
     return;
   }
-  throw new Error("Usage: muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor [telegram|slack|gchat|discord|whatsapp|teams|web] [--live] | setup <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret env flags]");
+  throw new Error("Usage: muster channels list | status [channel] | plan <channel> | simulate <channel> [--message TEXT] | doctor [telegram|slack|gchat|discord|whatsapp|teams|web] [--live] | setup|connect|ready <telegram|slack|gchat|discord|whatsapp|teams|web> [--public-url URL] [secret flags]");
+}
+
+async function runChannelReady(spec: ChannelSetupSpec, args: readonly string[]): Promise<void> {
+  const publicUrl = readFlag([...args], "--public-url")?.replace(/\/$/, "");
+  const noStart = args.includes("--no-start");
+  const setWebhook = args.includes("--set-webhook");
+  const config = await loadOrInitGatewayConfig();
+  const updated = applyChannelSetup(spec.id, config, args);
+  if (updated !== config) {
+    const path = await saveGatewayConfig(updated);
+    console.log(`gateway_config=${path}`);
+  }
+  const missing = channelMissingSetup(spec.id, updated);
+  const ready = missing.length === 0;
+  console.log(`channel_ready=${spec.id} status=${ready ? "ready" : "needs_setup"}`);
+  console.log(`single_command=true`);
+  if (missing.length) console.log(`missing_setup=${missing.join(",")}`);
+  printChannelSetup(spec, updated, args, { friendly: true });
+  await printChannelDoctor(spec, updated, { live: args.includes("--live") });
+  if (!ready) {
+    console.log(`enable=blocked next="muster channels ready ${spec.id}"`);
+    return;
+  }
+  if (spec.id === "telegram" && publicUrl && setWebhook) {
+    await gatewayWebhookCommand(["telegram", "--public-url", publicUrl]);
+  } else if (spec.id === "telegram" && publicUrl) {
+    console.log(`webhook_registration=skipped next="muster gateway webhook telegram --public-url ${publicUrl}"`);
+  }
+  if (noStart) {
+    const pollFlag = spec.id === "telegram" && !publicUrl ? " --with-telegram-poll" : "";
+    console.log(`daemon=skipped start="muster gateway daemon start${pollFlag} --port ${updated.port ?? DEFAULT_GATEWAY_PORT}"`);
+  } else {
+    const daemonArgs = ["start", "--port", String(updated.port ?? DEFAULT_GATEWAY_PORT)];
+    if (spec.id === "telegram" && !publicUrl) daemonArgs.push("--with-telegram-poll");
+    await gatewayDaemonCommand(daemonArgs);
+  }
+  printChannelSimulation(spec, readFlag([...args], "--message") ?? "hello from Muster channel ready check");
+  console.log(`done=channel_ready channel=${spec.id} daemon=${noStart ? "skipped" : "started_or_running"} sample=local_simulation`);
 }
 
 function printChannelCatalog(): void {
   console.log("channel\tconfigured_by\tsetup");
   for (const spec of CHANNEL_SETUP_SPECS) {
     const auth = spec.requiredEnvFlags.length ? spec.requiredEnvFlags.join(",") : spec.optionalEnvFlags?.length ? spec.optionalEnvFlags.join(",") : "gateway token";
-    console.log(`${spec.id}\t${auth}\tmuster channels setup ${spec.id}`);
+    console.log(`${spec.id}\t${auth}\tmuster channels ready ${spec.id}`);
   }
 }
 
 function printChannelStatus(spec: ChannelSetupSpec, config: GatewayConfig): void {
   const ready = channelReady(spec.id, config);
-  console.log(`channel=${spec.id} ready=${ready} webhook=${spec.route ?? "-"} setup="muster channels setup ${spec.id}"`);
-  if (spec.id === "telegram") console.log(`  bot_token=${configured(Boolean(config.telegram?.botToken))} secret_token=${configured(Boolean(config.telegram?.secretToken))} stream=${config.telegram?.stream ?? "off"}`);
+  console.log(`channel=${spec.id} ready=${ready} webhook=${spec.route ?? "-"} setup="muster channels ready ${spec.id}"`);
+  if (spec.id === "telegram") console.log(`  name=${config.telegram?.name ?? "-"} bot_token=${configured(Boolean(config.telegram?.botToken))} secret_token=${configured(Boolean(config.telegram?.secretToken))} stream=${config.telegram?.stream ?? "off"}`);
   if (spec.id === "slack") console.log(`  bot_token=${configured(Boolean(config.slack?.botToken))} signing_secret=${configured(Boolean(config.slack?.signingSecret))} stream=${config.slack?.stream ?? "off"}`);
   if (spec.id === "gchat") console.log(`  verification_token=${configured(Boolean(config.gchat?.verificationToken))}`);
   if (spec.id === "discord") console.log(`  bot_token=${configured(Boolean(config.discord?.botToken))} public_key=${configured(Boolean(config.discord?.publicKey))}`);
-  if (spec.id === "whatsapp") console.log(`  access_token=${configured(Boolean(config.whatsapp?.accessToken))} verify_token=${configured(Boolean(config.whatsapp?.verifyToken))} phone_number_id=${configured(Boolean(config.whatsapp?.phoneNumberId))}`);
+  if (spec.id === "whatsapp") console.log(`  access_token=${configured(Boolean(config.whatsapp?.accessToken))} verify_token=${configured(Boolean(config.whatsapp?.verifyToken))} phone_number_id=${configured(Boolean(config.whatsapp?.phoneNumberId))} app_secret=${configured(Boolean(config.whatsapp?.appSecret))}`);
   if (spec.id === "teams") console.log(`  hmac_secret=${configured(Boolean(config.teams?.hmacSecret))}`);
   if (spec.id === "web") console.log(`  bearer_token=${configured(Boolean(config.token))}`);
 }
@@ -7555,12 +7746,19 @@ function printChannelOperatorPlan(spec: ChannelSetupSpec, config: GatewayConfig,
   const ready = channelReady(spec.id, config);
   const missing = channelMissingSetup(spec.id, config);
   console.log(`channel_plan=${spec.id} label="${spec.label}" ready=${ready}`);
-  console.log(`route=${spec.route ?? "-"} webhook_url=${webhookUrl}`);
+  console.log(`route=${spec.route ?? "-"}`);
+  if (spec.id === "telegram" && !publicUrl) {
+    console.log("ingress=background_long_poll webhook_url=-");
+  } else {
+    console.log(`webhook_url=${webhookUrl}`);
+  }
   console.log(`operator_contract=inbound_normalize -> scoped_memory_recall -> policy_gate -> draft_or_reply -> token_ledger`);
   console.log(`local_simulation=muster channels simulate ${spec.id} --message "hello"`);
-  console.log(`setup_command=muster channels setup ${spec.id}${publicUrl ? ` --public-url ${publicUrl}` : ""}`);
+  console.log(`setup_command=muster channels ready ${spec.id}${publicUrl ? ` --public-url ${publicUrl}` : ""}`);
   console.log(`doctor_command=muster channels doctor ${spec.id}${spec.id === "telegram" ? " --live" : ""}`);
-  console.log(`start_command=${spec.id === "telegram" ? "muster gateway poll" : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`}`);
+  console.log(`start_command=muster gateway daemon start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  if (spec.id === "telegram" && publicUrl) console.log(`webhook_command=muster gateway webhook telegram --public-url ${publicUrl}`);
+  else if (spec.id === "telegram") console.log("optional_webhook=muster gateway webhook telegram --public-url https://your-domain.example");
   console.log(`security=signature_or_token_check:${channelAuthMode(spec.id)} approval_required_for_mutations:true secrets_printed:false`);
   console.log(`reply_mode=${channelReplyMode(spec.id, config)}`);
   if (missing.length) console.log(`missing_setup=${missing.join(",")}`);
@@ -7661,10 +7859,10 @@ function simulationFromSurface(message: { readonly surfaceId: string; readonly c
 function channelMissingSetup(channel: ChannelId, config: GatewayConfig): string[] {
   if (channel === "telegram") return [config.telegram?.botToken ? "" : "telegram.botToken"].filter(Boolean);
   if (channel === "slack") return [config.slack?.botToken ? "" : "slack.botToken", config.slack?.signingSecret ? "" : "slack.signingSecret"].filter(Boolean);
-  if (channel === "gchat") return [config.gchat ? "" : "gchat section"].filter(Boolean);
-  if (channel === "discord") return [config.discord?.botToken ? "" : "discord.botToken"].filter(Boolean);
-  if (channel === "whatsapp") return [config.whatsapp?.accessToken ? "" : "whatsapp.accessToken", config.whatsapp?.verifyToken ? "" : "whatsapp.verifyToken", config.whatsapp?.phoneNumberId ? "" : "whatsapp.phoneNumberId"].filter(Boolean);
-  if (channel === "teams") return [config.teams ? "" : "teams section"].filter(Boolean);
+  if (channel === "gchat") return [config.gchat?.verificationToken ? "" : "gchat.verificationToken"].filter(Boolean);
+  if (channel === "discord") return [config.discord?.botToken ? "" : "discord.botToken", config.discord?.publicKey ? "" : "discord.publicKey"].filter(Boolean);
+  if (channel === "whatsapp") return [config.whatsapp?.accessToken ? "" : "whatsapp.accessToken", config.whatsapp?.verifyToken ? "" : "whatsapp.verifyToken", config.whatsapp?.phoneNumberId ? "" : "whatsapp.phoneNumberId", config.whatsapp?.appSecret ? "" : "whatsapp.appSecret"].filter(Boolean);
+  if (channel === "teams") return [config.teams?.hmacSecret ? "" : "teams.hmacSecret"].filter(Boolean);
   return [config.token ? "" : "gateway.token"].filter(Boolean);
 }
 
@@ -7673,8 +7871,8 @@ function channelAuthMode(channel: ChannelId): string {
   if (channel === "slack") return "slack-signature-required";
   if (channel === "discord") return "ed25519-public-key-recommended";
   if (channel === "whatsapp") return "verify-token-and-graph-token";
-  if (channel === "gchat") return "verification-token-optional";
-  if (channel === "teams") return "hmac-secret-optional";
+  if (channel === "gchat") return "verification-token-required";
+  if (channel === "teams") return "hmac-secret-required";
   return "bearer-token";
 }
 
@@ -7706,28 +7904,26 @@ function printChannelDoctorSummary(config: GatewayConfig, options: { readonly in
     const next = !options.initialized && row.spec.id === "web"
       ? "muster gateway init"
       : row.ready
-      ? row.warnings.length ? `muster channels doctor ${row.spec.id}${row.spec.id === "telegram" ? " --live" : ""}` : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`
-      : `muster channels setup ${row.spec.id}`;
+      ? row.warnings.length ? `muster channels doctor ${row.spec.id}${row.spec.id === "telegram" ? " --live" : ""}` : `muster gateway daemon start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`
+      : `muster channels ready ${row.spec.id}`;
     console.log(`  channel=${row.spec.id} status=${channelStatus} missing=${missing} warnings=${warnings} auth=${channelAuthMode(row.spec.id)} reply=${channelReplyMode(row.spec.id, config)} next="${next}"`);
   }
   console.log("guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger");
   const firstBlocked = rows.find((row) => !row.ready);
   const firstWarning = rows.find((row) => row.ready && row.warnings.length);
   if (!options.initialized) console.log("next=muster gateway init");
-  else if (firstBlocked) console.log(`next=muster channels setup ${firstBlocked.spec.id}`);
+  else if (firstBlocked) console.log(`next=muster channels ready ${firstBlocked.spec.id}`);
   else if (firstWarning) console.log(`next=muster channels doctor ${firstWarning.spec.id}${firstWarning.spec.id === "telegram" ? " --live" : ""}`);
-  else console.log(`next=muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  else console.log(`next=muster gateway daemon start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
 }
 
 function channelDoctorWarnings(channel: ChannelId, config: GatewayConfig): string[] {
   if (channel === "telegram") {
     return [
-      config.telegram?.secretToken ? "" : "telegram.secretToken_recommended",
+      config.telegram?.secretToken ? "" : "telegram.secretToken_auto_generated",
       config.telegram?.botToken ? "telegram.live_check_available" : "",
     ].filter(Boolean);
   }
-  if (channel === "discord" && config.discord?.botToken && !config.discord.publicKey) return ["discord.publicKey_recommended"];
-  if (channel === "teams" && !config.teams?.hmacSecret) return ["teams.hmacSecret_optional"];
   return [];
 }
 
@@ -7739,15 +7935,15 @@ async function printChannelDoctor(
   const ready = channelReady(spec.id, config);
   const checks: Array<{ name: string; status: "passed" | "needs_setup" | "warning"; detail: string }> = [];
   checks.push({ name: "gateway_config", status: config.token ? "passed" : "needs_setup", detail: config.token ? "gateway bearer token exists" : "run muster gateway init" });
-  checks.push({ name: "channel_config", status: ready ? "passed" : "needs_setup", detail: ready ? `${spec.id} has required local credentials` : `run muster channels setup ${spec.id}` });
+  checks.push({ name: "channel_config", status: ready ? "passed" : "needs_setup", detail: ready ? `${spec.id} has required local credentials` : `run muster channels ready ${spec.id}` });
   if (spec.route) checks.push({ name: "webhook_route", status: "passed", detail: spec.route });
   if (spec.id === "telegram") {
     checks.push({
       name: "webhook_auth",
       status: config.telegram?.secretToken ? "passed" : "warning",
       detail: config.telegram?.secretToken
-        ? "Telegram secret-token header is configured"
-        : "configure --secret-token-env for public webhooks; bearer-only is acceptable for private/local tests",
+        ? "Telegram webhook secret is configured"
+        : "run channels setup again; Muster normally auto-generates this from the bot token setup",
     });
     if (options.live) checks.push(await telegramLiveDoctor(config.telegram?.botToken));
     else checks.push({ name: "telegram_live", status: "warning", detail: "not run; add --live to call getMe without printing the token" });
@@ -7760,10 +7956,10 @@ async function printChannelDoctor(
   console.log(`channel_doctor=${spec.id} status=${status}`);
   for (const check of checks) console.log(`check=${check.name} status=${check.status} detail="${check.detail.replace(/"/g, "'")}"`);
   const next = failed
-    ? `muster channels setup ${spec.id}`
+    ? `muster channels ready ${spec.id}`
     : warnings && spec.id === "telegram" && !options.live
       ? "muster channels doctor telegram --live"
-      : `muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`;
+      : `muster gateway daemon start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`;
   console.log(`next=${next}`);
 }
 
@@ -7782,18 +7978,23 @@ async function telegramLiveDoctor(botToken: string | undefined): Promise<{ name:
   }
 }
 
-function printChannelSetup(spec: ChannelSetupSpec, config: GatewayConfig, args: readonly string[]): void {
+function printChannelSetup(spec: ChannelSetupSpec, config: GatewayConfig, args: readonly string[], options: { readonly friendly?: boolean } = {}): void {
   const publicUrl = readFlag([...args], "--public-url")?.replace(/\/$/, "");
   const localBase = `http://127.0.0.1:${config.port ?? DEFAULT_GATEWAY_PORT}`;
   const base = publicUrl ?? localBase;
+  if (options.friendly) console.log(`channel_connect=${spec.id} status=${channelReady(spec.id, config) ? "ready" : "needs_setup"}`);
   console.log(`channel=${spec.id} label="${spec.label}" ready=${channelReady(spec.id, config)}`);
-  if (spec.route) console.log(`webhook_url=${base}${spec.route}`);
+  if (spec.route && !(spec.id === "telegram" && !publicUrl)) console.log(`webhook_url=${base}${spec.route}`);
+  if (spec.id === "telegram" && !publicUrl) console.log("ingress=background_long_poll");
   for (const url of spec.setupUrls) console.log(`setup_url=${url}`);
   if (spec.requiredEnvFlags.length) console.log(`required_env_flags=${spec.requiredEnvFlags.join(",")}`);
   if (spec.optionalEnvFlags?.length) console.log(`optional_env_flags=${spec.optionalEnvFlags.join(",")}`);
   for (const note of spec.notes) console.log(`note=${note}`);
   console.log("next=muster channels status " + spec.id);
-  if (spec.id !== "web") console.log(`start=muster gateway start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  if (spec.id === "telegram" && publicUrl) console.log(`webhook=muster gateway webhook telegram --public-url ${publicUrl}`);
+  if (spec.id === "telegram" && !publicUrl) console.log(`start=muster gateway daemon start --with-telegram-poll --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  else if (spec.id !== "web") console.log(`start=muster gateway daemon start --port ${config.port ?? DEFAULT_GATEWAY_PORT}`);
+  if (options.friendly) console.log(`verify=muster channels doctor ${spec.id}${spec.id === "telegram" ? " --live" : ""}`);
 }
 
 async function loadOrInitGatewayConfig(): Promise<GatewayConfig> {
@@ -7807,48 +8008,51 @@ function emptyGatewayConfig(): GatewayConfig {
 
 function applyChannelSetup(channel: ChannelId, config: GatewayConfig, args: readonly string[]): GatewayConfig {
   if (channel === "telegram") {
-    const botToken = readEnvFlag(args, "--bot-token-env");
-    const secretToken = readOptionalEnvFlag(args, "--secret-token-env");
+    const name = readFlag([...args], "--name");
+    const botToken = readSecretFlag(args, "--bot-token", "--bot-token-env");
+    const secretToken = readOptionalEnvFlag(args, "--secret-token-env") ?? (botToken ? randomBytes(24).toString("hex") : undefined);
     const stream = readStreamFlag(args);
-    if (!botToken && !secretToken && !stream) return config;
-    return { ...config, telegram: { botToken: botToken ?? config.telegram?.botToken ?? "", secretToken: secretToken ?? config.telegram?.secretToken, stream: stream ?? config.telegram?.stream } };
+    if (!name && !botToken && !secretToken && !stream) return config;
+    return { ...config, telegram: { name: name ?? config.telegram?.name, botToken: botToken ?? config.telegram?.botToken ?? "", secretToken: secretToken ?? config.telegram?.secretToken, stream: stream ?? config.telegram?.stream } };
   }
   if (channel === "slack") {
-    const botToken = readEnvFlag(args, "--bot-token-env");
-    const signingSecret = readEnvFlag(args, "--signing-secret-env");
+    const botToken = readSecretFlag(args, "--bot-token", "--bot-token-env");
+    const signingSecret = readSecretFlag(args, "--signing-secret", "--signing-secret-env");
     const stream = readStreamFlag(args);
     if (!botToken && !signingSecret && !stream) return config;
     return { ...config, slack: { botToken: botToken ?? config.slack?.botToken ?? "", signingSecret: signingSecret ?? config.slack?.signingSecret, stream: stream ?? config.slack?.stream } };
   }
   if (channel === "gchat") {
-    const verificationToken = readOptionalEnvFlag(args, "--verification-token-env");
+    const verificationToken = readSecretFlag(args, "--verification-token", "--verification-token-env");
     if (!verificationToken) return config;
     return { ...config, gchat: { verificationToken } };
   }
   if (channel === "discord") {
-    const botToken = readEnvFlag(args, "--bot-token-env");
-    const publicKey = readOptionalEnvFlag(args, "--public-key-env");
+    const botToken = readSecretFlag(args, "--bot-token", "--bot-token-env");
+    const publicKey = readSecretFlag(args, "--public-key", "--public-key-env");
     if (!botToken && !publicKey) return config;
     return { ...config, discord: { botToken: botToken ?? config.discord?.botToken ?? "", publicKey: publicKey ?? config.discord?.publicKey } };
   }
   if (channel === "whatsapp") {
-    const accessToken = readEnvFlag(args, "--access-token-env");
-    const verifyToken = readEnvFlag(args, "--verify-token-env");
-    const phoneNumberId = readEnvFlag(args, "--phone-number-id-env");
+    const accessToken = readSecretFlag(args, "--access-token", "--access-token-env");
+    const verifyToken = readSecretFlag(args, "--verify-token", "--verify-token-env");
+    const phoneNumberId = readSecretFlag(args, "--phone-number-id", "--phone-number-id-env");
+    const appSecret = readSecretFlag(args, "--app-secret", "--app-secret-env");
     const apiVersion = readFlag([...args], "--api-version") ?? config.whatsapp?.apiVersion;
-    if (!accessToken && !verifyToken && !phoneNumberId && !apiVersion) return config;
+    if (!accessToken && !verifyToken && !phoneNumberId && !appSecret && !apiVersion) return config;
     return {
       ...config,
       whatsapp: {
         accessToken: accessToken ?? config.whatsapp?.accessToken ?? "",
         verifyToken: verifyToken ?? config.whatsapp?.verifyToken ?? "",
         phoneNumberId: phoneNumberId ?? config.whatsapp?.phoneNumberId ?? "",
+        appSecret: appSecret ?? config.whatsapp?.appSecret,
         apiVersion,
       },
     };
   }
   if (channel === "teams") {
-    const hmacSecret = readOptionalEnvFlag(args, "--hmac-secret-env");
+    const hmacSecret = readSecretFlag(args, "--hmac-secret", "--hmac-secret-env");
     if (!hmacSecret) return config;
     return { ...config, teams: { hmacSecret } };
   }
@@ -7868,10 +8072,10 @@ function findChannelSpec(channel: string): ChannelSetupSpec | undefined {
 function channelReady(channel: ChannelId, config: GatewayConfig): boolean {
   if (channel === "telegram") return Boolean(config.telegram?.botToken);
   if (channel === "slack") return Boolean(config.slack?.botToken && config.slack.signingSecret);
-  if (channel === "gchat") return Boolean(config.gchat);
-  if (channel === "discord") return Boolean(config.discord?.botToken);
-  if (channel === "whatsapp") return Boolean(config.whatsapp?.accessToken && config.whatsapp.verifyToken && config.whatsapp.phoneNumberId);
-  if (channel === "teams") return Boolean(config.teams);
+  if (channel === "gchat") return Boolean(config.gchat?.verificationToken);
+  if (channel === "discord") return Boolean(config.discord?.botToken && config.discord.publicKey);
+  if (channel === "whatsapp") return Boolean(config.whatsapp?.accessToken && config.whatsapp.verifyToken && config.whatsapp.phoneNumberId && config.whatsapp.appSecret);
+  if (channel === "teams") return Boolean(config.teams?.hmacSecret);
   return Boolean(config.token);
 }
 
@@ -7888,6 +8092,10 @@ function readEnvFlag(args: readonly string[], flag: string): string | undefined 
   const value = process.env[envName];
   if (!value) throw new Error(`Environment variable ${envName} is not set.`);
   return value;
+}
+
+function readSecretFlag(args: readonly string[], directFlag: string, envFlag: string): string | undefined {
+  return readFlag([...args], directFlag) ?? readEnvFlag(args, envFlag);
 }
 
 function readOptionalEnvFlag(args: readonly string[], flag: string): string | undefined {
@@ -7917,7 +8125,7 @@ async function printIntegrationReadiness(): Promise<void> {
   const configuredMcp = new Set(Object.keys(config?.tools?.mcp?.servers ?? {}));
   const channelRows = CHANNEL_SETUP_SPECS
     .filter((spec) => spec.id !== "web")
-    .map((spec) => ({ id: spec.id, ready: gateway ? channelReady(spec.id, gateway) : false, next: `muster channels setup ${spec.id}` }));
+    .map((spec) => ({ id: spec.id, ready: gateway ? channelReady(spec.id, gateway) : false, next: `muster channels ready ${spec.id}` }));
   const paPlugins = ["daily-ops", "google-workspace", "notion", "web-search", "research-lab", "artifact-studio", "security-review"];
   const pluginRows = paPlugins.flatMap((id) => {
     const plugin = listBuiltinPlugins().find((entry) => entry.id === id);
@@ -7974,7 +8182,7 @@ async function printIntegrationReadiness(): Promise<void> {
     }
   }
   console.log("channels_optional");
-  for (const row of channelRows) console.log(`  ${row.id}\t${row.ready ? "ready" : "needs_setup"}\t${row.ready ? "muster gateway start" : row.next}`);
+  for (const row of channelRows) console.log(`  ${row.id}\t${row.ready ? "ready" : "needs_setup"}\t${row.ready ? "muster gateway daemon start" : row.next}`);
   console.log("daily_life_packs");
   for (const row of pluginRows) {
     const status = row.enabled ? "enabled" : row.missing.length ? `needs_env:${row.missing.join("|")}` : "available";
@@ -7990,7 +8198,7 @@ async function printIntegrationReadiness(): Promise<void> {
   console.log("suggested_path");
   const steps: string[] = [];
   if (!gateway) steps.push("muster gateway init");
-  steps.push(!readyChannels ? "muster channels setup telegram" : "channel ready; add another surface only when you need it");
+  steps.push(!readyChannels ? "muster channels ready telegram" : "channel ready; add another surface only when you need it");
   const firstPlugin = pluginRows.find((row) => !row.enabled);
   if (firstPlugin) steps.push(`muster plugins enable ${firstPlugin.id}${firstPlugin.risk === "high" ? " --allow-high-risk" : ""}`);
   const firstMcp = mcpRows.find((row) => !row.configured);
@@ -8035,7 +8243,7 @@ async function integrationsCommand(args: string[]): Promise<void> {
   console.log("kind\tid\tstatus\tnext");
   for (const spec of CHANNEL_SETUP_SPECS) {
     const ready = gateway ? channelReady(spec.id, gateway) : false;
-    const next = ready ? `muster gateway start --port ${gateway?.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels setup ${spec.id}`;
+    const next = ready ? `muster gateway daemon start --port ${gateway?.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels ready ${spec.id}`;
     console.log(`channel\t${spec.id}\t${ready ? "ready" : "needs setup"}\t${next}`);
   }
 
@@ -8061,7 +8269,7 @@ async function integrationsCommand(args: string[]): Promise<void> {
   console.log("");
   console.log("For non-technical setup, start with a channel, then add capabilities:");
   console.log("1. muster integrations");
-  console.log("2. muster channels setup gchat --public-url https://your-domain.example");
+  console.log("2. muster channels ready gchat --public-url https://your-domain.example");
   console.log("3. muster plugins enable web-search");
   console.log("4. muster mcp install parallel-search");
 }
@@ -8101,12 +8309,12 @@ async function runChannelIntegrationAction(action: "setup" | "verify" | "enable"
   if (action === "enable") {
     const gateway = await loadGatewayConfig().catch(() => undefined);
     if (!gateway || !channelReady(spec.id, gateway)) {
-      console.log(`status=blocked next="muster channels setup ${spec.id}"`);
+      console.log(`status=blocked next="muster channels ready ${spec.id}"`);
       console.log("reason=channel setup is incomplete; gateway was not started");
       console.log(`integration_next=muster integrations setup ${spec.id}`);
       return;
     }
-    console.log(`status=ready start="muster gateway start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}"`);
+    console.log(`status=ready start="muster gateway daemon start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}"`);
     console.log(`integration_next=muster integrations sample ${spec.id}`);
     return;
   }
@@ -8205,9 +8413,9 @@ async function printChannelIntegrationWorkflow(spec: ChannelSetupSpec): Promise<
   console.log(`integration_workflow=${spec.id} kind=channel ready=${ready}`);
   console.log(`impact=turns ${spec.label} messages into governed Muster runs with scoped memory, policy gates, token ledger, and draft/send controls`);
   console.log(`auth=${channelAuthMode(spec.id)} missing=${missing.length ? missing.join(",") : "-"}`);
-  console.log(`setup=muster channels setup ${spec.id}`);
+  console.log(`setup=muster channels ready ${spec.id}`);
   console.log(`verify=muster channels doctor ${spec.id}${spec.id === "telegram" ? " --live" : ""}`);
-  console.log(`enable=${ready ? `muster gateway start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels setup ${spec.id}`}`);
+  console.log(`enable=${ready ? `muster gateway daemon start --port ${gateway.port ?? DEFAULT_GATEWAY_PORT}` : `muster channels ready ${spec.id}`}`);
   console.log(`sample=muster channels simulate ${spec.id} --message "hello from ${spec.id}"`);
   console.log(`failure_behavior=${ready ? "doctor reports warnings without printing secrets" : "blocked until required setup is present; local simulation still works"}`);
   for (const url of spec.setupUrls) console.log(`setup_url=${url}`);
@@ -8237,7 +8445,7 @@ async function printPluginIntegrationWorkflow(plugin: BuiltinPluginCatalogEntry)
   console.log(`setup=muster plugins setup ${plugin.id}`);
   console.log(`verify=muster plugins check ${plugin.id}`);
   console.log(`enable=muster plugins enable ${plugin.id}${riskFlag}`);
-  if (firstChannel) console.log(`related_channel=muster channels setup ${firstChannel}`);
+  if (firstChannel) console.log(`related_channel=muster channels ready ${firstChannel}`);
   if (firstMcp) console.log(`related_mcp=muster mcp ${missingMcpEnv(findBuiltinMcpEntry(firstMcp)).length ? "check" : "install"} ${firstMcp}`);
   console.log(`sample=${sample}`);
   console.log(`failure_behavior=${missing.length ? "setup/check reports missing env and does not enable credentials implicitly" : "check/setup reports readiness, warnings, or setup-only status before execution"}`);

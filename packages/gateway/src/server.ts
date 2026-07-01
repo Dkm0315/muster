@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -10,9 +10,9 @@ import type { PairingChallenge, SurfaceMessage, SurfaceReply } from "./envelope.
 import { pairingScopes, requestPairing, resolvePairing } from "./pairing.js";
 import type { GatewayConfig } from "./gateway-config.js";
 import { surfaceReplyToTelegramSend, telegramUpdateToSurfaceMessage } from "./adapters/telegram.js";
-import { slackEventToSurfaceMessage, slackSignatureIsValid, surfaceReplyToSlackPost } from "./adapters/slack.js";
+import { slackDeliveryId, slackEventToSurfaceMessage, slackSignatureIsValid, surfaceReplyToSlackPost } from "./adapters/slack.js";
 import { DISCORD_PONG, discordInteractionToInbound, discordSignatureIsValid, surfaceReplyToDiscordInteractionResponse } from "./adapters/discord.js";
-import { surfaceReplyToWhatsAppSend, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
+import { surfaceReplyToWhatsAppSend, whatsAppMessageIds, whatsAppVerifyChallenge, whatsAppWebhookToSurfaceMessages } from "./adapters/whatsapp.js";
 import { gchatEventToken, gchatEventToSurfaceMessage, surfaceReplyToGchatResponse } from "./adapters/gchat.js";
 import { surfaceReplyToTeamsActivity, teamsActivityToSurfaceMessage, teamsHmacIsValid } from "./adapters/teams.js";
 import { createOutboundQueue, createSlackDraftSink, createTelegramDraftSink } from "./streaming.js";
@@ -81,6 +81,7 @@ export function resetAdapterAuthWarnings(): void {
  */
 const idempotencyCache = new Map<string, { at: number; reply: SurfaceReply | PairingChallenge }>();
 const IDEMPOTENCY_TTL_MS = 10 * 60_000;
+const deliveryCache = new Map<string, { at: number; result: unknown }>();
 
 /** Duplicate deliveries (webhook retries) with the same key return the cached reply. */
 export function idempotencyLookup(key: string | undefined): (SurfaceReply | PairingChallenge) | undefined {
@@ -99,6 +100,24 @@ export function idempotencyStore(key: string | undefined, reply: SurfaceReply | 
     }
   }
   idempotencyCache.set(key, { at: Date.now(), reply });
+}
+
+function deliveryLookup(key: string | undefined): unknown | undefined {
+  if (!key) return undefined;
+  const hit = deliveryCache.get(key);
+  if (!hit || Date.now() - hit.at > IDEMPOTENCY_TTL_MS) return undefined;
+  return hit.result;
+}
+
+function deliveryStore(key: string | undefined, result: unknown): void {
+  if (!key) return;
+  if (deliveryCache.size > 1000) {
+    const cutoff = Date.now() - IDEMPOTENCY_TTL_MS;
+    for (const [cachedKey, value] of deliveryCache) {
+      if (value.at < cutoff) deliveryCache.delete(cachedKey);
+    }
+  }
+  deliveryCache.set(key, { at: Date.now(), result });
 }
 
 export async function handleSurfaceMessage(
@@ -253,6 +272,9 @@ async function handleTelegramWebhook(body: string, context: AdapterContext): Pro
   } else {
     warnUnauthenticatedOnce("telegram", context.log);
   }
+  const deliveryKey = adapterDeliveryKey("telegram", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const mapped = telegramUpdateToSurfaceMessage(JSON.parse(body));
   if (!mapped) return { ok: true, ignored: "not a text message update" };
   if (context.gateway.telegram?.stream === "draft") {
@@ -266,7 +288,11 @@ async function handleTelegramWebhook(body: string, context: AdapterContext): Pro
     const reply = await handleSurfaceMessage(message, { ...context, sink });
     // A streamed reply was already delivered draft-by-draft by the sink;
     // pairing challenges fall through to the normal buffered send below.
-    if (!isPairingChallenge(reply)) return { ok: true, streamed: true };
+    if (!isPairingChallenge(reply)) {
+      const result = { ok: true, streamed: true };
+      deliveryStore(deliveryKey, result);
+      return result;
+    }
     const challengePayload = surfaceReplyToTelegramSend(reply, message.conversationId);
     const challengeResponse = await context.fetcher(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
@@ -285,7 +311,9 @@ async function handleTelegramWebhook(body: string, context: AdapterContext): Pro
     body: JSON.stringify(payload),
   });
   if (!response.ok) context.log(`telegram sendMessage failed: HTTP ${response.status}`);
-  return { ok: true };
+  const result = { ok: true };
+  if (!isPairingChallenge(reply)) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 export interface TelegramPollOptions {
@@ -392,6 +420,9 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
   } else {
     warnUnauthenticatedOnce("slack", context.log);
   }
+  const deliveryKey = adapterDeliveryKey("slack", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const inbound = slackEventToSurfaceMessage(JSON.parse(body));
   if (inbound.kind === "url_verification") return { challenge: inbound.challenge };
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
@@ -405,7 +436,11 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
       queue: context.queue,
     });
     const reply = await handleSurfaceMessage(message, { ...context, sink });
-    if (!isPairingChallenge(reply)) return { ok: true, streamed: true };
+    if (!isPairingChallenge(reply)) {
+      const result = { ok: true, streamed: true };
+      deliveryStore(deliveryKey, result);
+      return result;
+    }
     const challengePayload = surfaceReplyToSlackPost(reply, message.conversationId, message.replyTo);
     const challengeResponse = await context.fetcher("https://slack.com/api/chat.postMessage", {
       method: "POST",
@@ -423,7 +458,9 @@ async function handleSlackWebhook(body: string, context: AdapterContext): Promis
     body: JSON.stringify(payload),
   });
   if (!response.ok) context.log(`slack chat.postMessage failed: HTTP ${response.status}`);
-  return { ok: true };
+  const result = { ok: true };
+  if (!isPairingChallenge(reply)) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 /**
@@ -451,11 +488,16 @@ async function handleDiscordWebhook(body: string, context: AdapterContext): Prom
     );
     if (!valid) throw new GatewayHttpError(401, "Discord ed25519 signature verification failed.");
   }
+  const deliveryKey = adapterDeliveryKey("discord", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const inbound = discordInteractionToInbound(JSON.parse(body));
   if (inbound.kind === "pong") return DISCORD_PONG;
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
   const reply = await handleSurfaceMessage(inbound.message, context);
-  return surfaceReplyToDiscordInteractionResponse(reply);
+  const result = surfaceReplyToDiscordInteractionResponse(reply);
+  if (!isPairingChallenge(reply)) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 /**
@@ -468,10 +510,21 @@ async function handleWhatsAppWebhook(body: string, context: AdapterContext): Pro
   if (!whatsapp?.accessToken || !whatsapp.phoneNumberId) {
     throw new Error("WhatsApp adapter not configured. Add whatsapp.{accessToken,verifyToken,phoneNumberId} to .muster/gateway.json.");
   }
+  if (whatsapp.appSecret) {
+    const signature = context.headers["x-hub-signature-256"];
+    if (!whatsAppSignatureIsValid(body, typeof signature === "string" ? signature : undefined, whatsapp.appSecret)) {
+      throw new GatewayHttpError(401, "WhatsApp signature verification failed.");
+    }
+  }
+  const deliveryKey = adapterDeliveryKey("whatsapp", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const messages = whatsAppWebhookToSurfaceMessages(JSON.parse(body));
   if (messages.length === 0) return { ok: true, ignored: "no text messages in notification" };
+  let hasPairingChallenge = false;
   for (const message of messages) {
     const reply = await handleSurfaceMessage(message, context);
+    if (isPairingChallenge(reply)) hasPairingChallenge = true;
     const payload = surfaceReplyToWhatsAppSend(reply, message.conversationId);
     const version = whatsapp.apiVersion ?? "v19.0";
     const response = await context.fetcher(`https://graph.facebook.com/${version}/${whatsapp.phoneNumberId}/messages`, {
@@ -481,7 +534,9 @@ async function handleWhatsAppWebhook(body: string, context: AdapterContext): Pro
     });
     if (!response.ok) context.log(`whatsapp send failed: HTTP ${response.status}`);
   }
-  return { ok: true };
+  const result = { ok: true };
+  if (!hasPairingChallenge) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 /**
@@ -497,12 +552,17 @@ async function handleGchatWebhook(body: string, context: AdapterContext): Promis
   const payload = JSON.parse(body);
   const expectedToken = context.gateway.gchat.verificationToken;
   if (expectedToken && gchatEventToken(payload) !== expectedToken) {
-    throw new Error("Google Chat verification token mismatch.");
+    throw new GatewayHttpError(401, "Google Chat verification token mismatch.");
   }
+  const deliveryKey = adapterDeliveryKey("gchat", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const inbound = gchatEventToSurfaceMessage(payload);
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
   const reply = await handleSurfaceMessage(inbound.message, context);
-  return surfaceReplyToGchatResponse(reply, inbound.message.replyTo);
+  const result = surfaceReplyToGchatResponse(reply, inbound.message.replyTo);
+  if (!isPairingChallenge(reply)) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 /**
@@ -519,13 +579,18 @@ async function handleTeamsWebhook(body: string, context: AdapterContext): Promis
   if (secret) {
     const header = context.headers.authorization;
     if (!teamsHmacIsValid(body, typeof header === "string" ? header : undefined, secret)) {
-      throw new Error("Teams HMAC signature mismatch.");
+      throw new GatewayHttpError(401, "Teams HMAC signature mismatch.");
     }
   }
+  const deliveryKey = adapterDeliveryKey("teams", body);
+  const cached = deliveryLookup(deliveryKey);
+  if (cached !== undefined) return cached;
   const inbound = teamsActivityToSurfaceMessage(JSON.parse(body));
   if (inbound.kind === "ignored") return { ok: true, ignored: inbound.reason };
   const reply = await handleSurfaceMessage(inbound.message, context);
-  return surfaceReplyToTeamsActivity(reply);
+  const result = surfaceReplyToTeamsActivity(reply);
+  if (!isPairingChallenge(reply)) deliveryStore(deliveryKey, result);
+  return result;
 }
 
 type AdapterHandler = (body: string, context: AdapterContext) => Promise<unknown>;
@@ -538,6 +603,40 @@ const adapterRoutes: Record<string, AdapterHandler> = {
   gchat: handleGchatWebhook,
   teams: handleTeamsWebhook,
 };
+
+function adapterDeliveryKey(adapterId: string, body: string): string | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (adapterId === "telegram") {
+    const updateId = typeof payload === "object" && payload !== null ? (payload as { update_id?: unknown }).update_id : undefined;
+    return typeof updateId === "number" ? `telegram:${updateId}` : undefined;
+  }
+  if (adapterId === "slack") {
+    const id = slackDeliveryId(payload);
+    return id ? `slack:${id}` : undefined;
+  }
+  if (adapterId === "discord") {
+    const id = typeof payload === "object" && payload !== null ? (payload as { id?: unknown }).id : undefined;
+    return typeof id === "string" && id ? `discord:${id}` : undefined;
+  }
+  if (adapterId === "whatsapp") {
+    const ids = whatsAppMessageIds(payload);
+    return ids.length ? `whatsapp:${ids.join(",")}` : undefined;
+  }
+  if (adapterId === "gchat") {
+    const message = typeof payload === "object" && payload !== null ? (payload as { message?: { name?: unknown } }).message : undefined;
+    return typeof message?.name === "string" && message.name ? `gchat:${message.name}` : undefined;
+  }
+  if (adapterId === "teams") {
+    const id = typeof payload === "object" && payload !== null ? (payload as { id?: unknown }).id : undefined;
+    return typeof id === "string" && id ? `teams:${id}` : undefined;
+  }
+  return undefined;
+}
 
 async function route(request: IncomingMessage, response: ServerResponse, options: GatewayServerOptions, queue: OutboundQueue): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
@@ -652,10 +751,16 @@ function adapterHasPlatformAuth(adapterId: string, gateway: GatewayConfig): bool
     case "teams":
       return Boolean(gateway.teams?.hmacSecret);
     case "whatsapp":
-      return false;
+      return Boolean(gateway.whatsapp?.appSecret);
     default:
       return false;
   }
+}
+
+function whatsAppSignatureIsValid(body: string, header: string | undefined, appSecret: string): boolean {
+  if (!header?.startsWith("sha256=")) return false;
+  const expected = `sha256=${createHmac("sha256", appSecret).update(body).digest("hex")}`;
+  return headerEquals(header, expected);
 }
 
 export function startGatewayServer(options: GatewayServerOptions, port = 0): Promise<RunningGateway> {

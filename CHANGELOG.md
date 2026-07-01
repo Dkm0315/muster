@@ -58,6 +58,43 @@ semantic versioning.
 - Expanded sitemap and `llms.txt` to include guide and integration landing
   pages.
 
+## [0.1.9] - 2026-07-01
+
+Muster 0.1.9 deepens channel/operator setup and hardens live adapter behavior
+for Telegram, Slack, Google Chat, Discord, WhatsApp, Teams, and web embeds.
+
+### Added
+- Added `muster channels ready <channel>` as the single-command channel setup
+  path: it initializes gateway config, stores credentials without echoing
+  secrets, runs channel doctor checks, starts or prints the daemon command, and
+  runs a local sample simulation.
+- Added background gateway daemon management with
+  `muster gateway daemon start|stop|status|restart`, including Telegram
+  long-poll support through `--with-telegram-poll`.
+- Added explicit Telegram webhook registration as an advanced opt-in command:
+  `muster gateway webhook telegram --public-url https://...`.
+- Added delivery idempotency for adapter retries so Slack, Discord, WhatsApp,
+  Google Chat, Teams, and Telegram retries do not double-send replies or spend
+  tokens twice after successful processing.
+
+### Changed
+- Telegram setup now defaults to Hermes/OpenClaw-style background long polling:
+  a bot name and bot token are enough for the normal path; public HTTPS
+  webhooks are optional.
+- Channel catalogs, plugin setup guidance, integration workflows, and capability
+  packs now point users to `muster channels ready ...` instead of a multi-step
+  manual setup path.
+- Slack, Google Chat, Discord, WhatsApp, and Teams setup guidance now states the
+  exact required credentials and keeps the current adapter scope honest.
+
+### Fixed
+- Google Chat and Teams authentication failures now return HTTP 401 instead of
+  generic server errors.
+- WhatsApp POST webhooks require and verify Meta app-secret signatures when
+  configured, with tests covering unsigned and signed requests.
+- Slack and WhatsApp retry deliveries are cached after platform auth so
+  duplicate platform retries do not duplicate outbound sends.
+
 ## [0.1.8] - 2026-06-27
 
 Muster 0.1.8 is a release-proof patch for the public npm path.

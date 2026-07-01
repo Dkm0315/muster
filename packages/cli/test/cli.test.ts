@@ -68,12 +68,18 @@ test("gateway init redacts bearer token unless explicitly requested", async () =
   assert.match(initializedStatus.stdout, /gateway_status=configured/);
   assert.match(initializedStatus.stdout, /token=configured/);
   assert.match(initializedStatus.stdout, /channels_ready=1\/7/);
-  assert.match(initializedStatus.stdout, /next="muster gateway start --port 7460"/);
+  assert.match(initializedStatus.stdout, /next="muster gateway daemon start --port 7460"/);
   assert.doesNotMatch(initializedStatus.stdout, /token=[0-9a-f]{48}/);
 
   const shown = await runCli(["gateway", "init", "--show-token"], cwd);
   assert.match(shown.stdout, /gateway_config=.*already exists/);
   assert.match(shown.stdout, /token=[0-9a-f]{48}/);
+
+  const daemonStatus = await runCli(["gateway", "daemon", "status"], cwd);
+  assert.match(daemonStatus.stdout, /gateway_daemon=stopped/);
+  assert.match(daemonStatus.stdout, /pid_file=.*\.muster\/gateway\.pid/);
+  assert.match(daemonStatus.stdout, /log_file=.*\.muster\/gateway\.log/);
+  assert.match(daemonStatus.stdout, /next=muster gateway daemon start/);
 });
 
 test("CLI onboarding preview exposes setup controls, impacts, and separate channel credentials", async () => {
@@ -250,7 +256,7 @@ test("CLI chat exposes a real named terminal chat surface without hanging in non
   assert.match(chatTelegramIntegration.stdout, /telegram/);
   assert.match(chatTelegramIntegration.stdout, /Impact/);
   assert.match(chatTelegramIntegration.stdout, /Next/);
-  assert.match(chatTelegramIntegration.stdout, /muster channels setup telegram/);
+  assert.match(chatTelegramIntegration.stdout, /muster channels ready telegram/);
   assert.match(chatTelegramIntegration.stdout, /Setup/);
   assert.match(chatTelegramIntegration.stdout, /Verify/);
   assert.match(chatTelegramIntegration.stdout, /Enable/);
@@ -953,18 +959,18 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const slackPluginSetup = await runCli(["plugins", "setup", "slack"], cwd);
   assert.match(slackPluginSetup.stdout, /plugin=slack source=openclaw risk=high/);
-  assert.match(slackPluginSetup.stdout, /channel=slack status=needs_setup command="muster channels setup slack"/);
+  assert.match(slackPluginSetup.stdout, /channel=slack status=needs_setup command="muster channels ready slack"/);
   assert.match(slackPluginSetup.stdout, /risk_note=High-risk integrations/);
 
   const enabledSlackPlugin = await runCli(["plugins", "enable", "slack", "--allow-high-risk"], cwd);
   assert.match(enabledSlackPlugin.stdout, /enabled plugin=slack/);
   assert.match(enabledSlackPlugin.stdout, /available_channels=slack/);
-  assert.match(enabledSlackPlugin.stdout, /channel=slack status=needs_setup command="muster channels setup slack"/);
+  assert.match(enabledSlackPlugin.stdout, /channel=slack status=needs_setup command="muster channels ready slack"/);
   assert.match(enabledSlackPlugin.stdout, /bot token\/signing-secret readiness/);
 
   const googleChatPluginSetup = await runCli(["plugins", "setup", "google-chat"], cwd);
   assert.match(googleChatPluginSetup.stdout, /plugin=google-chat source=openclaw risk=high/);
-  assert.match(googleChatPluginSetup.stdout, /channel=gchat status=needs_setup command="muster channels setup gchat"/);
+  assert.match(googleChatPluginSetup.stdout, /channel=gchat status=needs_setup command="muster channels ready gchat"/);
   assert.match(googleChatPluginSetup.stdout, /setup\/doctor pattern/);
 
   const enabledGoogleChatPlugin = await runCli(["plugins", "enable", "google-chat", "--allow-high-risk"], cwd);
@@ -973,7 +979,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const discordPluginSetup = await runCli(["plugins", "setup", "discord"], cwd);
   assert.match(discordPluginSetup.stdout, /plugin=discord source=openclaw risk=high/);
-  assert.match(discordPluginSetup.stdout, /channel=discord status=needs_setup command="muster channels setup discord"/);
+  assert.match(discordPluginSetup.stdout, /channel=discord status=needs_setup command="muster channels ready discord"/);
   assert.match(discordPluginSetup.stdout, /bot-token\/public-key readiness/);
 
   const discordPluginCheck = await runCli(["plugins", "check", "discord"], cwd);
@@ -987,7 +993,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const whatsappPluginSetup = await runCli(["plugins", "setup", "whatsapp"], cwd);
   assert.match(whatsappPluginSetup.stdout, /plugin=whatsapp source=openclaw risk=high/);
-  assert.match(whatsappPluginSetup.stdout, /channel=whatsapp status=needs_setup command="muster channels setup whatsapp"/);
+  assert.match(whatsappPluginSetup.stdout, /channel=whatsapp status=needs_setup command="muster channels ready whatsapp"/);
   assert.match(whatsappPluginSetup.stdout, /Meta app setup/);
 
   const whatsappPluginCheck = await runCli(["plugins", "check", "whatsapp"], cwd);
@@ -1001,7 +1007,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const teamsPluginSetup = await runCli(["plugins", "setup", "teams"], cwd);
   assert.match(teamsPluginSetup.stdout, /plugin=teams source=openclaw risk=high/);
-  assert.match(teamsPluginSetup.stdout, /channel=teams status=needs_setup command="muster channels setup teams"/);
+  assert.match(teamsPluginSetup.stdout, /channel=teams status=needs_setup command="muster channels ready teams"/);
   assert.match(teamsPluginSetup.stdout, /Azure\/Teams app registration/);
 
   const teamsPluginCheck = await runCli(["plugins", "check", "teams"], cwd);
@@ -1184,7 +1190,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const matrixSetup = await runCli(["plugins", "setup", "matrix"], cwd);
   assert.match(matrixSetup.stdout, /plugin=matrix source=hermes risk=high action=setup_plan/);
-  assert.match(matrixSetup.stdout, /next_action=channel_setup command="muster channels setup matrix"/);
+  assert.match(matrixSetup.stdout, /next_action=channel_setup command="muster channels ready matrix"/);
   assert.match(matrixSetup.stdout, /next_action=open_setup url=https:\/\/matrix\.org\/docs\//);
 
   const figmaSetup = await runCli(["plugins", "setup", "figma"], cwd);
@@ -1476,9 +1482,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(dashboard.stdout, /start=muster dashboard start --port 7461/);
 
   const channelCatalog = await runCli(["channels", "list"], cwd);
-  assert.match(channelCatalog.stdout, /telegram\t--bot-token-env\tmuster channels setup telegram/);
-  assert.match(channelCatalog.stdout, /slack\t--bot-token-env,--signing-secret-env\tmuster channels setup slack/);
-  assert.match(channelCatalog.stdout, /gchat\t--verification-token-env\tmuster channels setup gchat/);
+  assert.match(channelCatalog.stdout, /telegram\t--bot-token-env\tmuster channels ready telegram/);
+  assert.match(channelCatalog.stdout, /slack\t--bot-token-env,--signing-secret-env\tmuster channels ready slack/);
+  assert.match(channelCatalog.stdout, /gchat\t--verification-token-env\tmuster channels ready gchat/);
 
   const coldChannelStatus = await runCli(["channels", "status"], cwd);
   assert.match(coldChannelStatus.stdout, /gateway_config=missing next="muster gateway init"/);
@@ -1506,7 +1512,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(channelDoctorBeforeSetup.stdout, /channel=telegram status=needs_setup missing=telegram\.botToken/);
   assert.match(channelDoctorBeforeSetup.stdout, /channel=web status=ready missing=-/);
   assert.match(channelDoctorBeforeSetup.stdout, /guardrails=signature_or_token_check,draft_first_when_supported,no_secret_echo,scoped_memory,token_ledger/);
-  assert.match(channelDoctorBeforeSetup.stdout, /next=muster channels setup telegram/);
+  assert.match(channelDoctorBeforeSetup.stdout, /next=muster channels ready telegram/);
 
   const slackPlanBeforeSetup = await runCli(["channels", "plan", "slack", "--public-url", "https://example.test/muster"], cwd);
   assert.match(slackPlanBeforeSetup.stdout, /channel_plan=slack label="Slack App" ready=false/);
@@ -1531,25 +1537,74 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(telegramDoctorBeforeSetup.stdout, /channel_doctor=telegram status=needs_setup/);
   assert.match(telegramDoctorBeforeSetup.stdout, /check=telegram_live status=warning detail="not run; add --live to call getMe without printing the token"/);
 
+  const simpleTelegramCwd = await mkdtemp(join(tmpdir(), "muster-cli-telegram-connect-"));
+  const simpleTelegramConnect = await runCli(
+    ["channels", "connect", "telegram", "--name", "cto-demo-bot", "--bot-token", "123456:telegram-direct-token"],
+    simpleTelegramCwd,
+  );
+  assert.match(simpleTelegramConnect.stdout, /channel_connect=telegram status=ready/);
+  assert.match(simpleTelegramConnect.stdout, /channel=telegram .*ready=true/);
+  assert.match(simpleTelegramConnect.stdout, /ingress=background_long_poll/);
+  assert.match(simpleTelegramConnect.stdout, /start=muster gateway daemon start --with-telegram-poll --port 7460/);
+  assert.match(simpleTelegramConnect.stdout, /verify=muster channels doctor telegram --live/);
+  assert.doesNotMatch(simpleTelegramConnect.stdout, /webhook_url=/);
+  assert.doesNotMatch(simpleTelegramConnect.stdout, /123456:telegram-direct-token/);
+
+  const simpleTelegramStatus = await runCli(["channels", "status", "telegram"], simpleTelegramCwd);
+  assert.match(simpleTelegramStatus.stdout, /channel=telegram ready=true/);
+  assert.match(simpleTelegramStatus.stdout, /name=cto-demo-bot bot_token=configured secret_token=configured/);
+  assert.doesNotMatch(simpleTelegramStatus.stdout, /123456:telegram-direct-token/);
+
+  const oneCommandTelegramCwd = await mkdtemp(join(tmpdir(), "muster-cli-telegram-ready-"));
+  const oneCommandTelegram = await runCli(
+    ["channels", "ready", "telegram", "--name", "cto-demo-bot", "--bot-token", "123456:telegram-direct-token", "--no-start", "--message", "demo hello"],
+    oneCommandTelegramCwd,
+  );
+  assert.match(oneCommandTelegram.stdout, /channel_ready=telegram status=ready/);
+  assert.match(oneCommandTelegram.stdout, /single_command=true/);
+  assert.match(oneCommandTelegram.stdout, /daemon=skipped start="muster gateway daemon start --with-telegram-poll --port 7460"/);
+  assert.match(oneCommandTelegram.stdout, /channel_simulation=telegram normalized=true/);
+  assert.match(oneCommandTelegram.stdout, /done=channel_ready channel=telegram daemon=skipped sample=local_simulation/);
+  assert.doesNotMatch(oneCommandTelegram.stdout, /webhook_url=|123456:telegram-direct-token/);
+
+  const oneCommandSlackMissing = await runCli(["channels", "ready", "slack", "--no-start"], await mkdtemp(join(tmpdir(), "muster-cli-slack-ready-missing-")));
+  assert.match(oneCommandSlackMissing.stdout, /channel_ready=slack status=needs_setup/);
+  assert.match(oneCommandSlackMissing.stdout, /missing_setup=slack\.botToken,slack\.signingSecret/);
+  assert.match(oneCommandSlackMissing.stdout, /enable=blocked next="muster channels ready slack"/);
+
+  const oneCommandSlackCwd = await mkdtemp(join(tmpdir(), "muster-cli-slack-ready-"));
+  const oneCommandSlack = await runCli(
+    ["channels", "ready", "slack", "--bot-token", "xoxb-direct", "--signing-secret", "slack-direct-secret", "--public-url", "https://example.test/muster", "--no-start", "--message", "demo hello"],
+    oneCommandSlackCwd,
+  );
+  assert.match(oneCommandSlack.stdout, /channel_ready=slack status=ready/);
+  assert.match(oneCommandSlack.stdout, /webhook_url=https:\/\/example\.test\/muster\/v1\/adapters\/slack/);
+  assert.match(oneCommandSlack.stdout, /channel_doctor=slack status=ready/);
+  assert.match(oneCommandSlack.stdout, /daemon=skipped start="muster gateway daemon start --port 7460"/);
+  assert.match(oneCommandSlack.stdout, /channel_simulation=slack normalized=true/);
+  assert.doesNotMatch(oneCommandSlack.stdout, /xoxb-direct|slack-direct-secret/);
+
   const telegramSetup = await runCli(
-    ["channels", "setup", "telegram", "--bot-token-env", "MUSTER_TEST_TELEGRAM_BOT", "--secret-token-env", "MUSTER_TEST_TELEGRAM_SECRET", "--stream", "draft", "--public-url", "https://tg.example.test"],
+    ["channels", "setup", "telegram", "--name", "cto-demo-bot", "--bot-token-env", "MUSTER_TEST_TELEGRAM_BOT", "--stream", "draft", "--public-url", "https://tg.example.test"],
     cwd,
-    { MUSTER_TEST_TELEGRAM_BOT: "123456:telegram-secret-token", MUSTER_TEST_TELEGRAM_SECRET: "telegram-webhook-secret" },
+    { MUSTER_TEST_TELEGRAM_BOT: "123456:telegram-secret-token" },
   );
   assert.match(telegramSetup.stdout, /channel=telegram .*ready=true/);
   assert.match(telegramSetup.stdout, /webhook_url=https:\/\/tg\.example\.test\/v1\/adapters\/telegram/);
   assert.match(telegramSetup.stdout, /setup_url=https:\/\/core\.telegram\.org\/bots\/tutorial/);
+  assert.match(telegramSetup.stdout, /webhook=muster gateway webhook telegram --public-url https:\/\/tg\.example\.test/);
+  assert.match(telegramSetup.stdout, /start=muster gateway daemon start --port 7460/);
   assert.doesNotMatch(telegramSetup.stdout, /123456:telegram-secret-token|telegram-webhook-secret/);
 
   const telegramStatus = await runCli(["channels", "status", "telegram"], cwd);
   assert.match(telegramStatus.stdout, /channel=telegram ready=true/);
-  assert.match(telegramStatus.stdout, /bot_token=configured secret_token=configured stream=draft/);
+  assert.match(telegramStatus.stdout, /name=cto-demo-bot bot_token=configured secret_token=configured stream=draft/);
   assert.doesNotMatch(telegramStatus.stdout, /123456:telegram-secret-token|telegram-webhook-secret/);
 
   const telegramDoctor = await runCli(["channels", "doctor", "telegram"], cwd);
   assert.match(telegramDoctor.stdout, /channel_doctor=telegram status=warning/);
   assert.match(telegramDoctor.stdout, /check=channel_config status=passed detail="telegram has required local credentials"/);
-  assert.match(telegramDoctor.stdout, /check=webhook_auth status=passed detail="Telegram secret-token header is configured"/);
+  assert.match(telegramDoctor.stdout, /check=webhook_auth status=passed detail="Telegram webhook secret is configured"/);
   assert.match(telegramDoctor.stdout, /check=telegram_live status=warning detail="not run; add --live to call getMe without printing the token"/);
   assert.match(telegramDoctor.stdout, /next=muster channels doctor telegram --live/);
   assert.doesNotMatch(telegramDoctor.stdout, /123456:telegram-secret-token|telegram-webhook-secret/);
@@ -1577,8 +1632,8 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(channelDoctorAfterSetup.stdout, /channel_doctor=all status=needs_setup ready=3\/7/);
   assert.match(channelDoctorAfterSetup.stdout, /channel=telegram status=warning missing=- warnings=telegram\.live_check_available auth=secret-token-header-recommended reply=draft_stream next="muster channels doctor telegram --live"/);
   assert.match(channelDoctorAfterSetup.stdout, /channel=slack status=ready missing=- warnings=- auth=slack-signature-required reply=draft_stream/);
-  assert.match(channelDoctorAfterSetup.stdout, /channel=gchat status=needs_setup missing=gchat section/);
-  assert.match(channelDoctorAfterSetup.stdout, /next=muster channels setup gchat/);
+  assert.match(channelDoctorAfterSetup.stdout, /channel=gchat status=needs_setup missing=gchat\.verificationToken/);
+  assert.match(channelDoctorAfterSetup.stdout, /next=muster channels ready gchat/);
   assert.doesNotMatch(channelDoctorAfterSetup.stdout, /123456:telegram-secret-token|telegram-webhook-secret|xoxb-secret|slack-signing-secret/);
 
   const gchatSetup = await runCli(["channels", "setup", "gchat", "--public-url", "https://chat.example.test"], cwd);
@@ -1588,9 +1643,9 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const integrationGuide = await runCli(["integrations"], cwd);
   assert.match(integrationGuide.stdout, /Muster integrations/);
-  assert.match(integrationGuide.stdout, /channel\tgchat\tneeds setup\tmuster channels setup gchat/);
-  assert.match(integrationGuide.stdout, /channel\ttelegram\tready\tmuster gateway start/);
-  assert.match(integrationGuide.stdout, /channel\tslack\tready\tmuster gateway start/);
+  assert.match(integrationGuide.stdout, /channel\tgchat\tneeds setup\tmuster channels ready gchat/);
+  assert.match(integrationGuide.stdout, /channel\ttelegram\tready\tmuster gateway daemon start/);
+  assert.match(integrationGuide.stdout, /channel\tslack\tready\tmuster gateway daemon start/);
   assert.match(integrationGuide.stdout, /plugin\tweb-search\tavailable\tmuster plugins enable web-search/);
   assert.match(integrationGuide.stdout, /plugin\tgithub\tneeds GITHUB_PERSONAL_ACCESS_TOKEN\tmuster plugins enable github/);
   assert.match(integrationGuide.stdout, /plugin\tnotion\tneeds NOTION_API_KEY\|NOTION_API_TOKEN\tmuster plugins enable notion --allow-high-risk/);
@@ -1611,8 +1666,8 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
   assert.match(integrationStatus.stdout, /plugin=github missing=GITHUB_PERSONAL_ACCESS_TOKEN/);
   assert.match(integrationStatus.stdout, /mcp=github missing=GITHUB_PERSONAL_ACCESS_TOKEN\|GITHUB_TOKEN/);
   assert.match(integrationStatus.stdout, /channels_optional/);
-  assert.match(integrationStatus.stdout, /telegram\tready\tmuster gateway start/);
-  assert.match(integrationStatus.stdout, /gchat\tneeds_setup\tmuster channels setup gchat/);
+  assert.match(integrationStatus.stdout, /telegram\tready\tmuster gateway daemon start/);
+  assert.match(integrationStatus.stdout, /gchat\tneeds_setup\tmuster channels ready gchat/);
   assert.match(integrationStatus.stdout, /1\. channel ready; add another surface only when you need it/);
   assert.match(integrationStatus.stdout, /guardrails=draft_first_for_channels, scoped_memory, explicit_mcp_auth, no_secret_echo/);
 
@@ -1628,7 +1683,7 @@ test("CLI exposes plugin, MCP, and dashboard management surfaces", async () => {
 
   const gchatWorkflow = await runCli(["integrations", "workflow", "gchat"], cwd);
   assert.match(gchatWorkflow.stdout, /integration_workflow=gchat kind=channel ready=false/);
-  assert.match(gchatWorkflow.stdout, /auth=verification-token-optional missing=gchat section/);
+  assert.match(gchatWorkflow.stdout, /auth=verification-token-required missing=gchat\.verificationToken/);
   assert.match(gchatWorkflow.stdout, /failure_behavior=blocked until required setup is present; local simulation still works/);
 
   const githubPluginWorkflow = await runCli(["integrations", "workflow", "github"], cwd);
@@ -2467,6 +2522,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(scorecard.stdout, /failed\s+mcp\.auth_workflow/);
   assert.match(scorecard.stdout, /unknown\s+qa\.pty_tui/);
   assert.match(scorecard.stdout, /unknown\s+qa\.frappe2_real_prompts/);
+  assert.match(scorecard.stdout, /release_ready=unknown mode=advisory reason=run_with_--strict-release_before_release_claims/);
   assert.match(scorecard.stdout, /required_suites=pty_tui,provider_latency,mcp_auth_failure,memory_retrieval_speed,channel_plugin_setup,frappe2_real_prompts,pack_readiness/);
   assert.match(scorecard.stdout, /providers:/);
   assert.match(scorecard.stdout, /passed\s+codex\s+codex-cli model=gpt-5\.5/);
@@ -2489,6 +2545,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.equal(packDirScorecard.code, 1);
   assert.match(packDirScorecard.stdout, /qa_scorecard status=failed/);
   assert.match(packDirScorecard.stdout, /passed\s+qa\.pack_readiness\s+Capability pack readiness metadata and release claims are consistent/);
+  assert.match(packDirScorecard.stdout, /release_ready=no mode=strict reason=scorecard_or_strict_release_failed/);
   assert.match(packDirScorecard.stdout, new RegExp(`evidence=${packRunArtifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 
   const ptyRunArtifact = join(cwd, "qa-artifacts", "pty-run");
@@ -2720,6 +2777,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(evidencedScorecard.stdout, /qa_scorecard status=passed/);
   assert.match(evidencedScorecard.stdout, /passed\s+mcp\.auth_workflow/);
   assert.match(evidencedScorecard.stdout, /passed\s+qa\.frappe2_real_prompts\s+global Frappe-2 prompt regression verified/);
+  assert.match(evidencedScorecard.stdout, /release_ready=unknown mode=advisory reason=run_with_--strict-release_before_release_claims/);
   assert.match(evidencedScorecard.stdout, new RegExp(`evidence=${evidencePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 
   const strictThinScorecard = await runCliAllowFailure(["qa", "scorecard", "--strict-release", "--codex-command", codex, "--latest-version", "0.1.0", "--evidence", evidencePath], cwd);
@@ -2728,6 +2786,7 @@ test("CLI codex doctor and QA scorecard expose runtime maturity without false po
   assert.match(strictThinScorecard.stdout, /strict_release status=failed/);
   assert.match(strictThinScorecard.stdout, /failed\s+strict\.pty_tui\s+missing required passed case\(s\): slash_overlay_stable/);
   assert.match(strictThinScorecard.stdout, /failed\s+strict\.provider_latency\s+missing required passed case\(s\): sample_1, overhead_p50_gate/);
+  assert.match(strictThinScorecard.stdout, /release_ready=no mode=strict reason=scorecard_or_strict_release_failed/);
 });
 
 async function writeFakeCodex(cwd: string, version: string): Promise<string> {
