@@ -12,11 +12,8 @@
       <stop offset="0.55" stop-color="#6d35ff"/>
       <stop offset="1" stop-color="#4e25d8"/>
     </radialGradient>
-    <filter id="path-shadow" x="-8%" y="-8%" width="116%" height="116%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.18"/>
-    </filter>
   </defs>
-  <g fill="none" stroke="url(#muster-path)" stroke-width="48" stroke-linecap="butt" filter="url(#path-shadow)">
+  <g fill="none" stroke="url(#muster-path)" stroke-width="48" stroke-linecap="butt">
     <path d="M0 220H112C171.647 220 220 171.647 220 112V0"/>
     <path d="M512 220H400C340.353 220 292 171.647 292 112V0"/>
     <path d="M0 292H112C171.647 292 220 340.353 220 400V512"/>
