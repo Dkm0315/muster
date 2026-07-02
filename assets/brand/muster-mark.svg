@@ -1,23 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Muster mark</title>
-  <desc id="desc">Four governed paths converging around the central Muster point.</desc>
-  <defs>
-    <linearGradient id="muster-path" x1="0" x2="512" y1="0" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.54" stop-color="#f6f3ee"/>
-      <stop offset="1" stop-color="#d8d3ca"/>
-    </linearGradient>
-    <radialGradient id="muster-point" cx="38%" cy="28%" r="72%">
-      <stop offset="0" stop-color="#8b62ff"/>
-      <stop offset="0.55" stop-color="#6d35ff"/>
-      <stop offset="1" stop-color="#4e25d8"/>
-    </radialGradient>
-  </defs>
-  <g fill="none" stroke="url(#muster-path)" stroke-width="48" stroke-linecap="butt">
-    <path d="M0 220H112C171.647 220 220 171.647 220 112V0"/>
-    <path d="M512 220H400C340.353 220 292 171.647 292 112V0"/>
-    <path d="M0 292H112C171.647 292 220 340.353 220 400V512"/>
-    <path d="M512 292H400C340.353 292 292 340.353 292 400V512"/>
-  </g>
-  <circle cx="256" cy="256" r="48" fill="url(#muster-point)"/>
+  <desc id="desc">Four paths converging on the central Muster point.</desc>
+  <image href="muster-mark.png" width="512" height="512" preserveAspectRatio="xMidYMid meet"/>
 </svg>
